@@ -27,5 +27,5 @@ async def get_health() -> dict[str, str]:
 
 mcp = FastMCP.from_fastapi(app, name="nli-data-processing-mcp-server")
 mcp_app = mcp.http_app(path="/")
-app.router.lifespan_context = mcp_app.lifespan_context
+app.router.lifespan_context = mcp_app.lifespan
 app.mount("/mcp", mcp_app)
