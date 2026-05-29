@@ -18,13 +18,13 @@ class DatasetReadRequest(BaseModel):
 
 
 class DatasetReadResponse(BaseModel):
-    path: str
-    format: str
-    row_count: int
-    column_count: int
-    columns: list[str]
-    dtypes: dict[str, str]
-    null_counts: dict[str, int]
-    batch_size: int
-    batch_offset: int
-    rows: list[dict[str, Any]]
+    path: str = Field(description="Resolved absolute path to the dataset file.")
+    format: str = Field(description="File format (csv, parquet, etc.).")
+    row_count: int = Field(description="Total number of data rows in the dataset.")
+    column_count: int = Field(description="Number of columns in the dataset.")
+    columns: list[str] = Field(description="Column names.")
+    dtypes: dict[str, str] = Field(description="Column name to pandas dtype mapping.")
+    null_counts: dict[str, int] = Field(description="Number of null values per column.")
+    rows: list[dict[str, Any]] = Field(
+        description="Batch of data rows as key-value pairs."
+    )
