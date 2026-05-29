@@ -1,22 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastmcp import FastMCP
 
-from src.app_config import app_config
-from src.mcp_server import MCPAdapter
 from src.routers import router as dataset_router
-from src.services import DatasetReaderService, OpenAITranslationService
 
-dataset_reader_service = DatasetReaderService()
-translation_service = OpenAITranslationService()
-mcp_adapter = MCPAdapter(
-    dataset_reader_service=dataset_reader_service,
-    translation_service=translation_service,
-)
-mcp_http_app = mcp_adapter.http_app()
-
-app = FastAPI(lifespan=mcp_http_app.lifespan)
+app = FastAPI()
 app.include_router(dataset_router)
-app.mount(app_config.MCP_MOUNT_PATH, mcp_http_app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,3 +19,7 @@ app.add_middleware(
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+mcp = FastMCP.from_fastapi(app, name="dataset-reader-mcp")
+app.mount("/mcp", mcp.http_app(path="/"))
