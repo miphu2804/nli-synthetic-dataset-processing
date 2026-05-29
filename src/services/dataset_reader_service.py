@@ -36,13 +36,16 @@ class DatasetReaderService:
             row_count=exact_row_count,
             column_count=int(dataframe.shape[1]),
             columns=[str(column) for column in dataframe.columns.tolist()],
-            dtypes={str(column): str(dtype) for column, dtype in dataframe.dtypes.items()},
+            dtypes={
+                str(column): str(dtype) for column, dtype in dataframe.dtypes.items()
+            },
             null_counts={
-                str(column): int(count) for column, count in dataframe.isnull().sum().items()
+                str(column): int(count)
+                for column, count in dataframe.isnull().sum().items()
             },
             batch_size=normalized_batch_size,
             batch_offset=batch_offset,
-            rows=_to_records(dataframe),
+            rows=self._to_records(dataframe),
         )
 
     def _load_dataframe(
@@ -62,7 +65,7 @@ class DatasetReaderService:
                     batch_size=batch_size,
                     batch_offset=batch_offset,
                 ),
-                _count_lines(resolved_path),
+                self._count_lines(resolved_path),
             )
         if suffix in {".tsv", ".txt"}:
             return (
@@ -72,7 +75,7 @@ class DatasetReaderService:
                     batch_size=batch_size,
                     batch_offset=batch_offset,
                 ),
-                _count_lines(resolved_path),
+                self._count_lines(resolved_path),
             )
         if suffix == ".json":
             df = pd.read_json(resolved_path)
@@ -108,23 +111,19 @@ class DatasetReaderService:
             nrows=batch_size,
         )
 
+    @staticmethod
+    def _to_records(df: pd.DataFrame) -> list[dict[str, object]]:
+        return [
+            {str(k): v for k, v in row.items()}
+            for row in df.where(pd.notnull(df), None).to_dict(orient="records")
+        ]
 
-def _to_records(df: pd.DataFrame) -> list[dict[str, object]]:
-    """Convert DataFrame rows to record dicts with str keys (type-safe)."""
-    return [
-        {str(k): v for k, v in row.items()}
-        for row in df.where(pd.notnull(df), None).to_dict(orient="records")
-    ]
-
-
-def _count_lines(path: Path) -> int:
-    """Count data rows in a delimited text file without loading it all.
-
-    Handles multi-line fields (e.g. quoted text with newlines) by reading
-    the first column only in small chunks.
-    """
-    total = 0
-    reader = pd.read_csv(path, usecols=[0], chunksize=100_000, dtype_backend="numpy_nullable")
-    for chunk in reader:
-        total += len(chunk)
-    return total
+    @staticmethod
+    def _count_lines(path: Path) -> int:
+        total = 0
+        reader = pd.read_csv(
+            path, usecols=[0], chunksize=100_000, dtype_backend="numpy_nullable"
+        )
+        for chunk in reader:
+            total += len(chunk)
+        return total
