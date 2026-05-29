@@ -3,9 +3,8 @@ from src.schemas.dataset_translate_schema import (
     DatasetOutputConfig,
     DatasetTranslateRequest,
     DatasetTranslateResponse,
-    DatasetWriteRequest,
-    DatasetWriteResponse,
 )
+from src.schemas.dataset_writer_schema import DatasetWriteRequest, DatasetWriteResponse
 
 __all__ = [
     "DatasetReadRequest",
