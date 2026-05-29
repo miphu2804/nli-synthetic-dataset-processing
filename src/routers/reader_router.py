@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from src.schemas import DatasetReadRequest, DatasetReadResponse
 from src.services import DatasetReaderService
 
-reader_router = APIRouter()
+reader_router = APIRouter(prefix="/api/datasets", tags=["reader"])
 dataset_reader_service = DatasetReaderService()
 
 
@@ -14,8 +14,6 @@ async def read_dataset(request: DatasetReadRequest) -> DatasetReadResponse:
             path=request.path,
             batch_size=request.batch_size,
             batch_offset=request.batch_offset,
-            sheet_name=request.sheet_name,
-            sep=request.sep,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
