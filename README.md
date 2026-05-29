@@ -19,7 +19,7 @@ uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 ```bash
 curl -X POST http://127.0.0.1:8000/api/datasets/read \
   -H 'content-type: application/json' \
-  -d '{"path":"/absolute/path/to/file.csv","limit":5}'
+  -d '{"path":"/absolute/path/to/file.csv","batch_size":5,"batch_offset":0}'
 ```
 
 ## MCP
@@ -42,6 +42,12 @@ Additional tool:
 translate_dataset_with_chatgpt
 ```
 
+Additional tool:
+
+```text
+write_dataset_output
+```
+
 ## Translate dataset to Vietnamese
 
 ```bash
@@ -50,6 +56,20 @@ curl -X POST http://127.0.0.1:8000/api/datasets/translate \
   -d '{
     "path":"/absolute/path/to/file.csv",
     "text_columns":["premise","hypothesis"],
-    "batch_size":10
+    "batch_size":10,
+    "output":{"format":"csv"}
   }'
 ```
+
+If `OPENAI_API_KEY` is missing, `/translate` returns `status="pass_through"` plus rows for external translation via ChatGPT web/MCP tools. Persist the translated rows with:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/datasets/write \
+  -H 'content-type: application/json' \
+  -d '{
+    "rows":[{"premise":"A","premise_vi":"B"}],
+    "output":{"format":"csv","path":"./outputs/demo.csv"}
+  }'
+```
+
+For `output.format="google_drive"`, the server stages a local CSV and returns the staged path so a connected Google Drive MCP tool can upload it.
