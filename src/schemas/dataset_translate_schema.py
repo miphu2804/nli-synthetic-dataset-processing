@@ -30,6 +30,10 @@ class DatasetTranslateRequest(BaseModel):
         ge=1,
         description="Optional limit for testing on a subset of rows.",
     )
+    pass_through: bool = Field(
+        default=False,
+        description="Skip API call, return rows as-is for MCP/web manual translation.",
+    )
 
 
 class DatasetTranslateResponse(BaseModel):

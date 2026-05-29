@@ -6,6 +6,7 @@ import httpx
 import pandas as pd
 
 from src.app_config import app_config
+from src.prompt_template import PASS_THROUGH_MESSAGE, TRANSLATE_BATCH_INSTRUCTION
 from src.schemas import (
     DatasetTranslateRequest,
     DatasetTranslateResponse,
@@ -38,7 +39,7 @@ class TranslationService:
         for column in request.text_columns:
             dataframe[f"{column}_vi"] = None
 
-        if not app_config.OPENAI_API_KEY:
+        if request.pass_through or not app_config.OPENAI_API_KEY:
             return DatasetTranslateResponse(
                 status="pass_through",
                 input_path=str(resolved_input),
@@ -47,9 +48,7 @@ class TranslationService:
                 rows_processed=int(len(dataframe)),
                 translated_columns=[f"{column}_vi" for column in request.text_columns],
                 rows=self._build_pass_through_rows(dataframe, request.text_columns),
-                message=(
-                    "OPENAI_API_KEY is missing. Translate these rows via ChatGPT web/MCP tools, then call write_dataset_output."
-                ),
+                message=PASS_THROUGH_MESSAGE,
             )
 
         model_name = request.model or app_config.OPENAI_TRANSLATION_MODEL
@@ -118,7 +117,9 @@ class TranslationService:
         dataframe: pd.DataFrame,
         text_columns: list[str],
     ) -> None:
-        missing_columns = [column for column in text_columns if column not in dataframe.columns]
+        missing_columns = [
+            column for column in text_columns if column not in dataframe.columns
+        ]
         if missing_columns:
             raise ValueError(f"Missing text columns: {missing_columns}")
 
@@ -143,10 +144,8 @@ class TranslationService:
             )
 
         schema = self._build_response_schema(text_columns=text_columns)
-        instructions = (
-            f"Translate the provided text fields into {target_language}. "
-            "Preserve meaning, named entities, numbers, negation, quantifiers, temporal cues, and inference-relevant details. "
-            "Do not explain. Return only the JSON object required by the schema."
+        instructions = TRANSLATE_BATCH_INSTRUCTION.format(
+            target_language=target_language
         )
 
         response = await client.post(
@@ -186,9 +185,7 @@ class TranslationService:
         return translated_rows
 
     def _build_response_schema(self, text_columns: list[str]) -> dict[str, Any]:
-        translation_properties = {
-            column: {"type": "string"} for column in text_columns
-        }
+        translation_properties = {column: {"type": "string"} for column in text_columns}
         return {
             "name": "dataset_translation_batch",
             "strict": True,
