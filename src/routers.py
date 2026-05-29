@@ -9,9 +9,11 @@ from src.schemas import (
     DatasetWriteRequest,
     DatasetWriteResponse,
 )
-from src.dataset_reader_service import DatasetReaderService
-from src.dataset_writer_service import DatasetWriterService
-from src.openai_translation_service import OpenAITranslationService
+from src.services import (
+    DatasetReaderService,
+    DatasetWriterService,
+    OpenAITranslationService,
+)
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])
 dataset_reader_service = DatasetReaderService()

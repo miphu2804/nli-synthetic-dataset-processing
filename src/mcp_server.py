@@ -3,10 +3,12 @@ import logging
 from fastmcp import FastMCP
 
 from src.app_config import app_config
-from src.dataset_reader_service import DatasetReaderService
 from src.schemas import DatasetTranslateRequest, DatasetWriteRequest
-from src.dataset_writer_service import DatasetWriterService
-from src.openai_translation_service import OpenAITranslationService
+from src.services import (
+    DatasetReaderService,
+    DatasetWriterService,
+    OpenAITranslationService,
+)
 
 
 class MCPAdapter:

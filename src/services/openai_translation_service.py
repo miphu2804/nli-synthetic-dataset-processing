@@ -11,7 +11,7 @@ from src.schemas import (
     DatasetTranslateResponse,
     DatasetWriteRequest,
 )
-from src.dataset_writer_service import DatasetWriterService
+from src.services.dataset_writer_service import DatasetWriterService
 
 
 class OpenAITranslationService:
