@@ -1,4 +1,0 @@
-premise,hypothesis,label
-"A soccer player in a red jersey is kicking a ball into the goal.","A person is playing sports outside.",entailment
-"A child is sleeping on a couch.","A child is running in a park.",contradiction
-"Two people are talking in a cafe.","Two people are spending time together.",neutral

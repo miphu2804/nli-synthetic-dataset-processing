@@ -7,10 +7,10 @@ from src.schemas import (
     DatasetWriteRequest,
     DatasetWriteResponse,
 )
-from src.services import DatasetWriterService, OpenAITranslationService
+from src.services import DatasetWriterService, TranslationService
 
-translate_router = APIRouter()
-translation_service = OpenAITranslationService()
+translate_router = APIRouter(prefix="/api/datasets", tags=["translate"])
+translation_service = TranslationService()
 dataset_writer_service = DatasetWriterService()
 
 
@@ -23,7 +23,7 @@ async def translate_dataset(request: DatasetTranslateRequest) -> DatasetTranslat
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"OpenAI request failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Translation request failed: {exc}") from exc
 
 
 @translate_router.post("/write", response_model=DatasetWriteResponse)

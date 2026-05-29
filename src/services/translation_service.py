@@ -14,7 +14,7 @@ from src.schemas import (
 from src.services.dataset_writer_service import DatasetWriterService
 
 
-class OpenAITranslationService:
+class TranslationService:
     """Translate dataset text columns or return pass-through rows for MCP/web flows."""
 
     def __init__(self, dataset_writer_service: DatasetWriterService | None = None):
