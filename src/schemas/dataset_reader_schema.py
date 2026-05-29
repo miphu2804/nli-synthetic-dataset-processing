@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field
 
 class DatasetReadRequest(BaseModel):
     path: str = Field(description="Absolute or relative path to a local dataset file.")
-    limit: int = Field(default=5, ge=1, le=100)
-    sample_rows: int = Field(default=1000, ge=1, le=10000)
+    batch_size: int = Field(default=5, ge=1, le=1000)
+    batch_offset: int = Field(default=0, ge=0)
     sheet_name: str | int | None = Field(
         default=None,
         description="Optional Excel sheet name or index.",
@@ -25,4 +25,6 @@ class DatasetReadResponse(BaseModel):
     columns: list[str]
     dtypes: dict[str, str]
     null_counts: dict[str, int]
-    preview: list[dict[str, Any]]
+    batch_size: int
+    batch_offset: int
+    rows: list[dict[str, Any]]
