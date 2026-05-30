@@ -2,6 +2,8 @@
 
 Split batch processing across subagents to keep the main agent's context clean. Subagents are pure functions: receive input, return output, get destroyed. No shared state, no context accumulation.
 
+**MCP access**: `skill://delegation` — load via `get_skill("delegation")`.
+
 **MANDATORY: Use parallel execution by default.** Do NOT run subagents one-at-a-time unless the user explicitly asks for sequential mode. Spawn all subagents for a batch group in a single message — each gets different rows, zero conflict.
 
 ## Architecture
@@ -121,11 +123,7 @@ Fail 2+ rows in a batch → re-spawn subagent with same batch, different wording
 
 | Agent | Model | Why |
 |-------|-------|-----|
-| Main | Pro / largest | Orchestration, tracking, validation |
-| Subagent | Flash / smallest | Cheap, fast, stateless — context destroyed after each batch |
+| Main | Largest available | Orchestration, tracking, validation |
+| Subagent | Smallest available | Cheap, fast, stateless — context destroyed after each batch |
 
-Configuration example (Claude Code):
-```
-CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash
-ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro[1m]
-```
+Use whatever subagent mechanism your harness provides. No hardcoded model names — pick the cheapest capable model you have access to.

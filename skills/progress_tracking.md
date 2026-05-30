@@ -2,6 +2,8 @@
 
 Track NLI generation progress with an append-only JSONL event log. Every event links to its parent via hash, forming an immutable chain. **The log IS the state** — no external DB, no memory.
 
+**MCP access**: This skill is available at `skill://progress_tracking`. Load it via `get_skill("progress_tracking")` (MCP tool) or through the REST endpoint `/api/skills/progress_tracking`. Agents and subagents should load this skill before interacting with any `progress.jsonl` file.
+
 ## Event Format
 
 Every event must have:
