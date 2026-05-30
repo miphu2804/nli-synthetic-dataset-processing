@@ -73,7 +73,9 @@ Label-leaking cue words to avoid (unless semantically required by the premise):
 
 This skill runs as a **manual sandbox loop** — you (the AI agent) do the translation and transformation. There is no separate generator API endpoint.
 
-**Before starting**: Load the progress tracking skill via `get_skill("progress_tracking")`. It defines the JSONL event log format (`id`, `prev_hash`, `ts`) and all event types (`run.start`, `row.done`, `batch.done`, `row.skip`, `run.end`). Every action must be logged to `progress.jsonl`.
+**Before starting**: Load companion skills:
+- `get_skill("progress_tracking")` — JSONL event log format, hash chain, event types, bash queries
+- `get_skill("delegation")` — subagent prompt template, responsibility split, parallel execution, validation
 
 ### Phase 0 — Setup & Confirm
 
