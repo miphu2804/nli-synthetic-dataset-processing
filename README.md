@@ -1,6 +1,6 @@
 # NLI Synthetic Data Processing
 
-Backend server (FastAPI + FastMCP) + agent skills for Vietnamese NLI adversarial data generation.
+Vietnamese NLI adversarial data generation using 19 rule-based transformations across 3 difficulty tiers, driven by agent skills.
 
 ## Quick Start
 
@@ -9,86 +9,80 @@ uv sync
 uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
 ```
 
-## Endpoints
+## Project Structure
 
-| Method | Path | What |
-|--------|------|------|
-| GET | `/health` | Health check |
-| POST | `/api/datasets/read` | Read batch from CSV/parquet |
-| POST | `/api/datasets/write` | Write rows to CSV |
-| GET | `/api/skills/` | List skills |
-| GET | `/api/skills/{name}` | Get skill content |
-| GET | `/mcp` | MCP endpoint (Streamable HTTP) |
+```
+skills/                     # Agent skill definitions
+├── generator.md            # 19-rule NLI pipeline (entailment/neutral/contradiction)
+├── progress_tracking.md    # JSONL append-only event log + per-agent hash chain
+├── delegation.md           # Subagent parallel execution + responsibility split
+├── execution.md            # Runtime boundary: LLM / Bash / Monty sandbox
+└── aggregator.md           # CSV merge + dedup
 
-## MCP Tools & Resources
+src/                        # FastAPI backend
+├── main.py                 # App entry point
+├── app_config.py           # Env vars
+├── routers/                # REST endpoints
+├── schemas/                # Request/response models
+└── services/               # reader, writer, skill loader
 
-| Tool | What |
-|------|------|
-| `read_dataset_with_pandas` | Read batch with offset + limit |
-| `write_dataset_output` | Write rows to CSV |
-| `get_skill` | Get skill by name |
-| `list_skills` | List all skill names |
+.pipeline/                  # Runtime state (git tracked)
+└── progress.jsonl          # Append-only event log
 
-| Resource | What |
-|----------|------|
-| `skill://{name}` | Skill markdown content |
+data/
+├── original/               # Raw input datasets
+├── generated/              # Final output CSVs
+├── batches/                # Temp chunks (cleaned after merge)
+└── processed/              # Archived processed datasets
 
-## REST Examples
-
-```bash
-# Read first 5 rows
-curl -X POST http://127.0.0.1:8000/api/datasets/read \
-  -H 'content-type: application/json' \
-  -d '{"path":"data/anlitrain1.csv","batch_size":5,"batch_offset":0}'
-
-# Write rows
-curl -X POST http://127.0.0.1:8000/api/datasets/write \
-  -H 'content-type: application/json' \
-  -d '{"rows":[{"source_uid":"1","premise":"...","hypothesis":"...","label":"entailment"}],"output":{"format":"csv","path":"data/output.csv"}}'
+docs/                       # Vietnamese documentation
 ```
 
 ## Skills
 
-Agent guides in `skills/`:
-
 | Skill | Purpose |
 |-------|---------|
-| [`generator`](skills/generator.md) | 19 adversarial rules, 3 labels, 3 tiers, anti-artifact constraints |
-| [`progress_tracking`](skills/progress_tracking.md) | JSONL event log, per-agent hash chain, claim support |
-| [`delegation`](skills/delegation.md) | Subagent handoff, parallel execution, multi-agent collaboration |
-| [`execution`](skills/execution.md) | What runs where: LLM for text, bash for queries, Monty for untrusted code |
+| [`generator`](skills/generator.md) | 19 adversarial rules × 3 labels × 3 tiers, anti-artifact constraints, output schema |
+| [`progress_tracking`](skills/progress_tracking.md) | JSONL event log, per-agent hash chain, claim/resume/verify |
+| [`delegation`](skills/delegation.md) | Subagent handoff, parallel execution |
+| [`execution`](skills/execution.md) | LLM → text, Bash → I/O, Monty sandbox → Python |
+| [`aggregator`](skills/aggregator.md) | Merge & deduplicate CSV files |
 
-Vietnamese docs in [`docs/`](docs/):
+## Output Schema
 
-| Doc | What |
-|-----|------|
-| [`project-overview-vi`](docs/project-overview-vi.md) | Tổng quan |
-| [`generator-explanation-vi`](docs/generator-explanation-vi.md) | Giải thích generator |
-| [`progress-tracking-vi`](docs/progress-tracking-vi.md) | Giải thích progress tracking |
-| [`delegation-vi`](docs/delegation-vi.md) | Giải thích delegation |
+```csv
+source_uid, premise, hypothesis, label
+```
+
+| Column | Description |
+|--------|-------------|
+| `source_uid` | Original row ID from input |
+| `premise` | Translated to Vietnamese |
+| `hypothesis` | Translated + adversarially transformed (Vietnamese) |
+| `label` | `entailment` / `neutral` / `contradiction` (preserved from input) |
 
 ## State Machine
 
 ```
-  START ──→ get_skill × 3 ──→ read_dataset ──→ init progress.jsonl
-                                                      │
-                    ┌─────────────────────────────────┘
+  START ──→ load skills ──→ read dataset ──→ init .pipeline/progress.jsonl
+                                                    │
+                    ┌───────────────────────────────┘
                     ▼
               ┌──────────┐
-         ┌───→│  CLAIM   │  grep progress.jsonl → claim next N rows
+         ┌───→│  CLAIM   │  claim next N rows (prevents duplicate work)
          │    └────┬─────┘
          │         ▼
          │    ┌──────────┐
-         │    │ TRANSFORM│  subagent: translate VI + adversarial rule
+         │    │ TRANSFORM│  subagent: translate EN→VI + apply adversarial rule
          │    └────┬─────┘
          │         ▼
          │    ┌──────────┐
-         │    │ VALIDATE │  label? VI? grammar? rule applied?
+         │    │ VALIDATE │  label preserved? VI? grammar? no cue leak?
          │    └──┬───┬───┘
-         │   PASS│   │FAIL → retry / skip
+         │   PASS│   │FAIL → retry (max 3) → skip + log reason
          │       ▼
          │    ┌──────────┐
-         │    │  WRITE   │  write_dataset + append row.done to log
+         │    │  WRITE   │  write part{N}.csv + append row.done to log
          │    └────┬─────┘
          │         ▼
          │    ┌──────────┐
@@ -97,39 +91,19 @@ Vietnamese docs in [`docs/`](docs/):
          │         │NO
          │         ▼
          │    ┌──────────┐
-         └────│  MERGE   │  merge part*.csv → verify hash chain
+         └────│  MERGE   │  merge part*.csv → final, rm part*, verify chain
               └──────────┘
 ```
 
-## Sample progress.jsonl (2 agents)
+## Progress Tracking
+
+Append-only JSONL at `.pipeline/progress.jsonl`. Each agent has its own hash chain — two agents writing concurrently won't collide. `claim` prevents duplicate work.
 
 ```jsonl
-{"event":"run.start","agent":"alice","prev_hash":"0"}
-{"event":"claim","agent":"alice","rows":"1-5","prev_hash":"abc..."}
-{"event":"row.done","agent":"alice","source_uid":1,"prev_hash":"def..."}
-{"event":"row.done","agent":"alice","source_uid":2,"prev_hash":"ghi..."}
-{"event":"batch.done","agent":"alice","batch":1,"prev_hash":"jkl..."}
-                                    ← bob's chain starts here, no conflict
-{"event":"run.start","agent":"bob","prev_hash":"0"}
-{"event":"claim","agent":"bob","rows":"6-10","prev_hash":"mno..."}
-{"event":"row.skip","agent":"alice","source_uid":12,"reason":"premise empty"}
-{"event":"row.done","agent":"bob","source_uid":6,"prev_hash":"pqr..."}
-{"event":"run.end","agent":"alice","processed":50,"prev_hash":"stu..."}
+{"id":"main-0","ts":"...","event":"run.start","agent":"main","prev_hash":"0","total":100}
+{"id":"main-1","ts":"...","event":"claim","agent":"main","prev_hash":"abc...","rows":"1-100"}
+{"id":"main-2","ts":"...","event":"row.done","agent":"main","prev_hash":"def...","source_uid":1}
+{"id":"main-3","ts":"...","event":"batch.done","agent":"main","prev_hash":"ghi...","batch":1,"rows":"1-10"}
+{"id":"main-4","ts":"...","event":"run.end","agent":"main","prev_hash":"jkl...","processed":100,"skipped":0}
 ```
 
-Each agent has its own hash chain. Alice and Bob append simultaneously — chains don't collide. `claim` prevents duplicate work.
-
-## Project Structure
-
-```
-src/
-├── main.py
-├── app_config.py
-├── services/          # reader, writer, skill
-├── schemas/           # request/response models
-└── routers/           # REST endpoints
-skills/                # Agent skill guides
-docs/                  # Vietnamese documentation
-data/                  # Dataset I/O
-.pipeline/             # Runtime: progress.jsonl + outputs
-```
