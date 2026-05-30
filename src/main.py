@@ -4,14 +4,12 @@ from fastmcp import FastMCP
 
 from src.routers.reader_router import reader_router
 from src.routers.skill_router import skill_router
-from src.routers.translate_router import translate_router
 from src.routers.writer_router import writer_router
 from src.services.skill_service import SkillService
 
 app = FastAPI()
 app.include_router(reader_router)
 app.include_router(skill_router)
-app.include_router(translate_router)
 app.include_router(writer_router)
 
 app.add_middleware(
