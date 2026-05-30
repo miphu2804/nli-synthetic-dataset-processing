@@ -2,59 +2,76 @@
 
 ## Ý tưởng
 
-Thay vì ghi log vào stdout (session tắt là mất), mọi hành động được ghi vào file `progress.jsonl` — append-only, mỗi dòng 1 event. File này **chính là state** của pipeline.
+`progress.jsonl` là append-only JSONL event log. **File này chính là state** — không database, không memory. Mỗi agent có hash chain riêng, chain không đụng nhau.
 
-## Hash chain
+## Event Format
 
-Mỗi dòng chứa `prev_hash` = SHA-256 của dòng trước. Nếu ai sửa 1 dòng → hash của dòng đó thay đổi → `prev_hash` của dòng sau không khớp → toàn bộ chain phía sau vỡ.
+Mỗi dòng event phải có:
+
+| Field | Mô tả |
+|-------|-------|
+| `id` | Per-agent monotonic (`alice-1`, `bob-3`, ...) |
+| `ts` | ISO timestamp |
+| `event` | Loại event: `run.start`, `claim`, `row.done`, `row.skip`, `batch.done`, `run.end` |
+| `agent` | Ai ghi event này |
+| `prev_hash` | SHA-256 của dòng trước **cùng agent** |
+
+## Per-Agent Hash Chain
+
+Mỗi agent có chain riêng. 2 agent append cùng lúc không làm vỡ hash của nhau.
 
 ```
-Dòng 1: {"id":1,"event":"run.start","prev_hash":"0"}
-          → hash(dòng1) = "abc"
-Dòng 2: {"id":2,"event":"row.done","prev_hash":"abc",...}
-          → hash(dòng2) = "def"
-Dòng 3: {"id":3,"event":"row.done","prev_hash":"def",...}
-
-Verify: hash(dòng2) == "def" == dòng3.prev_hash ✓
-        Sửa dòng2 → hash(dòng2) ≠ "def" → dòng3.prev_hash sai ✗
+alice: {"agent":"alice","prev_hash":"0"} → hash "abc" → {"agent":"alice","prev_hash":"abc"} → ...
+bob:   {"agent":"bob","prev_hash":"0"}   → hash "xyz" → {"agent":"bob","prev_hash":"xyz"}   → ...
 ```
+
+Sửa 1 dòng → hash thay đổi → `prev_hash` dòng sau của agent đó không khớp → phát hiện ngay.
 
 ## Các loại event
 
-| Event | Khi nào ghi | Dữ liệu |
-|-------|------------|---------|
-| `run.start` | Bắt đầu run | `total_rows`, `batch_size`, `output` |
-| `row.done` | Mỗi row xử lý xong | `source_uid` |
-| `row.skip` | Row bị bỏ qua sau 3 lần retry | `source_uid`, `reason`, `retries` |
-| `batch.done` | Mỗi batch ghi file xong | `batch`, `rows`, `file` |
-| `batch.fail` | Batch ghi file thất bại | `batch`, `error` |
-| `run.end` | Run hoàn thành | `processed`, `skipped` |
+| Event | Khi ghi | Dữ liệu chính |
+|-------|--------|--------------|
+| `run.start` | Bắt đầu session | — |
+| `claim` | Đăng ký row sẽ xử lý | `rows: "1-50"` |
+| `unclaim` | Trả lại row (lỗi, conflict) | `rows`, `reason` |
+| `row.done` | Mỗi row xong | `source_uid` |
+| `row.skip` | Row fail sau 3 lần retry | `source_uid`, `reason`, `retries` |
+| `batch.done` | Batch ghi file xong | `batch`, `rows`, `file` |
+| `run.end` | Session kết thúc | `processed` |
 
-## Tại sao cần progress.jsonl?
+## Tại sao cần claim?
 
-1. **Resume sau crash**: `grep -c '"event":"row.done"' progress.jsonl` → biết đã xong bao nhiêu row
-2. **Chống giả mạo**: hash chain đảm bảo log không bị sửa
-3. **Subagent check**: agent mới đọc log là biết trạng thái, không cần shared memory
-4. **Audit**: trace lại toàn bộ run, biết row nào xử lý lúc nào
+Trước khi xử lý row 1-50, agent ghi claim → agent khác thấy claim → skip, xử lý từ row 51. **Không duplicate work.**
+
+Nếu 2 agent cùng claim 1 row → timestamp sớm hơn thắng. Agent thua unclaim và chọn row mới.
 
 ## Query thường dùng
 
 ```bash
-# Đang dừng ở đâu?
+# Tổng row đã done (tất cả agent)
 grep -c '"event":"row.done"' progress.jsonl
 
-# Row nào bị skip?
-grep '"event":"row.skip"' progress.jsonl
+# Row nào đã bị claim?
+grep '"event":"claim"' progress.jsonl
 
-# Verify hash chain
-python3 -c "
-import hashlib, json
+# Row của tôi đã done
+grep '"event":"row.done"' progress.jsonl | grep -c '"agent":"alice"'
+
+# Verify chain của alice
+grep '"agent":"alice"' progress.jsonl | python3 -c "
+import hashlib, json, sys
 prev = '0'
-with open('progress.jsonl') as f:
-    for i, line in enumerate(f, 1):
-        obj = json.loads(line)
-        assert obj['prev_hash'] == prev, f'Broken at {i}'
-        prev = hashlib.sha256(line.rstrip('\n').encode()).hexdigest()
-print(f'OK: {i} events')
+for i, line in enumerate(sys.stdin, 1):
+    obj = json.loads(line)
+    assert obj['prev_hash'] == prev, f'Broken at {i}'
+    prev = hashlib.sha256(line.rstrip('\n').encode()).hexdigest()
+print(f'alice OK: {i} events')
 "
+```
+
+## File location
+
+```
+.pipeline/progress.jsonl    ← tracked (per-agent hash chain, claim support)
+.pipeline/outputs/          ← gitignored (CSV per agent)
 ```

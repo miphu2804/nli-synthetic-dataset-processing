@@ -2,68 +2,78 @@
 
 ## Ý tưởng
 
-Thay vì main agent tự làm hết (context càng lúc càng dài), mỗi batch được giao cho 1 **subagent** xử lý. Subagent là pure function: nhận input → làm → trả output → bị hủy. Không giữ state, không biết batch trước làm gì.
+Main agent đọc dataset + assign rule. Subagent xử lý batch (dịch + transform). Subagent là pure function — không state, không biết batch trước. Làm xong bị hủy. Context main agent không bị dồn.
 
-## Phân chia trách nhiệm
+## Phân chia
 
 | | Main agent | Subagent |
 |---|---|---|
-| Đọc dataset | ✓ | ✗ |
-| Đọc/ghi `progress.jsonl` | ✓ | ✗ |
-| Gán rule + tier cho từng row | ✓ | ✗ |
+| Đọc dataset + progress.jsonl | ✓ | ✗ |
+| Claim row + gán rule + tier | ✓ | ✗ |
 | Dịch sang tiếng Việt | ✗ | ✓ |
-| Áp dụng adversarial transform | ✗ | ✓ |
-| Validate output | ✓ (kiểm cuối) | ✓ (tự kiểm) |
-| Ghi CSV | ✓ | ✗ |
+| Adversarial transform | ✗ | ✓ |
+| Validate cuối + ghi CSV | ✓ | ✗ |
+| Append progress.jsonl | ✓ | ✗ |
 
-## Subagent prompt
+## Subagent prompt (main agent build)
 
-Main agent gửi cho subagent 1 prompt **đầy đủ** — subagent không cần đọc skill nào khác:
+Main agent copy 19 rule từ generator.md vào prompt, kèm batch data. Subagent không cần đọc skill.
 
 ```
-Bạn là NLI transformer. Đây là 19 rule biến đổi (copy từ generator.md).
-Đây là 5 row cần xử lý (JSON). Mỗi row đã có rule được gán sẵn.
-Việc của bạn: dịch premise + hypothesis sang tiếng Việt,
-               áp dụng rule, giữ nguyên label gốc.
-Trả về JSON array 5 phần tử.
+You are an NLI adversarial transformer.
+[19 rule tables + anti-artifact constraints]
+[Batch JSON: 5 rows với source_uid, premise, hypothesis, label, assigned rule, tier]
+1. Translate BOTH premise and hypothesis to Vietnamese
+2. Apply assigned rule to hypothesis
+3. Label unchanged
+4. Return JSON array
 ```
 
-## Chạy tuần tự vs song song
+## Parallel (MANDATORY)
 
-| Chế độ | Cách | Khi dùng |
-|--------|------|----------|
-| Tuần tự | 1 subagent/batch, chờ xong rồi batch tiếp | Test, debug |
-| Song song | 3-5 subagent cùng lúc, mỗi con batch khác nhau | Production, dataset lớn |
+**Spawn tất cả subagent trong 1 message.** Mỗi con batch khác nhau → không conflict.
 
-Song song không cần lock vì:
-- Mỗi subagent ghi file CSV riêng (part1.csv, part2.csv, ...)
-- Mỗi subagent xử lý row khác nhau (không đụng hàng)
-- Main agent append progress.jsonl tuần tự sau khi tất cả done
+```
+Main agent (1 message với N subagent)
+  ├─ Subagent A: rows 1-5   ─┐
+  ├─ Subagent B: rows 6-10  ─┤ chạy cùng lúc
+  └─ Subagent C: rows 11-15 ─┘
+```
+
+Wave đầu 3 subagent (test chất lượng), OK thì scale lên 5+. Cap 10/lần.
+
+Sequential chỉ khi user nói "chạy từng cái một".
+
+## Multi-Agent (nhiều người cùng làm)
+
+Khi nhiều agent cùng xử lý 1 dataset, mỗi agent:
+1. Đọc `progress.jsonl` → xem row nào đã claim, đã done
+2. Claim row tiếp theo → echo `claim` event
+3. Xử lý batch → ghi CSV riêng (`alice_part1.csv`)
+4. Append `row.done` events
+5. Sync log (git push / shared drive)
+
+Không cần database, không cần lock server. Claim + append-only là đủ.
 
 ## Model
 
-| Agent | Model | Lý do |
-|-------|-------|-------|
-| Main | Pro / lớn | Orchestration, validate, tracking |
-| Subagent | Flash / nhỏ | Rẻ, nhanh, context nhẹ (~2K tokens/batch) |
+| Agent | Model |
+|-------|-------|
+| Main | Lớn nhất có sẵn |
+| Subagent | Nhỏ nhất có sẵn |
 
-## Flow tổng
+Không hardcode tên model. Dùng subagent nếu harness hỗ trợ.
+
+## Flow
 
 ```
 Main agent
-  │
-  ├─ tail -1 progress.jsonl → biết row 15 done
-  ├─ Đọc batch row 16-20
-  ├─ Gán rule + tier (luân phiên, ưu tiên rule ít dùng)
-  │
-  ├─ Spawn subagent ──────────────────────┐
-  │   Input: 5 rows + rules + assignments │
-  │   Xử lý: dịch + transform + validate  │
-  │   Output: 5 rows JSON                 │
-  └────────────────────────────────────────┘
-  │
-  ├─ Validate output (label preserved? còn English?)
-  ├─ Ghi part4.csv
-  ├─ Append 5 dòng row.done → progress.jsonl
-  └─ Báo user: "Done batch 4"
+  ├─ Check progress.jsonl → row nào done, row nào claimed
+  ├─ Claim batch tiếp theo
+  ├─ Đọc batch + gán rule
+  ├─ Spawn subagent(s)
+  ├─ Validate output
+  ├─ Ghi CSV part file
+  ├─ Append progress.jsonl
+  └─ Báo user: "Done batch N"
 ```

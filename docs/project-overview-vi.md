@@ -2,88 +2,58 @@
 
 ## Dự án làm gì?
 
-Xây pipeline xử lý dữ liệu NLI (Natural Language Inference) tiếng Anh → tiếng Việt, có adversarial transformation. Mục tiêu: tạo dataset NLI tiếng Việt đa dạng về độ khó để huấn luyện và đánh giá model.
+Pipeline xử lý dữ liệu NLI tiếng Anh → tiếng Việt, có adversarial transformation. Mục tiêu: tạo dataset NLI tiếng Việt đa dạng về độ khó.
 
 ## Kiến trúc
 
 ```
-┌─────────────────────────────────────────────┐
-│                 MCP Harness                  │
-│  (Claude Code / Codex CLI / custom agent)   │
-│                                              │
-│  ┌──────────┐ ┌──────────┐ ┌─────────────┐ │
-│  │ generator│ │ progress │ │ delegation  │ │
-│  │   .md    │ │_tracking │ │    .md      │ │
-│  │          │ │   .md    │ │             │ │
-│  │ 19 rules │ │ JSONL log│ │ subagent    │ │
-│  │ 3 labels │ │hash chain│ │ orchestrate │ │
-│  │ 3 tiers  │ │ queries  │ │ parallel    │ │
-│  └──────────┘ └──────────┘ └─────────────┘ │
-│                                              │
-│  Skills: text guide cho agent đọc và làm     │
-└──────────────────────┬──────────────────────┘
-                       │ MCP tools
-                       ▼
-┌─────────────────────────────────────────────┐
-│           NLI-Tools Backend                  │
-│                                              │
-│  /api/datasets/read   — đọc CSV/parquet     │
-│  /api/datasets/write  — ghi CSV             │
-│  /api/skills/{name}   — đọc skill markdown  │
-│  /api/skills/         — list skill          │
-│  /health              — health check        │
-│  /mcp                 — MCP endpoint        │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│                  MCP Harness                       │
+│   (Claude Code / Codex CLI / custom agent)        │
+│                                                    │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────┐ │
+│  │ generator│ │ progress │ │delegation│ │exec  │ │
+│  │   .md    │ │_tracking │ │   .md    │ │ .md  │ │
+│  │          │ │   .md    │ │          │ │      │ │
+│  │19 rules  │ │JSONL log │ │subagent  │ │LLM   │ │
+│  │3 labels  │ │per-agent │ │handoff   │ │vs    │ │
+│  │3 tiers   │ │hash chain│ │parallel  │ │bash  │ │
+│  │          │ │claims    │ │multi-agt │ │monty │ │
+│  └──────────┘ └──────────┘ └──────────┘ └──────┘ │
+│                                                    │
+│  Skills: text guide cho agent đọc và thực thi       │
+└───────────────────────┬──────────────────────────┘
+                        │ MCP tools
+                        ▼
+┌──────────────────────────────────────────────────┐
+│              NLI-Tools Backend                     │
+│  /api/datasets/read   — đọc CSV/parquet           │
+│  /api/datasets/write  — ghi CSV                   │
+│  /api/skills/{name}   — đọc skill markdown        │
+│  /api/skills/         — list skill                │
+│  /health              — health check              │
+│  /mcp                 — MCP endpoint              │
+└──────────────────────────────────────────────────┘
 ```
 
-## 3 thành phần chính
+## 4 Skills
 
-### 1. Backend (Python/FastAPI)
-- Serve REST API + MCP endpoint
-- read_dataset: đọc batch từ CSV/parquet
-- write_dataset: ghi rows ra CSV
-- get_skill: trả về nội dung skill markdown
+| Skill | Vai trò |
+|-------|---------|
+| `generator.md` | WHAT: 19 rule, 3 label, 3 tier, anti-artifact constraints |
+| `progress_tracking.md` | STATE: JSONL log, per-agent hash chain, claim, query |
+| `delegation.md` | HOW: subagent handoff, parallel execution, multi-agent sync |
+| `execution.md` | RUN: LLM cho text, bash cho query, Monty cho untrusted code |
 
-### 2. Skills (Markdown guide)
-- `generator.md`: 19 rule biến đổi, 3 label, 3 adversarial tier
-- `progress_tracking.md`: JSONL event log với hash chain
-- `delegation.md`: subagent orchestration, parallel execution
-
-### 3. Harness (Agent)
-- Đọc skill → hiểu rules + workflow
-- Dùng MCP tools (read/write dataset)
-- Spawn subagent cho mỗi batch
-- Track progress qua JSONL log
-
-## Data flow
+## Data Flow
 
 ```
-Input: anlitrain1.csv
-  (premise EN, hypothesis EN, label 0/1/2)
-          │
-          ▼
-  ┌─────────────────────┐
-  │  Main agent đọc     │
-  │  Gán rule + tier    │
-  └─────────┬───────────┘
-            │
-    ┌───────┴───────┐
-    ▼               ▼               ▼
-Subagent 1      Subagent 2      Subagent 3
-(batch 1)       (batch 2)       (batch 3)
-    │               │               │
-    └───────┬───────┘               │
-            ▼                       │
-  ┌─────────────────┐              │
-  │ Validate + ghi  │◄─────────────┘
-  │ part1.csv       │
-  │ part2.csv       │
-  │ update          │
-  │ progress.jsonl  │
-  └─────────────────┘
-          │
-          ▼
-Output: anlitrain1_nli_adversarials.csv
+Input: dataset.csv (premise EN, hypothesis EN, label)
+  → Agent đọc skill, claim row
+  → Subagent dịch + adversarial transform
+  → Validate + ghi CSV + append progress.jsonl
+  → Merge part files
+Output: dataset_nli_adversarials.csv
   (premise VI, hypothesis VI, label, rule, tier, reason)
 ```
 
@@ -93,16 +63,16 @@ Output: anlitrain1_nli_adversarials.csv
 |-----|------|
 | Backend | Python 3.11+, FastAPI, FastMCP |
 | Data | pandas, pyarrow |
-| State | JSONL append-only log + hash chain |
+| State | `.pipeline/progress.jsonl` — append-only, per-agent hash chain |
 | Agent | Markdown skills, MCP tools |
-| Model | deepseek-v4-pro (orchestrate), deepseek-v4-flash (transform) |
+| Model | Orchestration: model lớn. Transform: model nhỏ. |
 
 ## Thư mục
 
 ```
-src/           — Backend code (FastAPI + services + schemas)
-skills/        — Agent skill guides (markdown)
-docs/          — Tài liệu giải thích tiếng Việt
-data/          — Dataset input/output
-scripts/       — Utility scripts
+src/           — Backend (FastAPI + services + schemas + routers)
+skills/        — Agent skill guides (4 markdown files)
+docs/          — Tài liệu tiếng Việt
+data/          — Dataset input
+.pipeline/     — Runtime (progress.jsonl + outputs) — gitignored except log
 ```
