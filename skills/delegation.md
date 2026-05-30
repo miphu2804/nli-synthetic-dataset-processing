@@ -2,6 +2,8 @@
 
 Split batch processing across subagents to keep the main agent's context clean. Subagents are pure functions: receive input, return output, get destroyed. No shared state, no context accumulation.
 
+**MANDATORY: Use parallel execution by default.** Do NOT run subagents one-at-a-time unless the user explicitly asks for sequential mode. Spawn all subagents for a batch group in a single message — each gets different rows, zero conflict.
+
 ## Architecture
 
 ```
@@ -75,33 +77,32 @@ Input rows (JSON array). Each row has:
 ]
 ```
 
-## Parallel Execution
+## How to Execute (MANDATORY — parallel by default)
 
-If the harness supports spawning multiple subagents:
+**Spawn ALL subagents in ONE message.** Each gets different rows — zero conflict.
 
 ```
-Main agent
+Main agent (ONE message with N Agent tool calls)
   ├─ Subagent A: batch rows 1-5    ─┐
-  ├─ Subagent B: batch rows 6-10   ─┤ run simultaneously
-  └─ Subagent C: batch rows 11-15  ─┘
+  ├─ Subagent B: batch rows 6-10   ─┤ ALL run simultaneously
+  ├─ Subagent C: batch rows 11-15  ─┤
+  ├─ Subagent D: batch rows 16-20  ─┤
+  └─ Subagent E: batch rows 21-25  ─┘
 
-  Wait all → validate → write → done
+  Wait for all to finish → validate each output → write CSVs → update progress.jsonl
 ```
 
-Each subagent gets different rows → no conflict. No locking needed because:
+**Why this is safe:**
+- Each subagent gets different rows → no overlap
 - Each writes to different part file (part1.csv, part2.csv, ...)
-- Each batch has unique rows
-- Progress log append is serial (main agent does it after all done)
+- Main agent appends to progress.jsonl ONLY after all subagents done
 
-## Sequential vs Parallel
+**Number of subagents per wave:**
+- First wave: 3 subagents (test quality)
+- If output OK → scale to 5+ subagents per wave
+- Cap at 10 per wave (rate limit safety)
 
-| Mode | When to use | Benefit |
-|------|------------|---------|
-| Sequential | Small batches, 1-at-a-time | Simple, easier to debug |
-| Parallel (2-3 agents) | Medium dataset, testing | 2-3x faster |
-| Parallel (5+ agents) | Large dataset, production | Max speed, watch rate limits |
-
-Start sequential to verify quality, then scale to parallel.
+**Sequential mode** only if user explicitly says "run one at a time" or first wave shows quality issues needing per-batch inspection.
 
 ## Post-Subagent Validation
 
