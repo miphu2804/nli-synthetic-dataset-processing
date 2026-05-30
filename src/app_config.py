@@ -5,9 +5,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class AppConfig(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
-    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
-    OPENAI_TRANSLATION_MODEL: str = "gpt-4o-mini"
-    DEFAULT_PREVIEW_ROWS: int = 5
+    OPENAI_BASE_URL: Optional[str] = None
+    TRANSLATION_MODEL: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
