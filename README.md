@@ -1,75 +1,104 @@
-# Dataset Reader MCP Baseline
+# NLI Synthetic Data Processing
 
-Minimal backend inspired by the `NexiraCopilot` backend structure:
+Backend server exposing dataset I/O as MCP tools + REST endpoints, plus a generator skill for Vietnamese NLI adversarial data.
 
-- `src/app_config.py`: env/config
-- `src/dataset_reader_service.py`: pandas facade for arbitrary datasets
-- `src/mcp_server.py`: MCP adapter and tool registration
-- `src/main.py`: FastAPI app mounting REST and MCP on the same port
-
-## Run
+## Quick Start
 
 ```bash
 uv sync
-uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
 ```
 
-## REST smoke test
+## Endpoints
+
+| Method | Path | What |
+|--------|------|------|
+| GET | `/health` | Health check |
+| POST | `/api/datasets/read` | Read batch from CSV/parquet |
+| POST | `/api/datasets/write` | Write rows to CSV |
+| GET | `/api/skills/` | List available skills |
+| GET | `/api/skills/{name}` | Get skill content (markdown) |
+| GET | `/mcp` | MCP server (Streamable HTTP) |
+
+### MCP Tools
+
+| Tool | What |
+|------|------|
+| `read_dataset_with_pandas` | Read dataset with batch offset + limit |
+| `write_dataset_output` | Write rows to CSV file |
+| `get_skill` | Get skill guide by name |
+| `list_skills` | List all skill names |
+
+### MCP Resources
+
+| URI | What |
+|-----|------|
+| `skill://{name}` | Skill markdown content |
+
+## REST Examples
+
+Read first 5 rows:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/datasets/read \
   -H 'content-type: application/json' \
-  -d '{"path":"/absolute/path/to/file.csv","batch_size":5,"batch_offset":0}'
+  -d '{"path":"data/anlitrain1.csv","batch_size":5,"batch_offset":0}'
 ```
 
-## MCP
-
-The MCP HTTP app is mounted under:
-
-```text
-/mcp
-```
-
-Tool name:
-
-```text
-read_dataset_with_pandas
-```
-
-Additional tool:
-
-```text
-translate_dataset_with_chatgpt
-```
-
-Additional tool:
-
-```text
-write_dataset_output
-```
-
-## Translate dataset to Vietnamese
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/datasets/translate \
-  -H 'content-type: application/json' \
-  -d '{
-    "path":"/absolute/path/to/file.csv",
-    "text_columns":["premise","hypothesis"],
-    "batch_size":10,
-    "output":{"format":"csv"}
-  }'
-```
-
-If `OPENAI_API_KEY` is missing, `/translate` returns `status="pass_through"` plus rows for external translation via ChatGPT web/MCP tools. Persist the translated rows with:
+Write rows:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/datasets/write \
   -H 'content-type: application/json' \
   -d '{
-    "rows":[{"premise":"A","premise_vi":"B"}],
-    "output":{"format":"csv","path":"./outputs/demo.csv"}
+    "rows":[
+      {"source_uid":"1","premise":"...","hypothesis":"...","label":"entailment"}
+    ],
+    "output":{"format":"csv","path":"data/output.csv"}
   }'
 ```
 
-For `output.format="google_drive"`, the server stages a local CSV and returns the staged path so a connected Google Drive MCP tool can upload it.
+## Skills
+
+See `skills/` directory:
+
+| Skill | What |
+|-------|------|
+| [`generator`](skills/generator.md) | NLI adversarial data generation guide (19 rules, 3-class, 3-tier) |
+| [`generator-explanation-vi`](skills/generator-explanation-vi.md) | Vietnamese explanation of generator skill |
+
+### How to use the generator
+
+1. Read a chunk of data via `read_dataset_with_pandas` (batch_size=5-10)
+2. Translate both premise + hypothesis to Vietnamese
+3. Apply 1 adversarial transformation per row (pick rule matching original label)
+4. Validate: label preserved, both Vietnamese, no artifact cues
+5. Write chunk via `write_dataset_output`
+
+Repeat until done. Use `get_skill("generator")` at any time to recall the full guide.
+
+## Project Structure
+
+```
+src/
+├── main.py              # FastAPI app + FastMCP mount
+├── app_config.py        # Env config (OPENAI_API_KEY, etc.)
+├── prompt_template.py   # Prompt constants
+├── services/
+│   ├── dataset_reader_service.py
+│   ├── dataset_writer_service.py
+│   └── skill_service.py
+├── schemas/
+│   ├── dataset_reader_schema.py
+│   ├── dataset_writer_schema.py
+│   └── dataset_generate_schema.py
+└── routers/
+    ├── reader_router.py
+    ├── writer_router.py
+    └── skill_router.py
+skills/
+├── generator.md
+└── generator-explanation-vi.md
+data/
+└── anlitrain1.csv       # Example input (ANLI train set)
+```
