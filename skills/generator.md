@@ -62,24 +62,28 @@ Label-leaking cue words to avoid (unless semantically required by the premise):
 
 ## How to Use This Skill
 
+### MANDATORY: Translate everything to Vietnamese
+**Every premise and hypothesis MUST be in Vietnamese.** After generation, immediately call `translate_dataset_with_chatgpt` with `text_columns=["premise", "hypothesis"]` and `target_language="Vietnamese"`. Do NOT skip this step — the final output is a Vietnamese NLI dataset.
+
+### MANDATORY: Cover all 3 adversarial tiers
+**Do NOT use only one tier.** For each batch of premises, rotate through rules across all tiers:
+- 30% Surface (E1, E2, E3, E5, NE4, NE5, NE9, NE10)
+- 40% Structural (E4, E6, E7, NE1, NE2, NE3, NE8)
+- 30% Deep Semantic (E8, E9, NE6, NE7)
+
+For each premise, generate exactly 2 hypotheses: 1 entailment + 1 non-entailment, using different rules from different tiers. Spread rule usage evenly.
+
 ### Step 1: Read premises
-Use `read_dataset_with_pandas` to load premises from CSV/parquet. The dataset must have a text column containing premises (e.g., `premise`).
+Use `read_dataset_with_pandas` to load premises from CSV/parquet.
 
 ### Step 2: Generate hypotheses
-For each premise, generate an entailment hypothesis and a non-entailment hypothesis. Pick rules from the adversarial tier matching your target difficulty:
+Generate 2 hypotheses per premise (1 entailment + 1 non-entailment). Rotate rules across tiers — do NOT repeat the same rule for consecutive premises.
 
-- **Quick dataset (Surface tier):** E1,E2 + NE1,NE10 — fast to generate, models score ≥90%
-- **Balanced dataset (Structural tier):** E4,E7 + NE2,NE3 — requires clause-level reasoning
-- **Hard benchmark (Deep Semantic tier):** E8,NE6,NE7 — multi-step inference, 22% model error rate
-
-### Step 3: Translate to Vietnamese (if source is other language)
-Use `translate_dataset_with_chatgpt` with `text_columns=["premise", "hypothesis"]` and `target_language="Vietnamese"`. Set `pass_through=true` if no API key — rows return untranslated for manual MCP/Web translation.
+### Step 3: Translate to Vietnamese (REQUIRED)
+Use `translate_dataset_with_chatgpt` with `text_columns=["premise", "hypothesis"]` and `target_language="Vietnamese"`. If no API key, set `pass_through=true` and return rows for manual MCP translation. Output MUST be Vietnamese.
 
 ### Step 4: Write output
-Use `write_dataset_output` to save generated pairs as CSV.
-
-### Step 5: Validate quality (see `skill://validator`)
-Cross-model consensus filtering, PMI artifact detection, hypothesis-only baseline.
+Use `write_dataset_output` to save as CSV. Columns: `source_uid, premise, hypothesis, label, rule, tier, reason`.
 
 ## Reference
 
