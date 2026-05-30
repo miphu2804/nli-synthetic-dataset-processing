@@ -75,7 +75,8 @@ This skill runs as a **manual sandbox loop** — you (the AI agent) do the trans
 
 **Before starting**: Load companion skills:
 - `get_skill("progress_tracking")` — JSONL event log format, hash chain, event types, bash queries
-- `get_skill("delegation")` — subagent prompt template, responsibility split, parallel execution, validation
+- `get_skill("delegation")` — subagent prompt template, responsibility split, parallel execution
+- `get_skill("execution")` — what runs where: LLM for text, bash for queries, Monty for untrusted or Python code
 
 ### Phase 0 — Setup & Confirm
 
