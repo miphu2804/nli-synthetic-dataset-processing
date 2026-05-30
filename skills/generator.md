@@ -71,7 +71,13 @@ Label-leaking cue words to avoid (unless semantically required by the premise):
 
 **IMPORTANT**: The input dataset already has `premise`, `hypothesis`, and `label` columns — these are pre-labeled NLI pairs (usually in English). The task is to **translate both to Vietnamese** then **adversarially transform** the hypothesis (or premise) to increase difficulty, while **keeping the original label unchanged**.
 
-This skill runs as a **manual sandbox loop** — you (the AI agent) do the translation and transformation. There is no separate generator API endpoint.
+This skill runs as a **parallel subagent loop** — you (the AI agent) split the input into chunks, spawn subagents for translation + transformation in parallel, then merge results. There is no separate generator API endpoint.
+
+**Execution rules**:
+- LLM does all text generation (translation + transformation)
+- Bash handles file I/O, merging, and shell queries
+- Monty sandbox runs any Python code (CSV parsing, statistics, normalization)
+- Python scripts must NOT be written to `data/` — they run in-memory or in `/tmp`
 
 **Before starting**: Load companion skills:
 - `get_skill("progress_tracking")` — JSONL event log format, hash chain, event types, bash queries
@@ -81,9 +87,9 @@ This skill runs as a **manual sandbox loop** — you (the AI agent) do the trans
 ### Phase 0 — Setup & Confirm
 
 1. **Load progress_tracking skill**: `get_skill("progress_tracking")` — memorize the event schema
-2. Read the input dataset to verify columns: must have `premise`, `hypothesis`, `label`
+2. Read the input dataset to verify columns: must have `uid` (or `source_uid`), `premise`, `hypothesis`, `label`
 3. Print: total rows, columns, 3 sample rows
-4. Initialize `progress.jsonl` with a `run.start` event (see progress_tracking for format: `prev_hash:"0"`)
+4. Initialize `pipeline/progress.jsonl` with a `run.start` event (see progress_tracking for format: `prev_hash:"0"`)
 5. Confirm with user:
    - **How many rows** to process? (default: all)
    - **Chunk size**: 5–10 rows at a time (small to avoid truncation)
@@ -94,9 +100,9 @@ This skill runs as a **manual sandbox loop** — you (the AI agent) do the trans
 Process rows in **chunks of 5–10**. For each chunk:
 
 #### 1.1 Read chunk + check progress
-- If `progress.jsonl` exists, `tail -1` to find last completed batch → resume from next batch
+- If `pipeline/progress.jsonl` exists, `tail -1` to find last completed batch → resume from next batch
 - If no progress log exists, start fresh from batch 1, row 1
-- Read a small batch via `read_dataset`. If truncated, use smaller `batch_size`.
+- Read a small batch. Use Python CSV reader (in Monty sandbox) to parse rows reliably.
 
 #### 1.2 Translate BOTH premise and hypothesis to Vietnamese
 **Do NOT keep either in English.** Translate the full pair together so meaning stays aligned:
@@ -136,50 +142,44 @@ Check each transformed pair:
 
 Fail 3 times → skip row, log reason.
 
-#### 1.6 Log events to progress.jsonl
+#### 1.6 Log events to pipeline/progress.jsonl
 After each row: append a `row.done` event. After each batch: append `batch.done`. If a row fails: `row.skip`. See `progress_tracking` for exact field schema (`id`, `prev_hash`, `ts`).
 
 #### 1.7 Write chunk
-Use `write_dataset` with full file path. Each chunk → separate file: `{output_name}_part{N}.csv`
+Each chunk → separate file: `data/generated/{output_name}_part{N}.csv`
 
-Output columns: `source_uid, premise, hypothesis, label, rule, tier, reason`
+Output columns: `source_uid, premise, hypothesis, label`
 
 - `premise`: translated + possibly transformed (Vietnamese)
 - `hypothesis`: translated + adversarially transformed (Vietnamese)
 - `label`: **same as original** (entailment / neutral / contradiction)
-- `rule`: which adversarial rule was applied
-- `tier`: surface / structural / deep_semantic
+
+After writing, delete the input chunk CSV — no intermediate files left behind.
 
 #### 1.8 Report progress
-`Done batch N. Rows: X. Cumulative: Y. Labels: E/C/N = a/b/c. Tiers: Sf/St/Ds = d/e/f.`
-
-Also snapshot distribution from CSV: `cut -d',' -f5 output.csv | sort | uniq -c | sort -rn`
+`Done batch N. Rows: X. Cumulative: Y. Labels: E/N/C = a/b/c.`
 
 ### Phase 2 — Continue Until Done
 
-Repeat Phase 1 until target reached. On each resume, check `progress.jsonl` to know where to continue.
+Repeat Phase 1 until target reached. On each resume, check `pipeline/progress.jsonl` to know where to continue.
 
-### Phase 3 — Merge & Final Report
+### Phase 3 — Merge, Clean & Final Report
 
 ```bash
 head -1 {output_name}_part1.csv > {output_name}.csv
 tail -n +2 -q {output_name}_part*.csv >> {output_name}.csv
+rm {output_name}_part*.csv
 ```
 
 | Metric | Value |
 |--------|-------|
 | Total rows processed | X |
 | Entailment / Neutral / Contradiction | E / N / C |
-| Surface / Structural / Deep Semantic | Sf / St / Ds |
-| Rule distribution | per-rule counts |
 | Skipped | Z (with reasons) |
 | Output | path |
 
 ## Output Schema
 
-`source_uid, premise, hypothesis, label, rule, tier, reason`
+`source_uid, premise, hypothesis, label`
 
 - `label`: `entailment` | `neutral` | `contradiction`
-- `rule`: one of the 19 rule names above
-- `tier`: `surface` | `structural` | `deep_semantic`
-- `reason`: short explanation of why this label + rule applies (for QA/debugging)
