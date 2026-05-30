@@ -67,16 +67,57 @@ Vietnamese docs in [`docs/`](docs/):
 | [`progress-tracking-vi`](docs/progress-tracking-vi.md) | Giải thích progress tracking |
 | [`delegation-vi`](docs/delegation-vi.md) | Giải thích delegation |
 
-## Workflow
+## State Machine
 
 ```
-1. Agent loads skills via get_skill
-2. Read dataset via read_dataset_with_pandas (batch_size=5-10)
-3. Claim rows in progress.jsonl
-4. Spawn subagent to translate + transform each batch
-5. Validate, write CSV, append progress.jsonl
-6. Loop until done, merge part files
+  START ──→ get_skill × 3 ──→ read_dataset ──→ init progress.jsonl
+                                                      │
+                    ┌─────────────────────────────────┘
+                    ▼
+              ┌──────────┐
+         ┌───→│  CLAIM   │  grep progress.jsonl → claim next N rows
+         │    └────┬─────┘
+         │         ▼
+         │    ┌──────────┐
+         │    │ TRANSFORM│  subagent: translate VI + adversarial rule
+         │    └────┬─────┘
+         │         ▼
+         │    ┌──────────┐
+         │    │ VALIDATE │  label? VI? grammar? rule applied?
+         │    └──┬───┬───┘
+         │   PASS│   │FAIL → retry / skip
+         │       ▼
+         │    ┌──────────┐
+         │    │  WRITE   │  write_dataset + append row.done to log
+         │    └────┬─────┘
+         │         ▼
+         │    ┌──────────┐
+         │    │ MORE?    │──YES──┘
+         │    └────┬─────┘
+         │         │NO
+         │         ▼
+         │    ┌──────────┐
+         └────│  MERGE   │  merge part*.csv → verify hash chain
+              └──────────┘
 ```
+
+## Sample progress.jsonl (2 agents)
+
+```jsonl
+{"event":"run.start","agent":"alice","prev_hash":"0"}
+{"event":"claim","agent":"alice","rows":"1-5","prev_hash":"abc..."}
+{"event":"row.done","agent":"alice","source_uid":1,"prev_hash":"def..."}
+{"event":"row.done","agent":"alice","source_uid":2,"prev_hash":"ghi..."}
+{"event":"batch.done","agent":"alice","batch":1,"prev_hash":"jkl..."}
+                                    ← bob's chain starts here, no conflict
+{"event":"run.start","agent":"bob","prev_hash":"0"}
+{"event":"claim","agent":"bob","rows":"6-10","prev_hash":"mno..."}
+{"event":"row.skip","agent":"alice","source_uid":12,"reason":"premise empty"}
+{"event":"row.done","agent":"bob","source_uid":6,"prev_hash":"pqr..."}
+{"event":"run.end","agent":"alice","processed":50,"prev_hash":"stu..."}
+```
+
+Each agent has its own hash chain. Alice and Bob append simultaneously — chains don't collide. `claim` prevents duplicate work.
 
 ## Project Structure
 
