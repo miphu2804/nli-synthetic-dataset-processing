@@ -48,13 +48,15 @@ To verify: `sha256(line_N) == line_N+1.prev_hash` for all N. If any line is edit
 ### 3. `row.done` — one row processed successfully
 
 ```jsonl
-{"id":15,"ts":"2026-05-30T14:02:00Z","event":"row.done","prev_hash":"...","source_uid":12,"label":"entailment","rule":"Voice flip","tier":"surface"}
+{"id":15,"ts":"2026-05-30T14:02:00Z","event":"row.done","prev_hash":"...","source_uid":12}
 ```
 
-This is the most important event. Query it to:
-- Check if a row is already processed: `grep '"source_uid":42'`
-- Count rows done: `grep -c '"event":"row.done"'`
-- Get rule distribution: `grep '"event":"row.done"' | grep -o '"rule":"[^"]*"' | sort | uniq -c`
+The most important event. Query it to:
+- Check if a row is already processed: `grep '"source_uid":42' progress.jsonl`
+- Count rows done: `grep -c '"event":"row.done"' progress.jsonl`
+- Resume from: `grep -c '"event":"row.done"' progress.jsonl` + 1
+
+Note: label, rule, tier are in the CSV output — query those files for distribution stats.
 
 ### 4. `row.skip` — row failed after retries
 
@@ -110,15 +112,6 @@ grep '"event":"batch.done"' $PROGRESS | tail -1 | jq '.batch'  # last batch numb
 
 # Has this row been processed?
 grep '"source_uid":42' $PROGRESS
-
-# Rule distribution
-grep '"event":"row.done"' $PROGRESS | grep -o '"rule":"[^"]*"' | sort | uniq -c | sort -rn
-
-# Tier distribution  
-grep '"event":"row.done"' $PROGRESS | grep -o '"tier":"[^"]*"' | sort | uniq -c
-
-# Label distribution
-grep '"event":"row.done"' $PROGRESS | grep -o '"label":"[^"]*"' | sort | uniq -c
 
 # Skipped rows with reasons
 grep '"event":"row.skip"' $PROGRESS | jq '{uid:.source_uid, reason}'

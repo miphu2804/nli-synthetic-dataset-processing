@@ -152,7 +152,7 @@ Output columns: `source_uid, premise, hypothesis, label, rule, tier, reason`
 #### 1.8 Report progress
 `Done batch N. Rows: X. Cumulative: Y. Labels: E/C/N = a/b/c. Tiers: Sf/St/Ds = d/e/f.`
 
-Also snapshot rule distribution: `grep '"event":"row.done"' progress.jsonl | grep -o '"rule":"[^"]*"' | sort | uniq -c | sort -rn`
+Also snapshot distribution from CSV: `cut -d',' -f5 output.csv | sort | uniq -c | sort -rn`
 
 ### Phase 2 — Continue Until Done
 
