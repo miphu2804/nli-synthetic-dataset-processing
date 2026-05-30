@@ -33,6 +33,7 @@ jobs:
     needs: [lint]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: DOCKER_HUB
     steps:
       - uses: actions/checkout@v4
 
