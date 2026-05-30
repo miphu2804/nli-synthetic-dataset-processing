@@ -60,22 +60,30 @@ curl -X POST http://127.0.0.1:8000/api/datasets/write \
 
 ## Skills
 
-See `skills/` directory:
+Agent skills in `skills/` (Markdown guides loaded via `get_skill`):
 
 | Skill | What |
 |-------|------|
-| [`generator`](skills/generator.md) | NLI adversarial data generation guide (19 rules, 3-class, 3-tier) |
-| [`generator-explanation-vi`](skills/generator-explanation-vi.md) | Vietnamese explanation of generator skill |
+| [`generator`](skills/generator.md) | NLI adversarial rules (19 rules, 3 labels, 3 tiers) |
+| [`progress_tracking`](skills/progress_tracking.md) | JSONL event log with hash chain |
+| [`delegation`](skills/delegation.md) | Subagent orchestration & parallel execution |
+
+Vietnamese docs in `docs/`:
+
+| Doc | What |
+|-----|------|
+| [`project-overview-vi`](docs/project-overview-vi.md) | Tổng quan dự án |
+| [`generator-explanation-vi`](docs/generator-explanation-vi.md) | Giải thích generator skill |
+| [`progress-tracking-vi`](docs/progress-tracking-vi.md) | Giải thích progress tracking |
+| [`delegation-vi`](docs/delegation-vi.md) | Giải thích delegation |
 
 ### How to use the generator
 
-1. Read a chunk of data via `read_dataset_with_pandas` (batch_size=5-10)
-2. Translate both premise + hypothesis to Vietnamese
-3. Apply 1 adversarial transformation per row (pick rule matching original label)
-4. Validate: label preserved, both Vietnamese, no artifact cues
-5. Write chunk via `write_dataset_output`
-
-Repeat until done. Use `get_skill("generator")` at any time to recall the full guide.
+1. Agent loads 3 skills: `get_skill("generator")` → references `progress_tracking` + `delegation`
+2. Read chunk via `read_dataset_with_pandas` (batch_size=5-10)
+3. Spawn subagent to translate + transform each batch (see delegation skill)
+4. Validate output, write CSV, append `progress.jsonl`
+5. Loop until done
 
 ## Project Structure
 
