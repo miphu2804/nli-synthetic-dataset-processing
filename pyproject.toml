@@ -27,4 +27,6 @@ target-version = ["py311"]
 [dependency-groups]
 dev = [
     "pre-commit>=4.6.0",
+    "isort>=5.13.2",
+    "black>=24.8.0",
 ]
