@@ -114,68 +114,61 @@ Premise #3:
 
 ## Cách chạy thực tế (Agent-in-the-loop)
 
-Generator này **không có API endpoint** — chính AI agent là người thực thi, dùng các tool có sẵn (`read_dataset`, `write_dataset`, `translate_dataset`) làm building block. Chạy tuần tự từng chunk nhỏ trong sandbox.
+**Quan trọng:** Dataset gốc đã có sẵn `premise`, `hypothesis`, `label` — là các cặp NLI đã được gán nhãn (thường bằng tiếng Anh). Nhiệm vụ là:
+1. **Dịch cả premise lẫn hypothesis** sang tiếng Việt
+2. **Biến đổi adversarial** hypothesis (hoặc premise) để tăng độ khó
+3. **Giữ nguyên label gốc**
+
+Generator này **không có API endpoint** — chính AI agent là người thực thi.
 
 ```
 Phase 0: Setup
-├─ Đọc file dataset (vài dòng đầu) để verify
-├─ In: tổng số dòng, cột, preview 3 dòng đầu
+├─ Đọc dataset, verify có cột: premise, hypothesis, label
+├─ In: tổng số dòng, preview 3 dòng đầu
 ├─ Xác nhận với user:
-│   ├─ Xử lý bao nhiêu premise? (mặc định: hết)
-│   ├─ Output filename? (mặc định: data/{tên_file}_nli_adversarials.csv)
+│   ├─ Xử lý bao nhiêu dòng? (mặc định: hết)
+│   ├─ Output filename? (mặc định: {tên_file}_nli_adversarials.csv)
 │   └─ Bắt đầu
-└─ Mỗi chunk đọc 5-10 premise (nhỏ để tránh truncate/safety filter)
+└─ Mỗi chunk đọc 5-10 dòng
 
-Phase 1: Loop từng chunk (5-10 premise/chunk)
+Phase 1: Loop từng chunk (5-10 dòng/chunk)
 │
 ├─ B1: Đọc chunk
-│   Dùng read_dataset với batch_size nhỏ (5-10)
-│   Nếu bị truncate → đọc batch_size nhỏ hơn nữa
+│   Dùng read_dataset với batch_size nhỏ
 │
-├─ B2: Gán rule cho từng premise
-│   Mỗi premise → 3 rule (1 entailment + 1 contradiction + 1 neutral)
-│   3 rule phải từ 3 tier khác nhau, luân phiên tier mỗi premise
-│   Ưu tiên rule ít dùng nhất
+├─ B2: Dịch CẢ premise VÀ hypothesis sang tiếng Việt
+│   ⚠️ Không được giữ cái nào tiếng Anh
+│   Dịch cùng nhau để giữ đúng mối quan hệ logic
 │
-├─ B3: AI agent tự viết hypothesis
-│   Dựa vào premise + rule được gán → tự sinh hypothesis tiếng Việt
-│   Mỗi premise → 3 dòng output
+├─ B3: Gán adversarial rule dựa trên label gốc
+│   Label entailment → rule trong nhóm entailment (9 rule)
+│   Label contradiction → rule trong nhóm contradiction (5 rule)
+│   Label neutral → rule trong nhóm neutral (5 rule)
+│   Tier luân phiên: Surface → Structural → Deep Semantic
 │
-├─ B4: Validate nhanh từng sample
-│   ├─ Label có đúng không?
-│   ├─ Rule có được áp dụng đúng không?
+├─ B4: Áp dụng biến đổi adversarial
+│   Biến đổi hypothesis (và/hoặc premise) theo rule đã chọn
+│   Surface: thay đổi nhẹ về từ vựng/cú pháp
+│   Structural: thay đổi mệnh đề, phạm vi
+│   Deep Semantic: suy luận nhiều bước, thay đổi tinh vi, overlap cao
+│   ⚠️ Label gốc phải được giữ nguyên sau biến đổi
+│
+├─ B5: Validate
+│   ├─ Label có còn đúng không?
+│   ├─ Rule đã được áp dụng rõ ràng chưa?
 │   ├─ Có từ khóa lộ label không?
-│   └─ Tiếng Việt có tự nhiên không?
-│   Fail → sửa hoặc bỏ premise đó
-│
-├─ B5: Dịch sang tiếng Việt (nếu cần)
-│   Gọi translate_dataset với pass_through=true
-│   hoặc tự dịch nếu premise đã là tiếng Anh
+│   ├─ Cả premise và hypothesis đều tiếng Việt chưa?
+│   └─ Ngữ pháp tự nhiên không?
 │
 ├─ B6: Ghi chunk bằng write_dataset
-│   ⚠️ output.path phải là full file path, không phải thư mục
-│   VD đúng: "data/anlitrain1_nli_adversarials_part1.csv"
-│   VD sai: "data" (backend hiểu là file, không phải folder)
-│   Mỗi chunk → 1 file riêng (vì write_dataset không có append mode)
+│   output.path phải là full file path
+│   Mỗi chunk → 1 file riêng
 │
 └─ B7: Báo cáo tiến độ
-    "Done chunk 1. Rows: 15. Cumulative: 15. E/C/N = 5/5/5"
 
 Phase 2: Lặp đến khi hết target
 
 Phase 3: Merge + Final report
-├─ Gộp các file part bằng shell:
-│   head -1 part1.csv > output.csv
-│   tail -n +2 -q part*.csv >> output.csv
-└─ In báo cáo:
-    Tổng premise:     50
-    Tổng hypothesis:  150
-    Entailment:       50
-    Contradiction:    50
-    Neutral:          50
-    Surface:          51
-    Structural:       50
-    Deep Semantic:    49
 ```
 
 ---

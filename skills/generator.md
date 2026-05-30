@@ -69,91 +69,97 @@ Label-leaking cue words to avoid (unless semantically required by the premise):
 
 ## Generation Workflow (Agent-in-the-loop)
 
-This skill runs as a **manual sandbox loop** — you (the AI agent) are the generator. You read premises, assign rules, write hypotheses yourself, then write output via `write_dataset`. There is no separate generator API endpoint.
+**IMPORTANT**: The input dataset already has `premise`, `hypothesis`, and `label` columns — these are pre-labeled NLI pairs (usually in English). The task is to **translate both to Vietnamese** then **adversarially transform** the hypothesis (or premise) to increase difficulty, while **keeping the original label unchanged**.
+
+This skill runs as a **manual sandbox loop** — you (the AI agent) do the translation and transformation. There is no separate generator API endpoint.
 
 ### Phase 0 — Setup & Confirm
 
-1. Read the input dataset file to verify it exists and is readable
-2. Print: total rows, columns, sample first 3 rows
+1. Read the input dataset to verify columns: must have `premise`, `hypothesis`, `label`
+2. Print: total rows, columns, 3 sample rows
 3. Confirm with user:
-   - **How many premises** to process? (default: all rows)
-   - **Chunk size**: read 5–10 premises at a time (small to avoid safety filter / truncation)
-   - **Output filename**: user decides; suggest `{input_name}_nli_adversarials.csv` as default
+   - **How many rows** to process? (default: all)
+   - **Chunk size**: 5–10 rows at a time (small to avoid truncation)
+   - **Output filename**: user decides; suggest `{input_name}_nli_adversarials.csv`
 
 ### Phase 1 — Batch Loop
 
-Process premises in **chunks of 5–10**. For each chunk:
+Process rows in **chunks of 5–10**. For each chunk:
 
 #### 1.1 Read chunk
-Read a small batch from the dataset. If `read_dataset` output is truncated, use smaller `batch_size` or read via shell `head`/`tail`.
+Read a small batch via `read_dataset`. If truncated, use smaller `batch_size`.
 
-#### 1.2 Assign rules
-For each premise, assign exactly 3 rules — 1 per label, each from a different tier. Rotate tier offset per premise:
+#### 1.2 Translate BOTH premise and hypothesis to Vietnamese
+**Do NOT keep either in English.** Translate the full pair together so meaning stays aligned:
+- `premise` → Vietnamese
+- `hypothesis` → Vietnamese
+- The logical relationship (entailment/contradiction/neutral) must survive translation
 
-```
-Premise #1: entailment→Surface,      contradiction→Structural,      neutral→Deep Semantic
-Premise #2: entailment→Structural,    contradiction→Deep Semantic,   neutral→Surface
-Premise #3: entailment→Deep Semantic, contradiction→Surface,         neutral→Structural
-Premise #4: (repeat cycle)
-```
+#### 1.3 Assign adversarial rule
+For each translated pair, pick 1 adversarial rule based on the **original label**:
 
-Track rule usage count. Prefer least-used rule within each (tier, label) group.
+| Original label | Available rules |
+|---------------|-----------------|
+| entailment (0) | Voice flip, Synonym swap, Clause restructure, Conditional rephrase, Number equivalence, Complexity expand, Logical consequence, General to specific, Related clause link |
+| contradiction (2) | Direct negation, Scope shift, Modifier flip, Severity escalation, Number distortion |
+| neutral (1) | Fallacious reasoning, Unsupported claim, Rule misapplication, Irrelevant link, Independent statement |
 
-#### 1.3 Generate hypotheses
-**You (the AI agent) write each hypothesis directly.** For each premise, apply the 3 assigned rules to produce 3 hypotheses. The hypothesis must be in **Vietnamese**, logically match its label, and follow the rule's technique.
+Pick the rule's tier following the rotation: Surface → Structural → Deep Semantic → (repeat). Track rule usage, prefer least-used.
 
-Each output row: `source_uid, premise, hypothesis, label, rule, tier, reason`
+#### 1.4 Apply adversarial transformation
+Transform the **hypothesis** (and/or premise if needed) according to the assigned rule:
+- **Surface tier**: light lexical/syntactic changes — easy to detect
+- **Structural tier**: clause-level changes, scope shifts — medium difficulty
+- **Deep Semantic tier**: multi-step inference, subtle changes, high word overlap — hard
 
-#### 1.4 Quick validation (per sample)
-Before finalizing, check:
+**The original label MUST be preserved.** After transformation, the pair must still have the same entailment/contradiction/neutral relationship.
+
+#### 1.5 Validate (per row)
+Check each transformed pair:
 
 | Gate | Check | Fix if fail |
 |------|-------|-------------|
-| Label match | Does hypothesis logically entail/contradict/neutral? | Rewrite |
-| Rule fit | Does the transformation match the assigned rule? | Rewrite or swap rule |
-| Anti-artifact | Any leaking cue word? (see table above) | Remove cue word |
-| Vietnamese | Natural grammar, no English words | Fix |
+| Label preserved | Does the transformed pair still match the original label? | Adjust or redo transformation |
+| Rule applied | Is the rule transformation clearly visible? | Strengthen the transformation |
+| Anti-artifact | Any leaking cue word? | Remove cue word |
+| Both Vietnamese | Are premise AND hypothesis both in Vietnamese? | Translate the one that isn't |
+| Natural | Grammar and fluency | Fix wording |
 
-Skip premise entirely if premise text is nonsensical or all 3 retries fail.
-
-#### 1.5 Translate to Vietnamese (if premise is not already Vietnamese)
-The agent translates each hypothesis to Vietnamese directly during generation. If the source premise is in another language, translate premise + hypothesis together so meaning stays aligned.
+Fail 3 times → skip row, log reason.
 
 #### 1.6 Write chunk
-Use `write_dataset` to write rows. **Important**: `output.path` must be a full file path, not a directory.
+Use `write_dataset` with full file path. Each chunk → separate file: `{output_name}_part{N}.csv`
 
-- First chunk → creates the file
-- Subsequent chunks → **write to separate part files**: `{output_name}_part{N}.csv`
+Output columns: `source_uid, premise, hypothesis, label, rule, tier, reason`
 
-(Note: `write_dataset` does not support append mode, so each chunk goes to its own file.)
+- `premise`: translated + possibly transformed (Vietnamese)
+- `hypothesis`: translated + adversarially transformed (Vietnamese)
+- `label`: **same as original** (entailment / neutral / contradiction)
+- `rule`: which adversarial rule was applied
+- `tier`: surface / structural / deep_semantic
 
 #### 1.7 Report progress
-After each chunk: `Done chunk N. Rows this chunk: X. Cumulative: Y. Labels: E/C/N = a/b/c.`
+`Done chunk N. Rows: X. Cumulative: Y. Labels: E/C/N = a/b/c. Tiers: Sf/St/Ds = d/e/f.`
 
 ### Phase 2 — Continue Until Done
 
-Repeat Phase 1 until target reached or all premises processed.
+Repeat Phase 1 until target reached.
 
 ### Phase 3 — Merge & Final Report
-
-After all chunks are written, optionally merge part files into one:
 
 ```bash
 head -1 {output_name}_part1.csv > {output_name}.csv
 tail -n +2 -q {output_name}_part*.csv >> {output_name}.csv
 ```
 
-Final report:
-
 | Metric | Value |
 |--------|-------|
-| Total premises processed | X |
-| Total hypotheses generated | X × 3 |
-| Entailment / Contradiction / Neutral | E / C / N |
+| Total rows processed | X |
+| Entailment / Neutral / Contradiction | E / N / C |
 | Surface / Structural / Deep Semantic | Sf / St / Ds |
 | Rule distribution | per-rule counts |
-| Skipped premises | Z (with reasons) |
-| Output file(s) | path(s) |
+| Skipped | Z (with reasons) |
+| Output | path |
 
 ## Output Schema
 
