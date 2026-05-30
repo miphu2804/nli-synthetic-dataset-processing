@@ -73,14 +73,15 @@ Label-leaking cue words to avoid (unless semantically required by the premise):
 
 This skill runs as a **manual sandbox loop** — you (the AI agent) do the translation and transformation. There is no separate generator API endpoint.
 
-**Progress tracking**: Use `progress.jsonl` (append-only JSONL with hash chain for integrity). Every row processed = 1 `row.done` event. To know where to resume: `grep -c '"event":"row.done"' progress.jsonl`. Full event schema in companion skill — load via `get_skill("progress_tracking")`.
+**Before starting**: Load the progress tracking skill via `get_skill("progress_tracking")`. It defines the JSONL event log format (`id`, `prev_hash`, `ts`) and all event types (`run.start`, `row.done`, `batch.done`, `row.skip`, `run.end`). Every action must be logged to `progress.jsonl`.
 
 ### Phase 0 — Setup & Confirm
 
-1. Read the input dataset to verify columns: must have `premise`, `hypothesis`, `label`
-2. Print: total rows, columns, 3 sample rows
-3. Initialize `progress.jsonl` with a `run.start` event (`prev_hash: "0"`, see progress_tracking for format)
-4. Confirm with user:
+1. **Load progress_tracking skill**: `get_skill("progress_tracking")` — memorize the event schema
+2. Read the input dataset to verify columns: must have `premise`, `hypothesis`, `label`
+3. Print: total rows, columns, 3 sample rows
+4. Initialize `progress.jsonl` with a `run.start` event (see progress_tracking for format: `prev_hash:"0"`)
+5. Confirm with user:
    - **How many rows** to process? (default: all)
    - **Chunk size**: 5–10 rows at a time (small to avoid truncation)
    - **Output filename**: user decides; suggest `{input_name}_nli_adversarials.csv`
