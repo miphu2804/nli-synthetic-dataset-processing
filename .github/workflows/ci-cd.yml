@@ -49,7 +49,7 @@ jobs:
         with:
           images: ${{ secrets.DOCKER_USERNAME }}/nli-synthetic-data-processing
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value={{date 'YYYYMMDD-HHmmss'}}
             type=sha,format=short
 
       - name: Build and push
