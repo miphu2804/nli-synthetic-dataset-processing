@@ -123,16 +123,16 @@ grep '"event":"row.done"' $PROGRESS | grep -o '"label":"[^"]*"' | sort | uniq -c
 # Skipped rows with reasons
 grep '"event":"row.skip"' $PROGRESS | jq '{uid:.source_uid, reason}'
 
-# Verify hash chain integrity
+# Verify hash chain integrity (Python hashlib = C-backed, ~900K events/s)
 python3 -c "
 import hashlib, json
 prev = '0'
 with open('progress.jsonl') as f:
     for i, line in enumerate(f, 1):
         obj = json.loads(line)
-        assert obj['prev_hash'] == prev, f'Chain broken at line {i}: expected {prev}, got {obj[\"prev_hash\"]}'
-        prev = hashlib.sha256(line.encode()).hexdigest()
-print(f'Chain OK: {i} events verified')
+        assert obj['prev_hash'] == prev, f'Chain broken at line {i}'
+        prev = hashlib.sha256(line.rstrip('\n').encode()).hexdigest()
+print(f'Chain OK: {i} events, last hash: {prev}')
 "
 ```
 
