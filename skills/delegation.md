@@ -119,6 +119,37 @@ Main agent checks each subagent output before writing:
 
 Fail 2+ rows in a batch → re-spawn subagent with same batch, different wording.
 
+## Multi-Agent Collaboration (shared progress.jsonl)
+
+When multiple agents work on the same dataset, `progress.jsonl` lives in a shared location (git repo, shared drive). Agents coordinate via the log — no lock server, no database.
+
+### Workflow
+
+```
+1. Read progress.jsonl → see what's claimed, what's done
+2. Claim next available rows:
+   echo '{"id":"alice-3","event":"claim","agent":"alice","rows":"51-100",...}' >> progress.jsonl
+3. Sync claim (git push / save to shared drive)
+4. Process rows 51-100
+5. Append row.done events, sync again
+```
+
+### Conflict: two agents claim same rows
+
+Rule: **earlier timestamp wins.** Loser unclaims and picks new rows.
+
+```bash
+# Check if someone else claimed my rows
+grep '"rows":"51-100"' progress.jsonl | grep -v '"agent":"alice"'
+
+# If conflict and I lost → unclaim
+echo '{"id":"alice-99","event":"unclaim","agent":"alice","rows":"51-100","reason":"conflict"}' >> progress.jsonl
+```
+
+### Per-agent files
+
+Each agent writes to its own CSV: `alice_part1.csv`, `bob_part1.csv`. No file conflict. Merge all at the end.
+
 ## Model Selection
 
 | Agent | Model | Why |

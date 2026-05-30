@@ -1,8 +1,8 @@
 # Progress Tracking — Event Log (JSONL)
 
-Track NLI generation progress with an append-only JSONL event log. Every event links to its parent via hash, forming an immutable chain. **The log IS the state** — no external DB, no memory.
+Append-only JSONL event log. **The log IS the state** — query it to know where you are, what's done, what's skipped. Hash chain per agent for integrity.
 
-**MCP access**: This skill is available at `skill://progress_tracking`. Load it via `get_skill("progress_tracking")` (MCP tool) or through the REST endpoint `/api/skills/progress_tracking`. Agents and subagents should load this skill before interacting with any `progress.jsonl` file.
+**MCP access**: `skill://progress_tracking` — load via `get_skill("progress_tracking")`.
 
 ## Event Format
 
@@ -10,140 +10,117 @@ Every event must have:
 
 | Field | What | Example |
 |-------|------|---------|
-| `id` | Monotonic sequence number | `1`, `2`, `3`, ... |
+| `id` | Monotonic per-agent (`alice-1`, `alice-2`, ...) | `"alice-3"` |
 | `ts` | ISO timestamp | `"2026-05-30T14:02:01Z"` |
-| `event` | Event type | `"row.done"` |
-| `prev_hash` | SHA-256 of previous line (for first event: `"0"`) | `"a1b2c3d4..."` |
+| `event` | Event type | `"row.done"`, `"claim"`, ... |
+| `agent` | Who wrote this | `"alice"` |
+| `prev_hash` | SHA-256 of previous line by THIS agent | `"a1b2c3..."` |
 
-Plus type-specific fields.
+## Per-Agent Hash Chain
 
-## Hash Chain
-
-Each line is hashed (full JSON string, including newline) and the hash goes into the **next** line's `prev_hash`. This makes the log tamper-proof:
+Each agent has its own chain. Two agents appending simultaneously won't break each other's hashes.
 
 ```
-Line 1: {"id":1,"ts":"...","event":"run.start","prev_hash":"0",...}
-          → hash(line1) = "abc123"
-
-Line 2: {"id":2,"ts":"...","event":"row.done","prev_hash":"abc123",...}
-          → hash(line2) = "def456"
-
-Line 3: {"id":3,"ts":"...","event":"row.done","prev_hash":"def456",...}
+alice:  {"agent":"alice","prev_hash":"0",...}  → hash → {"agent":"alice","prev_hash":"abc",...}
+bob:    {"agent":"bob","prev_hash":"0",...}    → hash → {"agent":"bob","prev_hash":"xyz",...}
 ```
 
-To verify: `sha256(line_N) == line_N+1.prev_hash` for all N. If any line is edited, the chain breaks.
+Verify per agent: `grep '"agent":"alice"' progress.jsonl | python3 verify.py`
 
 ## Event Types
 
-### 1. `run.start` — first line of every run
+### `run.start` / `run.end`
 
 ```jsonl
-{"id":1,"ts":"2026-05-30T14:00:00Z","event":"run.start","prev_hash":"0","input":"data/anlitrain1.csv","total_rows":100,"batch_size":5,"output":"data/anlitrain1_nli_adversarials.csv"}
+{"id":"alice-0","ts":"...","event":"run.start","agent":"alice","prev_hash":"0"}
+{"id":"alice-99","ts":"...","event":"run.end","agent":"alice","prev_hash":"...","processed":50}
 ```
 
-### 2. `run.end` — last line of a completed run
+### `claim` — rows this agent will process
 
 ```jsonl
-{"id":99,"ts":"2026-05-30T14:30:00Z","event":"run.end","prev_hash":"...","processed":50,"skipped":2}
+{"id":"alice-1","ts":"...","event":"claim","agent":"alice","prev_hash":"...","rows":"1-50"}
 ```
 
-### 3. `row.done` — one row processed successfully
+Other agents skip claimed rows. Prevents duplicate work.
+
+### `unclaim` — release rows (failed, abandoning)
 
 ```jsonl
-{"id":15,"ts":"2026-05-30T14:02:00Z","event":"row.done","prev_hash":"...","source_uid":12}
+{"id":"alice-2","ts":"...","event":"unclaim","agent":"alice","prev_hash":"...","rows":"41-50","reason":"premise broken"}
 ```
 
-The most important event. Query it to:
-- Check if a row is already processed: `grep '"source_uid":42' progress.jsonl`
-- Count rows done: `grep -c '"event":"row.done"' progress.jsonl`
-- Resume from: `grep -c '"event":"row.done"' progress.jsonl` + 1
-
-Note: label, rule, tier are in the CSV output — query those files for distribution stats.
-
-### 4. `row.skip` — row failed after retries
+### `row.done` — one row finished
 
 ```jsonl
-{"id":18,"ts":"2026-05-30T14:03:00Z","event":"row.skip","prev_hash":"...","source_uid":15,"reason":"premise too short","retries":3}
+{"id":"alice-3","ts":"...","event":"row.done","agent":"alice","prev_hash":"...","source_uid":1}
 ```
 
-### 5. `batch.done` — one batch written to file
+### `row.skip` — row failed after retries
 
 ```jsonl
-{"id":20,"ts":"2026-05-30T14:04:00Z","event":"batch.done","prev_hash":"...","batch":3,"rows":"11-15","file":"data/output_part3.csv"}
+{"id":"alice-4","ts":"...","event":"row.skip","agent":"alice","prev_hash":"...","source_uid":5,"reason":"empty","retries":3}
 ```
 
-### 6. `batch.fail` — batch write failed
+### `batch.done` / `batch.fail`
 
 ```jsonl
-{"id":21,"ts":"2026-05-30T14:05:00Z","event":"batch.fail","prev_hash":"...","batch":4,"error":"write_dataset timeout"}
+{"id":"alice-5","ts":"...","event":"batch.done","agent":"alice","prev_hash":"...","batch":1,"rows":"1-5","file":"alice_part1.csv"}
+{"id":"alice-6","ts":"...","event":"batch.fail","agent":"alice","prev_hash":"...","batch":2,"error":"write timeout"}
 ```
-
-## Causal Chain
-
-Since `prev_hash` links each line to the one before, the full run history is traceable:
-
-```
-id:1  (run.start)
-  ↓ prev_hash
-id:2  (row.done, uid=1)
-  ↓ prev_hash
-id:3  (row.done, uid=2)
-  ↓ prev_hash
-...  
-  ↓ prev_hash
-id:20 (batch.done, batch=3)
-  ↓ prev_hash
-id:21 (row.done, uid=16)
-  ↓ prev_hash
-...
-  ↓ prev_hash
-id:99 (run.end)
-```
-
-To trace what happened in batch 3: find `batch.done` with `batch:3` (id:20), then find all `row.done` events between the previous `batch.done` (id:14) and id:20.
 
 ## Quick Queries
 
 ```bash
 PROGRESS="progress.jsonl"
 
-# Resume: where was I?
-tail -1 $PROGRESS                          # last event
-grep '"event":"row.done"' $PROGRESS | wc -l  # rows done so far
-grep '"event":"batch.done"' $PROGRESS | tail -1 | jq '.batch'  # last batch number
+# Total done (all agents)
+grep -c '"event":"row.done"' $PROGRESS
 
-# Has this row been processed?
+# Done by me
+grep '"event":"row.done"' $PROGRESS | grep -c '"agent":"alice"'
+
+# Check if row is done by anyone
 grep '"source_uid":42' $PROGRESS
+
+# What rows are claimed?
+grep '"event":"claim"' $PROGRESS
+
+# My next row to process
+my_done=$(grep '"event":"row.done"' $PROGRESS | grep -c '"agent":"alice"')
+echo "Next: $((my_done + 1))"
 
 # Skipped rows with reasons
 grep '"event":"row.skip"' $PROGRESS | jq '{uid:.source_uid, reason}'
+```
 
-# Verify hash chain integrity (Python hashlib = C-backed, ~900K events/s)
-python3 -c "
-import hashlib, json
+## Verify Hash Chain
+
+Per-agent verification. Hash chain proves no one tampered with this agent's log.
+
+```bash
+grep '"agent":"alice"' progress.jsonl | python3 -c "
+import hashlib, json, sys
 prev = '0'
-with open('progress.jsonl') as f:
-    for i, line in enumerate(f, 1):
-        obj = json.loads(line)
-        assert obj['prev_hash'] == prev, f'Chain broken at line {i}'
-        prev = hashlib.sha256(line.rstrip('\n').encode()).hexdigest()
-print(f'Chain OK: {i} events, last hash: {prev}')
+for i, line in enumerate(sys.stdin, 1):
+    obj = json.loads(line)
+    assert obj['prev_hash'] == prev, f'Broken at line {i}'
+    prev = hashlib.sha256(line.rstrip('\n').encode()).hexdigest()
+print(f'alice chain OK: {i} events')
 "
 ```
 
-## How to Use
+## File Location
 
-1. **Start a run**: append `run.start` with `prev_hash:"0"`
-2. **Each row done**: append `row.done` with `prev_hash = sha256(previous line)`
-3. **Each batch done**: append `batch.done`
-4. **Row failed**: append `row.skip`
-5. **Run done**: append `run.end`
-6. **Resume**: `grep '"event":"row.done"' progress.jsonl | wc -l` → continue from `count + 1`
+```
+.pipeline/progress.jsonl    ← tracked in git
+.pipeline/outputs/          ← gitignored (CSV per agent)
+```
 
 ## Constraints
 
 - **Append-only** — `>>`, never `>`
-- **Monotonic id** — 1, 2, 3, ..., never reuse
-- **prev_hash required** — every event links to the previous line's hash
+- **Per-agent `id`** — `{name}-{N}`, never reuse
+- **`agent` field on every line**
+- **`prev_hash` per-agent** — hash of previous line by same agent
 - **One event per line** — no newlines inside JSON
-- **Timestamp everything** — ISO 8601, seconds precision
