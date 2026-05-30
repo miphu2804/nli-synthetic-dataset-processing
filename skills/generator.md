@@ -73,13 +73,13 @@ Label-leaking cue words to avoid (unless semantically required by the premise):
 
 This skill runs as a **manual sandbox loop** — you (the AI agent) do the translation and transformation. There is no separate generator API endpoint.
 
-**Progress tracking**: Use `progress.jsonl` (append-only JSONL event log) to track every action. See the companion skill `progress_tracking` for the full event schema (`id`, `caused_by`, `ts` fields) and bash query patterns. Load it at start via `get_skill("progress_tracking")`.
+**Progress tracking**: Use `progress.jsonl` (append-only JSONL with hash chain for integrity). Every row processed = 1 `row.done` event. To know where to resume: `grep -c '"event":"row.done"' progress.jsonl`. Full event schema in companion skill — load via `get_skill("progress_tracking")`.
 
 ### Phase 0 — Setup & Confirm
 
 1. Read the input dataset to verify columns: must have `premise`, `hypothesis`, `label`
 2. Print: total rows, columns, 3 sample rows
-3. Initialize `progress.jsonl` with a `run.started` event (see progress_tracking skill for format)
+3. Initialize `progress.jsonl` with a `run.start` event (`prev_hash: "0"`, see progress_tracking for format)
 4. Confirm with user:
    - **How many rows** to process? (default: all)
    - **Chunk size**: 5–10 rows at a time (small to avoid truncation)
@@ -111,8 +111,6 @@ For each translated pair, pick 1 adversarial rule based on the **original label*
 
 Pick the rule's tier following the rotation: Surface → Structural → Deep Semantic → (repeat). Track rule usage, prefer least-used.
 
-**Before calling LLM**: check cache. Hash `(premise, hypothesis, rule)` → grep cache.jsonl. If hit, reuse cached result and log `row.cached` event with `cache_hit: true`. If miss, call LLM, then append response to cache.jsonl and log `row.cached` event with `cache_hit: false`.
-
 #### 1.4 Apply adversarial transformation
 Transform the **hypothesis** (and/or premise if needed) according to the assigned rule:
 - **Surface tier**: light lexical/syntactic changes — easy to detect
@@ -135,7 +133,7 @@ Check each transformed pair:
 Fail 3 times → skip row, log reason.
 
 #### 1.6 Log events to progress.jsonl
-After processing each row, append a `row.processed` event. After each batch, append a `batch.completed` event. See `progress_tracking` skill for exact field schema (`id`, `caused_by`, `ts`).
+After each row: append a `row.done` event. After each batch: append `batch.done`. If a row fails: `row.skip`. See `progress_tracking` for exact field schema (`id`, `prev_hash`, `ts`).
 
 #### 1.7 Write chunk
 Use `write_dataset` with full file path. Each chunk → separate file: `{output_name}_part{N}.csv`
@@ -151,7 +149,7 @@ Output columns: `source_uid, premise, hypothesis, label, rule, tier, reason`
 #### 1.8 Report progress
 `Done batch N. Rows: X. Cumulative: Y. Labels: E/C/N = a/b/c. Tiers: Sf/St/Ds = d/e/f.`
 
-Also snapshot rule distribution: `grep '"event":"row.processed"' progress.jsonl | grep -o '"rule":"[^"]*"' | sort | uniq -c | sort -rn`
+Also snapshot rule distribution: `grep '"event":"row.done"' progress.jsonl | grep -o '"rule":"[^"]*"' | sort | uniq -c | sort -rn`
 
 ### Phase 2 — Continue Until Done
 

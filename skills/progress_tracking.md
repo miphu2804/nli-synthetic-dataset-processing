@@ -1,132 +1,154 @@
 # Progress Tracking — Event Log (JSONL)
 
-Track NLI generation progress with an append-only JSONL event log. Every action is an event with timestamp and causal relation. The log IS the state — no external DB, no memory.
+Track NLI generation progress with an append-only JSONL event log. Every event links to its parent via hash, forming an immutable chain. **The log IS the state** — no external DB, no memory.
 
 ## Event Format
 
-Every event has these required fields:
+Every event must have:
 
 | Field | What | Example |
 |-------|------|---------|
+| `id` | Monotonic sequence number | `1`, `2`, `3`, ... |
 | `ts` | ISO timestamp | `"2026-05-30T14:02:01Z"` |
-| `event` | Event type | `"row.processed"` |
-| `id` | Unique event id (monotonic) | `"evt_042"` |
-| `caused_by` | Parent event id or `null` | `"evt_041"` |
+| `event` | Event type | `"row.done"` |
+| `prev_hash` | SHA-256 of previous line (for first event: `"0"`) | `"a1b2c3d4..."` |
 
-Plus type-specific fields in the event body.
+Plus type-specific fields.
+
+## Hash Chain
+
+Each line is hashed (full JSON string, including newline) and the hash goes into the **next** line's `prev_hash`. This makes the log tamper-proof:
+
+```
+Line 1: {"id":1,"ts":"...","event":"run.start","prev_hash":"0",...}
+          → hash(line1) = "abc123"
+
+Line 2: {"id":2,"ts":"...","event":"row.done","prev_hash":"abc123",...}
+          → hash(line2) = "def456"
+
+Line 3: {"id":3,"ts":"...","event":"row.done","prev_hash":"def456",...}
+```
+
+To verify: `sha256(line_N) == line_N+1.prev_hash` for all N. If any line is edited, the chain breaks.
 
 ## Event Types
 
-### Run lifecycle
+### 1. `run.start` — first line of every run
 
 ```jsonl
-{"ts":"...","event":"run.started","id":"evt_001","caused_by":null,"total_rows":16946,"batch_size":5,"output":"data/anlitrain1_nli_adversarials.csv"}
-{"ts":"...","event":"run.completed","id":"evt_099","caused_by":"evt_001","total_processed":50,"skipped":2,"batches_done":10}
+{"id":1,"ts":"2026-05-30T14:00:00Z","event":"run.start","prev_hash":"0","input":"data/anlitrain1.csv","total_rows":100,"batch_size":5,"output":"data/anlitrain1_nli_adversarials.csv"}
 ```
 
-### Batch lifecycle
+### 2. `run.end` — last line of a completed run
 
 ```jsonl
-{"ts":"...","event":"batch.started","id":"evt_010","caused_by":"evt_001","batch":3,"rows":"11-15"}
-{"ts":"...","event":"batch.completed","id":"evt_020","caused_by":"evt_010","batch":3,"written":"data/output_part3.csv","row_count":5}
+{"id":99,"ts":"2026-05-30T14:30:00Z","event":"run.end","prev_hash":"...","processed":50,"skipped":2}
 ```
 
-### Row processing (the core event)
+### 3. `row.done` — one row processed successfully
 
 ```jsonl
-{"ts":"...","event":"row.processed","id":"evt_015","caused_by":"evt_010","source_uid":12,"label":"entailment","rule":"Voice flip","tier":"surface","premise_hash":"a1b2c3","hypothesis_hash":"d4e5f6"}
+{"id":15,"ts":"2026-05-30T14:02:00Z","event":"row.done","prev_hash":"...","source_uid":12,"label":"entailment","rule":"Voice flip","tier":"surface"}
 ```
 
-### Cache hit / miss
+This is the most important event. Query it to:
+- Check if a row is already processed: `grep '"source_uid":42'`
+- Count rows done: `grep -c '"event":"row.done"'`
+- Get rule distribution: `grep '"event":"row.done"' | grep -o '"rule":"[^"]*"' | sort | uniq -c`
+
+### 4. `row.skip` — row failed after retries
 
 ```jsonl
-{"ts":"...","event":"row.cached","id":"evt_016","caused_by":"evt_010","source_uid":13,"prompt_hash":"7f8a9b","cache_hit":true}
-{"ts":"...","event":"row.cached","id":"evt_017","caused_by":"evt_010","source_uid":14,"prompt_hash":"2c3d4e","cache_hit":false}
+{"id":18,"ts":"2026-05-30T14:03:00Z","event":"row.skip","prev_hash":"...","source_uid":15,"reason":"premise too short","retries":3}
 ```
 
-### Errors & skips
+### 5. `batch.done` — one batch written to file
 
 ```jsonl
-{"ts":"...","event":"row.skipped","id":"evt_018","caused_by":"evt_010","source_uid":15,"reason":"premise empty","retries":3}
-{"ts":"...","event":"batch.error","id":"evt_019","caused_by":"evt_010","batch":3,"error":"write_dataset timeout"}
+{"id":20,"ts":"2026-05-30T14:04:00Z","event":"batch.done","prev_hash":"...","batch":3,"rows":"11-15","file":"data/output_part3.csv"}
 ```
 
-### Rule usage snapshot (per batch)
+### 6. `batch.fail` — batch write failed
 
 ```jsonl
-{"ts":"...","event":"rules.snapshot","id":"evt_021","caused_by":"evt_020","counts":{"Voice flip":17,"Scope shift":14,"Direct negation":11,"Fallacious reasoning":9}}
+{"id":21,"ts":"2026-05-30T14:05:00Z","event":"batch.fail","prev_hash":"...","batch":4,"error":"write_dataset timeout"}
 ```
 
 ## Causal Chain
 
-The `id` + `caused_by` fields form a traceable tree:
+Since `prev_hash` links each line to the one before, the full run history is traceable:
 
 ```
-evt_001 (run.started)
-├── evt_010 (batch.started, batch=1)
-│   ├── evt_011 (row.processed, uid=1)
-│   ├── evt_012 (row.processed, uid=2)
-│   ├── evt_013 (row.processed, uid=3)
-│   └── evt_014 (batch.completed)
-├── evt_020 (batch.started, batch=2)
-│   ├── evt_021 (row.cached, cache_hit=true)
-│   ├── evt_022 (row.processed, uid=6)
-│   └── evt_023 (batch.completed)
-└── evt_099 (run.completed)
+id:1  (run.start)
+  ↓ prev_hash
+id:2  (row.done, uid=1)
+  ↓ prev_hash
+id:3  (row.done, uid=2)
+  ↓ prev_hash
+...  
+  ↓ prev_hash
+id:20 (batch.done, batch=3)
+  ↓ prev_hash
+id:21 (row.done, uid=16)
+  ↓ prev_hash
+...
+  ↓ prev_hash
+id:99 (run.end)
 ```
 
-To trace a row back: `row uid=2 → evt_012 → caused_by evt_010 → caused_by evt_001`. Full lineage in 2 hops.
+To trace what happened in batch 3: find `batch.done` with `batch:3` (id:20), then find all `row.done` events between the previous `batch.done` (id:14) and id:20.
 
-## Quick Queries (bash + grep)
+## Quick Queries
 
 ```bash
 PROGRESS="progress.jsonl"
 
-# Where am I?
-tail -1 $PROGRESS | jq -r '.event'              # last event type
-grep '"event":"batch.completed"' $PROGRESS | tail -1 | jq '.batch'  # last done batch
+# Resume: where was I?
+tail -1 $PROGRESS                          # last event
+grep '"event":"row.done"' $PROGRESS | wc -l  # rows done so far
+grep '"event":"batch.done"' $PROGRESS | tail -1 | jq '.batch'  # last batch number
 
-# What's next?
-last=$(grep '"event":"row.processed"' $PROGRESS | tail -1 | jq '.source_uid')
-echo "Next: $((last + 1))"
+# Has this row been processed?
+grep '"source_uid":42' $PROGRESS
 
 # Rule distribution
-grep '"event":"row.processed"' $PROGRESS | grep -o '"rule":"[^"]*"' | sort | uniq -c | sort -rn
+grep '"event":"row.done"' $PROGRESS | grep -o '"rule":"[^"]*"' | sort | uniq -c | sort -rn
 
-# Skipped rows
-grep '"event":"row.skipped"' $PROGRESS | jq '{uid:.source_uid, reason}'
+# Tier distribution  
+grep '"event":"row.done"' $PROGRESS | grep -o '"tier":"[^"]*"' | sort | uniq -c
 
-# Cache hit rate
-total=$(grep -c '"event":"row.cached"' $PROGRESS)
-hits=$(grep -c '"cache_hit":true' $PROGRESS)
-echo "Hit rate: $hits / $total"
+# Label distribution
+grep '"event":"row.done"' $PROGRESS | grep -o '"label":"[^"]*"' | sort | uniq -c
 
-# Trace a specific uid
-grep '"source_uid":42' $PROGRESS | jq '{event, rule, tier, caused_by}'
+# Skipped rows with reasons
+grep '"event":"row.skip"' $PROGRESS | jq '{uid:.source_uid, reason}'
 
-# Reconstruct batch 3
-grep '"caused_by":"evt_010"' $PROGRESS | jq -c '{event,source_uid,rule,label}'
+# Verify hash chain integrity
+python3 -c "
+import hashlib, json
+prev = '0'
+with open('progress.jsonl') as f:
+    for i, line in enumerate(f, 1):
+        obj = json.loads(line)
+        assert obj['prev_hash'] == prev, f'Chain broken at line {i}: expected {prev}, got {obj[\"prev_hash\"]}'
+        prev = hashlib.sha256(line.encode()).hexdigest()
+print(f'Chain OK: {i} events verified')
+"
 ```
 
-## Cache Integration
+## How to Use
 
-When using LLM to transform a row, check cache first:
-
-```bash
-# Before calling LLM
-prompt_hash=$(echo '{"premise":"...","rule":"Voice flip"}' | md5)
-if grep -q "\"prompt_hash\":\"$prompt_hash\",\"cache_hit\":true" $PROGRESS; then
-    echo "Cached — skip"
-else
-    # Call LLM, then record:
-    echo '{"ts":"...","event":"row.cached","id":"evt_NNN","caused_by":"evt_XXX","source_uid":99,"prompt_hash":"'$prompt_hash'","cache_hit":false}' >> $PROGRESS
-fi
-```
+1. **Start a run**: append `run.start` with `prev_hash:"0"`
+2. **Each row done**: append `row.done` with `prev_hash = sha256(previous line)`
+3. **Each batch done**: append `batch.done`
+4. **Row failed**: append `row.skip`
+5. **Run done**: append `run.end`
+6. **Resume**: `grep '"event":"row.done"' progress.jsonl | wc -l` → continue from `count + 1`
 
 ## Constraints
 
-- **Always append** — never edit existing lines (`>>`, not `>`)
-- **Monotonic ids** — `evt_001`, `evt_002`, ... (increment, never reuse)
-- **Timestamp everything** — ISO 8601, seconds precision is enough
-- **One event per line** — no pretty-print, no newlines inside JSON
-- **caused_by must be valid** — the parent event id must exist in the log
+- **Append-only** — `>>`, never `>`
+- **Monotonic id** — 1, 2, 3, ..., never reuse
+- **prev_hash required** — every event links to the previous line's hash
+- **One event per line** — no newlines inside JSON
+- **Timestamp everything** — ISO 8601, seconds precision
