@@ -24,12 +24,6 @@ class LabelDistribution(BaseModel):
     neutral: int = 0
 
 
-class TierDistribution(BaseModel):
-    surface: int = 0
-    structural: int = 0
-    deep_semantic: int = 0
-
-
 class GenerateProgress(BaseModel):
     batches_completed: int = 0
     total_batches: int = 0
@@ -43,6 +37,5 @@ class DatasetGenerateResponse(BaseModel):
     total_premises: int
     total_hypotheses: int
     label_distribution: LabelDistribution = Field(default_factory=LabelDistribution)
-    tier_distribution: TierDistribution = Field(default_factory=TierDistribution)
     progress: GenerateProgress = Field(default_factory=GenerateProgress)
     message: str | None = None
