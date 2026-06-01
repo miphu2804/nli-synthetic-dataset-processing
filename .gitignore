@@ -8,3 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local runtime artifacts
+.pipeline/
+.cocoindex_code/
+outputs/
+data/generated/

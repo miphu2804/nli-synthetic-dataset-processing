@@ -2,6 +2,9 @@
 __pycache__
 .git
 .claude
+.cocoindex_code
+.pipeline
 data
+outputs
 *.pyc
 .env
