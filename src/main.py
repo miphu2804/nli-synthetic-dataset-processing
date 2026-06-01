@@ -2,12 +2,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastmcp import FastMCP
 
+from src.providers import register_dispatch_planning_tools, register_generation_tools
+from src.routers.dispatch_plan_router import dispatch_plan_router
 from src.routers.reader_router import reader_router
 from src.routers.skill_router import skill_router
 from src.routers.writer_router import writer_router
 from src.services.skill_service import SkillService
 
 app = FastAPI()
+app.include_router(dispatch_plan_router)
 app.include_router(reader_router)
 app.include_router(skill_router)
 app.include_router(writer_router)
@@ -30,6 +33,8 @@ mcp = FastMCP.from_fastapi(app, name="nli-data-processing-mcp-server")
 mcp_app = mcp.http_app(path="/")
 app.router.lifespan_context = mcp_app.lifespan
 app.mount("/mcp", mcp_app)
+generation_tool_provider = register_generation_tools(mcp)
+dispatch_planning_tool_provider = register_dispatch_planning_tools(mcp)
 
 skill_service = SkillService()
 
