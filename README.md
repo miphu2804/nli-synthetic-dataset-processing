@@ -1,109 +1,110 @@
 # NLI Synthetic Data Processing
 
-Vietnamese NLI adversarial data generation using 19 rule-based transformations across 3 difficulty tiers, driven by agent skills.
+Vietnamese NLI adversarial data generation using 19 label-compatible
+transformations. An LLM harness connects through MCP, processes one local slice
+and writes one output CSV.
 
-## Quick Start
+## Local Start
 
 ```bash
 uv sync
 uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
 ```
 
-## Project Structure
-
-```
-skills/                     # Agent skill definitions
-├── generator.md            # 19-rule NLI pipeline (entailment/neutral/contradiction)
-├── progress_tracking.md    # JSONL append-only event log + per-agent hash chain
-├── delegation.md           # Subagent parallel execution + responsibility split
-├── execution.md            # Runtime boundary: LLM / Bash / Monty sandbox
-└── aggregator.md           # CSV merge + dedup
-
-src/                        # FastAPI backend
-├── main.py                 # App entry point
-├── app_config.py           # Env vars
-├── routers/                # REST endpoints
-├── schemas/                # Request/response models
-└── services/               # reader, writer, skill loader
-
-.pipeline/                  # Runtime state (git tracked)
-└── progress.jsonl          # Append-only event log
-
-data/
-├── original/               # Raw input datasets
-├── generated/              # Final output CSVs
-├── batches/                # Temp chunks (cleaned after merge)
-└── processed/              # Archived processed datasets
-
-docs/                       # Vietnamese documentation
-```
-
 ## Skills
 
-| Skill | Purpose |
-|-------|---------|
-| [`generator`](skills/generator.md) | 19 adversarial rules × 3 labels × 3 tiers, anti-artifact constraints, output schema |
-| [`progress_tracking`](skills/progress_tracking.md) | JSONL event log, per-agent hash chain, claim/resume/verify |
-| [`delegation`](skills/delegation.md) | Subagent handoff, parallel execution |
-| [`execution`](skills/execution.md) | LLM → text, Bash → I/O, Monty sandbox → Python |
-| [`aggregator`](skills/aggregator.md) | Merge & deduplicate CSV files |
+| Resource | Purpose |
+|----------|---------|
+| `skill://generator` | Transformation rules and MCP workflow |
+| `skill://delegation` | Stateless parallel worker prompt |
+| `skill://progress_tracking` | Local audit, resume and cleanup |
+| `skill://execution` | Runtime ownership boundaries |
+| `skill://aggregator` | Finalize behavior |
 
-## Output Schema
+## Container Start
 
-```csv
-source_uid, premise, hypothesis, label
+```bash
+docker run --rm -p 8000:8000 IMAGE:<tag>
 ```
 
-| Column | Description |
-|--------|-------------|
-| `source_uid` | Original row ID from input |
-| `premise` | Translated to Vietnamese |
-| `hypothesis` | Translated + adversarially transformed (Vietnamese) |
-| `label` | `entailment` / `neutral` / `contradiction` (preserved from input) |
+MCP endpoint:
+
+```text
+http://localhost:8000/mcp/
+```
+
+## MCP Flow
+
+```text
+start_generation_run
+  → calculate_dispatch_plan(samples=total_target_rows, batch_size=batch_size)
+  → claim enough batches to fill parallel_workers slots
+  → dispatch claimed batches to LLM subagents in parallel
+  → submit each completed batch and refill its slot immediately
+  → repeat until claim_next_batch returns complete
+  → finalize_generation_run
+```
 
 ## State Machine
 
-```
-  START ──→ load skills ──→ read dataset ──→ init .pipeline/progress.jsonl
-                                                    │
-                    ┌───────────────────────────────┘
+```text
+  START → load skills → start run → init .pipeline/runs/{run_id}
+                                      │
+                    ┌─────────────────┘
                     ▼
-              ┌──────────┐
-         ┌───→│  CLAIM   │  claim next N rows (prevents duplicate work)
-         │    └────┬─────┘
-         │         ▼
-         │    ┌──────────┐
-         │    │ TRANSFORM│  subagent: translate EN→VI + apply adversarial rule
-         │    └────┬─────┘
-         │         ▼
-         │    ┌──────────┐
-         │    │ VALIDATE │  label preserved? VI? grammar? no cue leak?
-         │    └──┬───┬───┘
-         │   PASS│   │FAIL → retry (max 3) → skip + log reason
+              ┌───────────┐
+         ┌───→│   CLAIM   │  claim next local batch
+         │    └─────┬─────┘
+         │          ▼
+         │    ┌───────────┐
+         │    │ TRANSFORM │  subagent: translate EN → VI + apply adversarial rule
+         │    └─────┬─────┘
+         │          ▼
+         │    ┌───────────┐
+         │    │ VALIDATE  │  label preserved? natural VI? no cue leak?
+         │    └──┬────┬───┘
+         │  PASS │    │ FAIL → retry (max 3) → row.skip + reason
          │       ▼
-         │    ┌──────────┐
-         │    │  WRITE   │  write part{N}.csv + append row.done to log
-         │    └────┬─────┘
-         │         ▼
-         │    ┌──────────┐
-         │    │ MORE?    │──YES──┘
-         │    └────┬─────┘
-         │         │NO
-         │         ▼
-         │    ┌──────────┐
-         └────│  MERGE   │  merge part*.csv → final, rm part*, verify chain
-              └──────────┘
+         │    ┌───────────┐
+         │    │   WRITE   │  batch CSV + row.done | row.skip + batch.done
+         │    └─────┬─────┘
+         │          ▼
+         │    ┌───────────┐
+         └────│   MORE?   │── YES
+              └─────┬─────┘
+                    │ NO
+                    ▼
+              ┌───────────┐
+              │ FINALIZE  │  merge output → verify → cleanup local run
+              └───────────┘
 ```
 
 ## Progress Tracking
 
-Append-only JSONL at `.pipeline/progress.jsonl`. Each agent has its own hash chain — two agents writing concurrently won't collide. `claim` prevents duplicate work.
+Progress is an append-only JSONL event log at
+`.pipeline/runs/{run_id}/progress.jsonl`. MCP runtime tools are the only progress
+writers. The main agent calls those tools sequentially. Subagents receive
+claimed rows, transform text and return JSON only.
 
-```jsonl
-{"id":"main-0","ts":"...","event":"run.start","agent":"main","prev_hash":"0","total":100}
-{"id":"main-1","ts":"...","event":"claim","agent":"main","prev_hash":"abc...","rows":"1-100"}
-{"id":"main-2","ts":"...","event":"row.done","agent":"main","prev_hash":"def...","source_uid":1}
-{"id":"main-3","ts":"...","event":"batch.done","agent":"main","prev_hash":"ghi...","batch":1,"rows":"1-10"}
-{"id":"main-4","ts":"...","event":"run.end","agent":"main","prev_hash":"jkl...","processed":100,"skipped":0}
+The server appends:
+
+```text
+run.start
+  → claim
+  → row.done | row.skip
+  → batch.done
+  → ...
+  → merge.done
+  → run.end
+  → delete .pipeline/runs/{run_id}
 ```
 
+Each event includes `id`, `ts`, `event`, `agent` and `prev_hash`. Do not edit,
+share or push `.pipeline`.
+
+```jsonl
+{"id":"main-1","event":"claim","agent":"main","prev_hash":"abc...","ts":"...","batch_id":"batch-00001","source_uids":[1,2],"row_count":2}
+```
+
+If interrupted, call `list_generation_runs`, inspect with `get_run_progress`
+and release abandoned claims with `release_batch_claim`.
