@@ -25,7 +25,7 @@ uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
 ## Container Start
 
 ```bash
-docker run --rm -p 8000:8000 IMAGE:<tag>
+docker run --pull=always -p 8000:8000 miphu2804/nli-synthetic-data-processing:latest
 ```
 
 MCP endpoint:
