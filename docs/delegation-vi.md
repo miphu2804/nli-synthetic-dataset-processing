@@ -1,79 +1,38 @@
-# Delegation — Giải thích
+# Delegation - Giải thích
 
-## Ý tưởng
+## Nguyên tắc
 
-Main agent đọc dataset + assign rule. Subagent xử lý batch (dịch + transform). Subagent là pure function — không state, không biết batch trước. Làm xong bị hủy. Context main agent không bị dồn.
+Chỉ đọc `skill://delegation` khi xử lý ít nhất `100` row được giao. Với ít hơn
+`100` row, main agent có thể transform trực tiếp.
 
-## Phân chia
+Main agent local là MCP caller duy nhất. MCP runtime tool ghi progress. Subagent
+chỉ xử lý text:
 
-| | Main agent | Subagent |
-|---|---|---|
-| Đọc dataset + progress.jsonl | ✓ | ✗ |
-| Claim row + gán rule + tier | ✓ | ✗ |
-| Dịch sang tiếng Việt | ✗ | ✓ |
-| Adversarial transform | ✗ | ✓ |
-| Validate cuối + ghi CSV | ✓ | ✗ |
-| Append progress.jsonl | ✓ | ✗ |
-
-## Subagent prompt (main agent build)
-
-Main agent copy 19 rule từ generator.md vào prompt, kèm batch data. Subagent không cần đọc skill.
-
-```
-You are an NLI adversarial transformer.
-[19 rule tables + anti-artifact constraints]
-[Batch JSON: 5 rows với source_uid, premise, hypothesis, label, assigned rule, tier]
-1. Translate BOTH premise and hypothesis to Vietnamese
-2. Apply assigned rule to hypothesis
-3. Label unchanged
-4. Return JSON array
+```text
+Main agent claim batch qua MCP
+  → gửi rows + rule cần dùng cho subagent
+  → subagent dịch và transform
+  → subagent trả JSON
+  → main agent self-check generation output và submit qua MCP
 ```
 
-## Parallel (MANDATORY)
+Subagent không đọc `progress.jsonl`, không gọi MCP và không biết các batch khác.
+Validation phase độc lập sẽ được bổ sung sau, không nằm trong delegation flow.
 
-**Spawn tất cả subagent trong 1 message.** Mỗi con batch khác nhau → không conflict.
+## Parallel
 
+Main agent tính pool trước:
+
+```text
+total_batches = ceil(samples / batch_size)
+parallel_workers = min(total_batches, max_parallel_workers)
 ```
-Main agent (1 message với N subagent)
-  ├─ Subagent A: rows 1-5   ─┐
-  ├─ Subagent B: rows 6-10  ─┤ chạy cùng lúc
-  └─ Subagent C: rows 11-15 ─┘
-```
 
-Wave đầu 3 subagent (test chất lượng), OK thì scale lên 5+. Cap 10/lần.
+Mặc định `batch_size=20`, cap `10`. Main agent claim đủ slot theo thứ tự, spawn
+song song ngay. Batch nào xong trước thì self-check, submit và refill slot ngay.
+Không scale chậm từ 3 lên 5 worker.
 
-Sequential chỉ khi user nói "chạy từng cái một".
+## Local Scope
 
-## Multi-Agent (nhiều người cùng làm)
-
-Khi nhiều agent cùng xử lý 1 dataset, mỗi agent:
-1. Đọc `progress.jsonl` → xem row nào đã claim, đã done
-2. Claim row tiếp theo → echo `claim` event
-3. Xử lý batch → ghi CSV riêng (`alice_part1.csv`)
-4. Append `row.done` events
-5. Sync log (git push / shared drive)
-
-Không cần database, không cần lock server. Claim + append-only là đủ.
-
-## Model
-
-| Agent | Model |
-|-------|-------|
-| Main | Lớn nhất có sẵn |
-| Subagent | Nhỏ nhất có sẵn |
-
-Không hardcode tên model. Dùng subagent nếu harness hỗ trợ.
-
-## Flow
-
-```
-Main agent
-  ├─ Check progress.jsonl → row nào done, row nào claimed
-  ├─ Claim batch tiếp theo
-  ├─ Đọc batch + gán rule
-  ├─ Spawn subagent(s)
-  ├─ Validate output
-  ├─ Ghi CSV part file
-  ├─ Append progress.jsonl
-  └─ Báo user: "Done batch N"
-```
+Mỗi người chạy pipeline local riêng. Không push `.pipeline` lên Git và không
+sync qua shared drive. Việc chia dataset dùng `row_offset` và `row_limit`.

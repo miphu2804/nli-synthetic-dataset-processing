@@ -1,78 +1,75 @@
-# NLI Synthetic Data Processing — Tổng quan
+# NLI Synthetic Data Processing - Tổng quan
 
-## Dự án làm gì?
-
-Pipeline xử lý dữ liệu NLI tiếng Anh → tiếng Việt, có adversarial transformation. Mục tiêu: tạo dataset NLI tiếng Việt đa dạng về độ khó.
+Pipeline tạo dữ liệu NLI tiếng Việt adversarial từ dataset tiếng Anh đã có label.
 
 ## Kiến trúc
 
-```
-┌──────────────────────────────────────────────────┐
-│                  MCP Harness                       │
-│   (Claude Code / Codex CLI / custom agent)        │
-│                                                    │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────┐ │
-│  │ generator│ │ progress │ │delegation│ │exec  │ │
-│  │   .md    │ │_tracking │ │   .md    │ │ .md  │ │
-│  │          │ │   .md    │ │          │ │      │ │
-│  │19 rules  │ │JSONL log │ │subagent  │ │LLM   │ │
-│  │3 labels  │ │per-agent │ │handoff   │ │vs    │ │
-│  │3 tiers   │ │hash chain│ │parallel  │ │bash  │ │
-│  │          │ │claims    │ │multi-agt │ │monty │ │
-│  └──────────┘ └──────────┘ └──────────┘ └──────┘ │
-│                                                    │
-│  Skills: text guide cho agent đọc và thực thi       │
-└───────────────────────┬──────────────────────────┘
-                        │ MCP tools
-                        ▼
-┌──────────────────────────────────────────────────┐
-│              NLI-Tools Backend                     │
-│  /api/datasets/read   — đọc CSV/parquet           │
-│  /api/datasets/write  — ghi CSV                   │
-│  /api/skills/{name}   — đọc skill markdown        │
-│  /api/skills/         — list skill                │
-│  /health              — health check              │
-│  /mcp                 — MCP endpoint              │
-└──────────────────────────────────────────────────┘
-```
-
-## 4 Skills
-
-| Skill | Vai trò |
-|-------|---------|
-| `generator.md` | WHAT: 19 rule, 3 label, 3 tier, anti-artifact constraints |
-| `progress_tracking.md` | STATE: JSONL log, per-agent hash chain, claim, query |
-| `delegation.md` | HOW: subagent handoff, parallel execution, multi-agent sync |
-| `execution.md` | RUN: LLM cho text, bash cho query, Monty cho untrusted code |
-
-## Data Flow
-
-```
-Input: dataset.csv (premise EN, hypothesis EN, label)
-  → Agent đọc skill, claim row
-  → Subagent dịch + adversarial transform
-  → Validate + ghi CSV + append progress.jsonl
-  → Merge part files
-Output: dataset_nli_adversarials.csv
-  (premise VI, hypothesis VI, label, rule, tier, reason)
+```text
+┌──────────────────────────────────────────────────────────┐
+│                     LLM Harness                          │
+│          (Claude Code / Codex CLI / custom agent)        │
+│                                                          │
+│  skill://instructor: NLI task, resource map, phase flow  │
+│                                                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐   │
+│  │generator │ │ progress │ │delegation│ │ execution  │   │
+│  │          │ │ tracking │ │          │ │            │   │
+│  │19 rules  │ │JSONL log │ │stateless │ │LLM worker  │   │
+│  │3 labels  │ │hash chain│ │subagent  │ │MCP runtime │   │
+│  │self-check│ │resume    │ │parallel  │ │boundaries  │   │
+│  └──────────┘ └──────────┘ └──────────┘ └────────────┘   │
+│                                                          │
+│  aggregator: hướng dẫn finalize local run                │
+│  validator: phase dự kiến, chưa có resource              │
+│                                                          │
+│  User chia slice bằng row_offset + row_limit             │
+│  Main agent gọi MCP, self-check output và refill slot    │
+└──────────────────────────┬───────────────────────────────┘
+                           │ MCP tools
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│                 NLI-Tools MCP Backend                    │
+│                                                          │
+│  start_generation_run      → tạo local run               │
+│  calculate_dispatch_plan   → tính sliding window         │
+│  claim_next_batch          → claim local batch           │
+│  submit_batch_result       → ghi CSV + append progress   │
+│  finalize_generation_run   → merge, verify, cleanup      │
+│                                                          │
+│  State: .pipeline/runs/{run_id}/progress.jsonl           │
+│  Endpoint: http://localhost:8000/mcp/                    │
+└──────────────────────────┬───────────────────────────────┘
+                           │
+                           ▼
+                    output CSV cuối
 ```
 
-## Công nghệ
+## Quyền sở hữu
 
-| Lớp | Tech |
-|-----|------|
-| Backend | Python 3.11+, FastAPI, FastMCP |
-| Data | pandas, pyarrow |
-| State | `.pipeline/progress.jsonl` — append-only, per-agent hash chain |
-| Agent | Markdown skills, MCP tools |
-| Model | Orchestration: model lớn. Transform: model nhỏ. |
+| Thành phần | Trách nhiệm |
+|------------|-------------|
+| User | Chia slice bằng offset và limit |
+| Main agent | Gọi MCP, claim, self-check generation output, submit, finalize |
+| Subagent | Dịch và transform text, trả JSON |
+| MCP server | Local progress, merge, verify, cleanup |
 
-## Thư mục
+## State
 
-```
-src/           — Backend (FastAPI + services + schemas + routers)
-skills/        — Agent skill guides (4 markdown files)
-docs/          — Tài liệu tiếng Việt
-data/          — Dataset input
-.pipeline/     — Runtime (progress.jsonl + outputs) — gitignored except log
-```
+`.pipeline/runs/{run_id}` chỉ tồn tại trong lúc xử lý. Finalize thành công sẽ
+xóa state. Mỗi người chạy local riêng, không sync progress qua Git.
+
+## Skill map
+
+| Resource | Khi đọc |
+|----------|---------|
+| `skill://instructor` | Đọc đầu tiên để hiểu NLI task, resource map và phase flow |
+| `skill://execution` | Đọc trước khi xử lý để hiểu runtime boundary |
+| `skill://progress_tracking` | Đọc trước khi start hoặc resume local run |
+| `skill://generator` | Đọc trước khi generate row |
+| `skill://delegation` | Đọc khi xử lý ít nhất `100` row bằng subagent |
+| `skill://aggregator` | Đọc trước khi finalize |
+
+## Phase dự kiến
+
+Validation phase sẽ được tách riêng để kiểm tra output sau generation. Hiện tại
+chưa có `skill://validator`; agent không tự suy diễn hoặc gọi resource này.

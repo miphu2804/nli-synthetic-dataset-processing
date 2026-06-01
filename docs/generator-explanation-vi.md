@@ -1,80 +1,58 @@
-# Giải thích Generator Skill
+# Generator - Giải thích
 
-## Ý tưởng chung
+Agent mới bắt đầu từ `skill://instructor` để hiểu NLI task, resource map và flow
+tổng quát. `skill://generator` chỉ chứa rule và self-check của generation phase.
 
-Dataset gốc đã có sẵn `premise`, `hypothesis`, `label` — là các cặp NLI đã được gán nhãn (thường tiếng Anh). Skill này hướng dẫn agent:
-1. **Dịch cả premise lẫn hypothesis** sang tiếng Việt
-2. **Biến đổi adversarial** hypothesis (hoặc premise) để tăng độ khó
-3. **Giữ nguyên label gốc**
+Dataset gốc có `premise`, `hypothesis`, `label`. Ba label NLI:
 
-Mỗi dòng input → 1 dòng output (không sinh thêm). Label từ dataset gốc quyết định rule nào được dùng.
+| Label | Ý nghĩa |
+|-------|---------|
+| `entailment` | Premise hỗ trợ hypothesis |
+| `contradiction` | Hypothesis mâu thuẫn với premise |
+| `neutral` | Hypothesis không được hỗ trợ nhưng cũng không mâu thuẫn |
 
-## 3 label
+Generation phase:
 
-| Label | Nghĩa | Rule được dùng |
-|-------|-------|---------------|
-| `entailment` | Hypothesis được suy ra từ premise | 9 rule entailment |
-| `contradiction` | Hypothesis mâu thuẫn với premise | 5 rule contradiction |
-| `neutral` | Không mâu thuẫn, không được hỗ trợ | 5 rule neutral |
+1. Dịch cả premise và hypothesis sang tiếng Việt.
+2. Chọn một trong 19 rule phù hợp label.
+3. Transform hypothesis để khó phân loại hơn.
+4. Giữ nguyên label gốc.
+5. Self-check generation output trước khi submit.
 
-## 3 Adversarial Tier
+Không dùng tier. Main agent chỉ gửi rule cần thiết cho từng batch để giảm token.
+Validation phase độc lập sẽ được bổ sung sau.
 
-**Adversarial = độ khó để model phân biệt đúng/sai.**
+## Chia Slice
 
-| Tier | Độ khó | Cách thay đổi | Model detect bằng |
-|------|--------|--------------|-------------------|
-| **Surface** | Dễ (≥90%) | 1-2 từ, số, giọng câu | Pattern matching |
-| **Structural** | Vừa (80-90%) | Mệnh đề, phạm vi, cấu trúc | Syntax tree diff |
-| **Deep Semantic** | Khó (<80%) | Logic ngầm, từ gần giống hệt | Real reasoning |
+Mỗi người tự nhận một slice zero-based:
 
-### Ví dụ cùng 1 premise, cùng label contradiction
-
-> Premise: *"Người từ đủ 16 tuổi...có thể bị khiển trách."*
-
-| Tier | Rule | Hypothesis | Tại sao khó |
-|------|------|-----------|------------|
-| Surface | Number distortion | "...từ đủ **14** tuổi..." | Số khác, nhìn là biết |
-| Structural | Scope shift | "...**dưới 16** tuổi..." | Cần hiểu "dưới 16" ≠ "từ đủ 16" |
-| Deep Semantic | Direct negation | "...**không phải chịu** bất kỳ..." | 90% từ giống premise, 2-3 từ đảo toàn bộ nghĩa |
-
-## 19 Rule
-
-### Entailment (9) — giữ nghĩa, đổi hình thức
-Voice flip, Synonym swap, Clause restructure, Conditional rephrase, Number equivalence, Complexity expand, Logical consequence, General to specific, Related clause link
-
-### Contradiction (5) — mâu thuẫn trực tiếp
-Direct negation, Scope shift, Modifier flip, Severity escalation, Number distortion
-
-### Neutral (5) — không mâu thuẫn, không được hỗ trợ
-Fallacious reasoning, Unsupported claim, Rule misapplication, Irrelevant link, Independent statement
-
-## Cách chạy
-
-Agent đọc 3 skill: `generator` → `progress_tracking` → `delegation` → `execution`
-
-```
-1. Load skills + đọc dataset
-2. Init progress.jsonl (run.start với prev_hash:"0")
-3. Loop batch 5-10 dòng:
-   a. Claim row trong progress.jsonl
-   b. Dịch premise + hypothesis sang tiếng Việt
-   c. Gán rule dựa trên label gốc, tier luân phiên
-   d. Áp dụng adversarial transform
-   e. Validate (label preserved? còn English? grammar OK?)
-   f. Ghi CSV + append row.done vào progress.jsonl
-4. Merge part files → output cuối
+```text
+Người 1: row_offset=0,     row_limit=10000
+Người 2: row_offset=10000, row_limit=10000
 ```
 
-## Output Schema
+## Flow MCP
 
-`source_uid, premise, hypothesis, label, rule, tier, reason`
+```text
+start_generation_run
+  → calculate_dispatch_plan(samples=total_target_rows, batch_size=batch_size)
+  → claim batch
+  → nếu >= 100 row: load skill://delegation và dispatch song song
+  → nếu < 100 row: main agent transform trực tiếp
+  → self-check, submit batch và refill slot
+  → load skill://aggregator
+  → finalize_generation_run
+```
 
-| Cột | Mô tả |
-|-----|-------|
-| `source_uid` | ID từ dataset gốc |
-| `premise` | Tiếng Việt (đã dịch) |
-| `hypothesis` | Tiếng Việt (đã dịch + adversarial transform) |
-| `label` | Giữ nguyên từ dataset gốc |
-| `rule` | Rule biến đổi đã áp dụng |
-| `tier` | surface / structural / deep_semantic |
-| `reason` | Giải thích ngắn tại sao rule này được áp dụng |
+```text
+total_batches = ceil(samples / batch_size)
+parallel_workers = min(total_batches, max_parallel_workers)
+```
+
+Mặc định: `batch_size=20`, `max_parallel_workers=10`.
+
+## Output
+
+```csv
+source_uid,premise,hypothesis,label
+```
