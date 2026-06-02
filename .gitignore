@@ -14,7 +14,10 @@ wheels/
 .cocoindex_code/
 outputs/
 data/generated/
+.codegraph/
 
 # Harness 
 .claude/
 .codex/
+CLAUDE.md
+CODEX.md 
