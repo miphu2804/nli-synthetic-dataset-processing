@@ -1,9 +1,5 @@
 # NLI Synthetic Data Processing
 
-Project tạo dữ liệu NLI tiếng Việt adversarial bằng 19 transformation giữ
-nguyên label. LLM harness kết nối qua MCP, xử lý sample range được giao, và ghi
-CSV output đã verify.
-
 English README mặc định: [README.md](README.md)
 
 ## Chạy Local
@@ -25,9 +21,9 @@ MCP endpoint:
 http://localhost:8000/mcp/
 ```
 
-## Resources
+## Kĩ năng
 
-| Resource | Mục đích |
+| Kĩ năng | Mục đích |
 |----------|----------|
 | `skill://instructor` | Đọc đầu tiên để hiểu NLI task, resource map và phase flow |
 | `skill://generator` | Transformation rules và generation self-checks |
@@ -37,46 +33,13 @@ http://localhost:8000/mcp/
 | `skill://aggregator` | Finalize behavior |
 | `skill://validator` | Masked validation scoring rubric và verdict contract |
 
-## Phase Guides
+## Tài liệu hướng dẫn
 
-Dùng các docs này khi Codex harness đã connect sẵn với MCP server.
-
-| Area | Guide | Output |
+| Phạm vi | Tài liệu | Kết quả |
 |------|-------|--------|
 | Project overview | [docs/vi/project-overview.md](docs/vi/project-overview.md) | `Architecture and runtime ownership` |
 | Generator flow | [docs/vi/flow/generator.md](docs/vi/flow/generator.md) | `data/generated/*.csv` |
 | Validator flow | [docs/vi/flow/validator.md](docs/vi/flow/validator.md) | `data/validated/*/validation_results.csv` |
-| Progress tracking | [docs/vi/flow/progress-tracking.md](docs/vi/flow/progress-tracking.md) | Runtime state and cleanup |
-| Generator template | [docs/vi/template/generator.md](docs/vi/template/generator.md) | Codex harness prompt |
-| Validator template | [docs/vi/template/validator.md](docs/vi/template/validator.md) | Codex harness prompt |
-
-MCP start tools dùng sample range 1-based inclusive:
-
-```text
-from_sample=1, to_sample=20  -> 20 rows đầu
-from_sample=21, to_sample=40 -> 20 rows tiếp theo
-```
-
-Nội bộ progress vẫn ghi `row_offset` và `row_limit` zero-based.
-
-## Runtime State
-
-Progress là append-only JSONL event log tại:
-
-```text
-.pipeline/runs/{run_id}/progress.jsonl
-.pipeline/validation/runs/{run_id}/progress.jsonl
-```
-
-Batch CSV artifacts nằm tại:
-
-```text
-data/batches/{run_id}
-```
-
-Chỉ MCP runtime tools được ghi progress. Main agent gọi tools tuần tự.
-Subagents nhận claimed rows, transform text, và chỉ trả JSON.
-
-Finalize chỉ thành công sau khi merge và verify. Khi thành công, runtime xóa run
-state và `data/batches/{run_id}`. Nếu verification fail, runtime giữ artifacts
-để debug.
+| Progress tracking | [docs/vi/flow/progress-tracking.md](docs/vi/flow/progress-tracking.md) | `Runtime state and cleanup` |
+| Generator template | [docs/vi/template/generator.md](docs/vi/template/generator.md) | `Harness prompt` |
+| Validator template | [docs/vi/template/validator.md](docs/vi/template/validator.md) | `Harness prompt` |
