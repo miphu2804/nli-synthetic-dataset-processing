@@ -2,11 +2,36 @@
 
 Vietnamese README: [README.vi.md](README.vi.md)
 
+Monorepo layout:
+
+```text
+backend/    FastAPI + FastMCP server (Python, uv)
+frontend/   NLI Studio dashboard (Vite + React + TS)
+```
+
 ## Local Start
 
+Backend (port 8000):
+
 ```bash
+cd backend
 uv sync
 uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
+```
+
+Frontend (port 3000):
+
+```bash
+cd frontend
+cp .env.example .env   # VITE_API_ENDPOINT=http://localhost:8000
+npm install
+npm run dev
+```
+
+Or run both with Docker Compose:
+
+```bash
+docker compose up --build
 ```
 
 ## Container Start

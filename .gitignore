@@ -11,10 +11,13 @@ wheels/
 
 # Local runtime artifacts
 .pipeline/
+backend/.pipeline/
 .cocoindex_code/
 outputs/
 data/batches/
 data/generated/
+backend/data/batches/
+backend/data/generated/
 .codegraph/
 
 # Harness
