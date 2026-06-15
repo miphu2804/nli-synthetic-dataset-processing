@@ -21,6 +21,9 @@ uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
 | `skill://progress_tracking` | Local audit, resume and cleanup |
 | `skill://execution` | Runtime ownership boundaries |
 | `skill://aggregator` | Finalize behavior |
+| `skill://validator` | Masked validation scoring rubric and verdict contract |
+
+Offline validation guide: `docs/validation-flow.md`
 
 ## Container Start
 
@@ -38,6 +41,7 @@ http://localhost:8000/mcp/
 
 ```text
   START → load instructor → start run → init .pipeline/runs/{run_id}
+                                      + data/batches/{run_id}
                                           │
                     ┌─────────────────────┘
                     ▼
@@ -55,7 +59,7 @@ http://localhost:8000/mcp/
          │  PASS │    │ FAIL → retry (max 3) → row.skip + reason
          │       ▼
          │    ┌───────────┐
-         │    │   WRITE   │  batch CSV + row.done | row.skip + batch.done
+         │    │   WRITE   │  data/batches CSV + row.done | row.skip + batch.done
          │    └─────┬─────┘
          │          ▼
          │    ┌───────────┐
@@ -64,16 +68,17 @@ http://localhost:8000/mcp/
                     │ NO
                     ▼
               ┌───────────┐
-              │ FINALIZE  │  merge output → verify → cleanup local run
+              │ FINALIZE  │  merge output → verify → cleanup state + batches
               └───────────┘
 ```
 
 ## Progress Tracking
 
 Progress is an append-only JSONL event log at
-`.pipeline/runs/{run_id}/progress.jsonl`. MCP runtime tools are the only progress
-writers. The main agent calls those tools sequentially. Subagents receive
-claimed rows, transform text and return JSON only.
+`.pipeline/runs/{run_id}/progress.jsonl`. Batch CSV artifacts live under
+`data/batches/{run_id}`. MCP runtime tools are the only progress writers. The
+main agent calls those tools sequentially. Subagents receive claimed rows,
+transform text and return JSON only.
 
 
 ```jsonl

@@ -15,4 +15,4 @@ Keep text generation and runtime state separate.
 - Do not manually edit `.pipeline/runs/{run_id}/progress.jsonl`.
 - Do not push `.pipeline` to Git or share it between users.
 - Subagents return JSON only. Main agent performs MCP calls.
-- Use container paths such as `/data/input.csv` and `/output/result.csv`.
+- Use container paths such as `/data/input.csv` and `/data/generated/result.csv`.

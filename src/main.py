@@ -2,7 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastmcp import FastMCP
 
-from src.providers import register_dispatch_planning_tools, register_generation_tools
+from src.providers import (
+    register_dispatch_planning_tools,
+    register_generation_tools,
+    register_validation_tools,
+)
 from src.routers.dispatch_plan_router import dispatch_plan_router
 from src.routers.reader_router import reader_router
 from src.routers.skill_router import skill_router
@@ -35,6 +39,7 @@ app.router.lifespan_context = mcp_app.lifespan
 app.mount("/mcp", mcp_app)
 generation_tool_provider = register_generation_tools(mcp)
 dispatch_planning_tool_provider = register_dispatch_planning_tools(mcp)
+validation_tool_provider = register_validation_tools(mcp)
 
 skill_service = SkillService()
 

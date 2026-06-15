@@ -37,6 +37,7 @@ Pipeline tạo dữ liệu NLI tiếng Việt adversarial từ dataset tiếng A
 │  finalize_generation_run   → merge, verify, cleanup      │
 │                                                          │
 │  State: .pipeline/runs/{run_id}/progress.jsonl           │
+│  Batch CSV: data/batches/{run_id}/                       │
 │  Endpoint: http://localhost:8000/mcp/                    │
 └──────────────────────────┬───────────────────────────────┘
                            │
@@ -55,8 +56,9 @@ Pipeline tạo dữ liệu NLI tiếng Việt adversarial từ dataset tiếng A
 
 ## State
 
-`.pipeline/runs/{run_id}` chỉ tồn tại trong lúc xử lý. Finalize thành công sẽ
-xóa state. Mỗi người chạy local riêng, không sync progress qua Git.
+`.pipeline/runs/{run_id}` chỉ tồn tại trong lúc xử lý. Batch CSV trong lúc chạy
+nằm ở `data/batches/{run_id}`. Finalize thành công sẽ xóa state và batch CSV.
+Mỗi người chạy local riêng, không sync progress qua Git.
 
 ## Skill map
 

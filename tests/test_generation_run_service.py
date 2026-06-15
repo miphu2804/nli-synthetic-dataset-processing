@@ -143,6 +143,39 @@ class GenerationRunServiceTest(unittest.TestCase):
                 ],
             )
 
+    def test_submit_batch_writes_intermediate_csv_under_data_batches(self) -> None:
+        started = self.service.start_generation_run(
+            input_path=str(self.input_path),
+            output_path=str(self.root / "output.csv"),
+            row_limit=1,
+            batch_size=1,
+        )
+        claim = self.service.claim_next_batch(started.run_id, "agent-a")
+
+        submitted = self.service.submit_batch_result(
+            run_id=started.run_id,
+            agent_id="agent-a",
+            batch_id=claim.batch.batch_id,
+            rows=[
+                {
+                    "source_uid": 1,
+                    "premise": "vp1",
+                    "hypothesis": "vh1",
+                    "label": 0,
+                }
+            ],
+        )
+
+        output_path = Path(submitted.output_path).resolve()
+        self.assertTrue(
+            output_path.is_relative_to(
+                (self.root / "data" / "batches" / started.run_id).resolve()
+            )
+        )
+        self.assertFalse(
+            (self.pipeline_dir / "runs" / started.run_id / "outputs").exists()
+        )
+
     def test_partial_skip_writes_events_and_finalize_reconciles(self) -> None:
         started = self.service.start_generation_run(
             input_path=str(self.input_path),
@@ -195,6 +228,42 @@ class GenerationRunServiceTest(unittest.TestCase):
             (self.pipeline_dir / "runs" / started.run_id).exists(),
             "Successful finalize must remove local run state.",
         )
+        self.assertFalse(
+            (self.root / "data" / "batches" / started.run_id).exists(),
+            "Successful finalize must remove local batch outputs.",
+        )
+
+    def test_finalize_can_merge_legacy_run_outputs(self) -> None:
+        started = self.service.start_generation_run(
+            input_path=str(self.input_path),
+            output_path=str(self.root / "output.csv"),
+            row_limit=1,
+            batch_size=1,
+        )
+        claim = self.service.claim_next_batch(started.run_id, "agent-a")
+        submitted = self.service.submit_batch_result(
+            run_id=started.run_id,
+            agent_id="agent-a",
+            batch_id=claim.batch.batch_id,
+            rows=[
+                {
+                    "source_uid": 1,
+                    "premise": "vp1",
+                    "hypothesis": "vh1",
+                    "label": 0,
+                }
+            ],
+        )
+        legacy_dir = self.pipeline_dir / "runs" / started.run_id / "outputs"
+        legacy_dir.mkdir(parents=True)
+        legacy_output_path = legacy_dir / Path(submitted.output_path).name
+        Path(submitted.output_path).replace(legacy_output_path)
+
+        finalized = self.service.finalize_generation_run(started.run_id)
+
+        final_df = pd.read_csv(finalized.output_path)
+        self.assertEqual(len(final_df), 1)
+        self.assertEqual(final_df.iloc[0]["premise"], "vp1")
 
     def test_all_skipped_rows_finalize_to_csv_with_expected_header(self) -> None:
         started = self.service.start_generation_run(

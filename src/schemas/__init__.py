@@ -18,6 +18,20 @@ from src.schemas.generation_runtime_schema import (
     StartGenerationRunResponse,
     SubmitBatchResultResponse,
 )
+from src.schemas.validation_runtime_schema import (
+    ClaimedValidationBatch,
+    ClaimNextValidationBatchResponse,
+    FinalizeValidationRunResponse,
+    ListValidationRunsResponse,
+    MaskedValidationRow,
+    ReleaseValidationBatchClaimResponse,
+    StartValidationRunResponse,
+    SubmitValidationResultResponse,
+    ValidationProgressVerificationResponse,
+    ValidationRunListItem,
+    ValidationRunManifest,
+    ValidatorVerdict,
+)
 
 __all__ = [
     "DatasetReadRequest",
@@ -38,4 +52,16 @@ __all__ = [
     "SkippedRow",
     "StartGenerationRunResponse",
     "SubmitBatchResultResponse",
+    "ClaimNextValidationBatchResponse",
+    "ClaimedValidationBatch",
+    "FinalizeValidationRunResponse",
+    "ListValidationRunsResponse",
+    "MaskedValidationRow",
+    "ReleaseValidationBatchClaimResponse",
+    "StartValidationRunResponse",
+    "SubmitValidationResultResponse",
+    "ValidationRunListItem",
+    "ValidationRunManifest",
+    "ValidationProgressVerificationResponse",
+    "ValidatorVerdict",
 ]

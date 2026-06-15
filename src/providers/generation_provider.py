@@ -32,7 +32,7 @@ class GenerationToolProvider:
         output_path: Annotated[
             str | None,
             Field(
-                description="Final CSV path inside the server container, such as /output/result.csv."
+                description="Final CSV path inside the server container, such as /data/generated/result.csv."
             ),
         ] = None,
         row_offset: Annotated[
@@ -114,7 +114,7 @@ class GenerationToolProvider:
         name="finalize_generation_run",
         description=(
             "Merge output, verify local progress and row count, then delete successful "
-            "local run state. Failed verification keeps state for debugging."
+            "local run state and batch outputs. Failed verification keeps them for debugging."
         ),
     )
     def finalize_generation_run(

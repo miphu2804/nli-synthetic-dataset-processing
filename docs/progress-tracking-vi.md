@@ -5,13 +5,15 @@ Progress chỉ là local audit log và state để resume trong một run:
 ```text
 .pipeline/runs/{run_id}/
 ├── manifest.json
-├── progress.jsonl
-└── outputs/
+└── progress.jsonl
+
+data/batches/{run_id}/
+└── batch-00001.csv
 ```
 
 Main agent local là MCP caller duy nhất. MCP runtime tool là progress writer.
-Subagent không đọc hoặc ghi progress. Không push `.pipeline` lên Git và không
-dùng để collaborate giữa nhiều người.
+Subagent không đọc hoặc ghi progress. Không push `.pipeline` hoặc runtime batch
+CSV lên Git và không dùng để collaborate giữa nhiều người.
 
 ## Lifecycle
 
@@ -23,10 +25,10 @@ run.start
   → ...
   → merge.done
   → run.end
-  → xóa .pipeline/runs/{run_id}
+  → xóa .pipeline/runs/{run_id} và data/batches/{run_id}
 ```
 
-Nếu verify fail, giữ lại run directory để debug.
+Nếu verify fail, giữ lại run directory và batch CSV để debug.
 
 Nếu cần retry một claim bị bỏ dở, gọi `release_batch_claim`. MCP runtime append
 event `unclaim`, sau đó các row trong batch có thể được claim lại.

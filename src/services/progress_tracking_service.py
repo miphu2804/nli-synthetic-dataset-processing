@@ -32,6 +32,7 @@ class RunState:
 class ProgressTrackingService:
     def __init__(self, pipeline_dir: Path | None = None) -> None:
         self._pipeline_dir = (pipeline_dir or Path(".pipeline")).resolve()
+        self._data_dir = self._derive_data_dir(self._pipeline_dir).resolve()
 
     def get_run_dir(self, run_id: str) -> Path:
         return self._pipeline_dir / "runs" / run_id
@@ -40,7 +41,16 @@ class ProgressTrackingService:
         return self.get_run_dir(run_id) / "progress.jsonl"
 
     def get_outputs_dir(self, run_id: str) -> Path:
-        return self.get_run_dir(run_id) / "outputs"
+        return self._data_dir / "batches" / run_id
+
+    def resolve_output_file(self, run_id: str, file_name: str) -> Path:
+        output_path = self.get_outputs_dir(run_id) / file_name
+        if output_path.exists():
+            return output_path
+        legacy_path = self.get_run_dir(run_id) / "outputs" / file_name
+        if legacy_path.exists():
+            return legacy_path
+        return output_path
 
     def ensure_run_directories(self, run_id: str) -> None:
         run_dir = self.get_run_dir(run_id)
@@ -49,6 +59,11 @@ class ProgressTrackingService:
 
     def cleanup_run(self, run_id: str) -> None:
         shutil.rmtree(self.get_run_dir(run_id))
+
+    def cleanup_outputs(self, run_id: str) -> None:
+        outputs_dir = self.get_outputs_dir(run_id)
+        if outputs_dir.exists():
+            shutil.rmtree(outputs_dir)
 
     def read_events(self, run_id: str) -> list[dict[str, Any]]:
         progress_path = self.get_progress_path(run_id)
@@ -172,7 +187,6 @@ class ProgressTrackingService:
         missing_batch_files: list[str] = []
         count_mismatches: list[str] = []
 
-        outputs_dir = self.get_outputs_dir(run_id)
         for event in events:
             current_agent = event["agent"]
             if agent_id and current_agent != agent_id:
@@ -198,7 +212,7 @@ class ProgressTrackingService:
                 require_batch_files
                 and event["event"] == "batch.done"
                 and event.get("file")
-                and not (outputs_dir / event["file"]).exists()
+                and not self.resolve_output_file(run_id, event["file"]).exists()
             ):
                 missing_batch_files.append(event["file"])
 
@@ -250,3 +264,11 @@ class ProgressTrackingService:
     @staticmethod
     def _uid_key(source_uid: str | int) -> str:
         return str(source_uid)
+
+    @staticmethod
+    def _derive_data_dir(pipeline_dir: Path) -> Path:
+        candidates = [pipeline_dir, *pipeline_dir.parents]
+        for path in candidates:
+            if path.name == ".pipeline":
+                return path.parent / "data"
+        return Path("data")

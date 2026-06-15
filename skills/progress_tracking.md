@@ -5,12 +5,15 @@ Progress state is local to one run:
 ```text
 .pipeline/runs/{run_id}/
 ├── manifest.json
-├── progress.jsonl
-└── outputs/
+└── progress.jsonl
+
+data/batches/{run_id}/
+└── batch-00001.csv
 ```
 
-It exists only for audit and resume while the local run is active. Do not push
-it to Git and do not share it between users.
+The `.pipeline` directory exists only for audit and resume while the local run
+is active. Batch CSV artifacts belong under `data/batches/{run_id}`. Do not push
+local runtime artifacts to Git and do not share them between users.
 
 ## Ownership
 
@@ -40,7 +43,7 @@ run.start
   → ...
   → merge.done
   → run.end
-  → delete .pipeline/runs/{run_id}
+  → delete .pipeline/runs/{run_id} and data/batches/{run_id}
 ```
 
 Every event contains `id`, `ts`, `event`, `agent` and `prev_hash`. The hash chain
@@ -61,5 +64,6 @@ If the process is interrupted while the container is still available:
 
 ## Cleanup
 
-`finalize_generation_run` deletes the run directory only after merge and
-verification succeed. Failed verification keeps the directory for debugging.
+`finalize_generation_run` deletes the run directory and `data/batches/{run_id}`
+only after merge and verification succeed. Failed verification keeps those
+runtime artifacts for debugging.

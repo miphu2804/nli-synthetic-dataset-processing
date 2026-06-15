@@ -59,11 +59,19 @@ load execution
   -> finalize_generation_run
 ```
 
-## Planned Validation Phase
+## Validation Phase
 
-A separate validation phase will be added later. It will inspect generated
-output independently and produce quality results. Do not invent or call a
-`skill://validator` resource until that phase exists.
+After generation is finalized, run offline validation:
+
+```text
+1. Mask labels    → uv run python -m src.utils.validation_masking_cli
+2. Agent validate → each model reads skill://validator and writes source_uid,predicted_label,reason
+3. Finalize       → trusted runtime writes one validation_results.csv with expected/predicted labels
+4. Analyze PMI    → uv run python -m src.utils.validation_aggregation_cli
+```
+
+Read `skill://validator` for the scoring rubric and verdict contract that each validator agent must follow.
+Refer to `docs/validation-flow.md` for the full multi-model consensus and PMI flow.
 
 ## Guardrails
 

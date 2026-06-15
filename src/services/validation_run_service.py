@@ -5,50 +5,55 @@ from uuid import uuid4
 
 import pandas as pd
 
-from src.schemas import DatasetOutputConfig, DatasetWriteRequest
-from src.schemas.generation_runtime_schema import (
-    ClaimedBatch,
-    ClaimNextBatchResponse,
-    FinalizeGenerationRunResponse,
-    GeneratedRow,
-    GenerationRunListItem,
-    GenerationRunManifest,
-    ListGenerationRunsResponse,
-    ProgressVerificationResponse,
-    ReleaseBatchClaimResponse,
-    SkippedRow,
-    StartGenerationRunResponse,
-    SubmitBatchResultResponse,
+from src.schemas.generation_runtime_schema import ProgressVerificationResponse
+from src.schemas.validation_runtime_schema import (
+    ClaimedValidationBatch,
+    ClaimNextValidationBatchResponse,
+    FinalizeValidationRunResponse,
+    ListValidationRunsResponse,
+    MaskedValidationRow,
+    ReleaseValidationBatchClaimResponse,
+    StartValidationRunResponse,
+    SubmitValidationResultResponse,
+    ValidationRunListItem,
+    ValidationRunManifest,
+    ValidatorVerdict,
 )
 from src.services.dataset_reader_service import DatasetReaderService
-from src.services.dataset_writer_service import DatasetWriterService
 from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
 from src.services.progress_tracking_service import ProgressTrackingService
+from src.utils.validation_masking import build_masked_validation_dataset
 
 
-class GenerationRunService:
+class ValidationRunService:
     REQUIRED_COLUMNS = ("premise", "hypothesis", "label")
-    OUTPUT_COLUMNS = ("source_uid", "premise", "hypothesis", "label")
+    OUTPUT_COLUMNS = (
+        "source_uid",
+        "premise",
+        "hypothesis",
+        "expected_label",
+        "predicted_label",
+        "accepted",
+        "reason",
+    )
 
     def __init__(
         self,
         dataset_reader_service: DatasetReaderService,
-        dataset_writer_service: DatasetWriterService,
         progress_tracking_service: ProgressTrackingService,
     ) -> None:
         self._dataset_reader_service = dataset_reader_service
-        self._dataset_writer_service = dataset_writer_service
         self._progress_tracking_service = progress_tracking_service
 
-    def start_generation_run(
+    def start_validation_run(
         self,
         input_path: str,
-        output_path: str | None = None,
+        output_dir: str | None = None,
         row_offset: int = 0,
         row_limit: int | None = None,
         batch_size: int = DEFAULT_GENERATION_BATCH_SIZE,
         agent_id: str = "main",
-    ) -> StartGenerationRunResponse:
+    ) -> StartValidationRunResponse:
         if row_offset < 0:
             raise ValueError("row_offset must be at least 0.")
         if row_limit is not None and row_limit < 1:
@@ -72,12 +77,14 @@ class GenerationRunService:
             row_offset : row_offset + total_target_rows
         ]
         self._validate_source_uids(target_dataframe[uid_column].tolist())
-        resolved_output_path = self._resolve_output_path(input_path, output_path)
-        run_id = f"run-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:8]}"
-        manifest = GenerationRunManifest(
+
+        run_id = (
+            f"validation-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:8]}"
+        )
+        manifest = ValidationRunManifest(
             run_id=run_id,
             input_path=str(Path(input_path).expanduser().resolve()),
-            output_path=str(resolved_output_path),
+            output_dir=str(self._resolve_output_dir(input_path, output_dir)),
             uid_column=uid_column,
             row_offset=row_offset,
             batch_size=batch_size,
@@ -93,13 +100,13 @@ class GenerationRunService:
         self._progress_tracking_service.append_event(
             run_id,
             agent_id,
-            "run.start",
+            "validation.start",
             {
                 "ts": self._now_iso(),
                 "total_source_rows": manifest.total_source_rows,
                 "total_target_rows": manifest.total_target_rows,
                 "input_path": manifest.input_path,
-                "output_path": manifest.output_path,
+                "output_dir": manifest.output_dir,
                 "row_offset": manifest.row_offset,
             },
         )
@@ -107,11 +114,11 @@ class GenerationRunService:
             run_id,
             manifest.total_target_rows,
         )
-        return StartGenerationRunResponse(
+        return StartValidationRunResponse(
             status="started",
             run_id=run_id,
             input_path=manifest.input_path,
-            output_path=manifest.output_path,
+            output_dir=manifest.output_dir,
             uid_column=manifest.uid_column,
             row_offset=manifest.row_offset,
             batch_size=manifest.batch_size,
@@ -121,11 +128,11 @@ class GenerationRunService:
             progress=progress,
         )
 
-    def claim_next_batch(
+    def claim_next_validation_batch(
         self,
         run_id: str,
         agent_id: str,
-    ) -> ClaimNextBatchResponse:
+    ) -> ClaimNextValidationBatchResponse:
         manifest = self._read_manifest(run_id)
         state = self._progress_tracking_service.build_run_state(run_id)
         progress = self._progress_tracking_service.build_progress_snapshot(
@@ -133,7 +140,7 @@ class GenerationRunService:
             manifest.total_target_rows,
         )
         if progress.pending_rows == 0 and progress.claimed_rows == 0:
-            return ClaimNextBatchResponse(
+            return ClaimNextValidationBatchResponse(
                 status="complete", run_id=run_id, progress=progress
             )
 
@@ -151,12 +158,12 @@ class GenerationRunService:
             and self._uid_key(row[manifest.uid_column]) not in claimed_uids
         ]
         if not available_rows:
-            return ClaimNextBatchResponse(
+            return ClaimNextValidationBatchResponse(
                 status="waiting", run_id=run_id, progress=progress
             )
 
         selected_rows = available_rows[: manifest.batch_size]
-        batch_id = f"batch-{state.claim_count + 1:05d}"
+        batch_id = f"validation-batch-{state.claim_count + 1:05d}"
         claimed_source_uids = [row[manifest.uid_column] for row in selected_rows]
         self._progress_tracking_service.append_event(
             run_id,
@@ -169,34 +176,32 @@ class GenerationRunService:
                 "row_count": len(claimed_source_uids),
             },
         )
-        normalized_rows = [
-            self._normalize_source_row(row, manifest.uid_column)
-            for row in selected_rows
-        ]
+        masked_rows = build_masked_validation_dataset(
+            pd.DataFrame(selected_rows),
+            uid_column=manifest.uid_column,
+        ).to_dict(orient="records")
         progress = self._progress_tracking_service.build_progress_snapshot(
             run_id,
             manifest.total_target_rows,
         )
-        return ClaimNextBatchResponse(
+        return ClaimNextValidationBatchResponse(
             status="claimed",
             run_id=run_id,
-            batch=ClaimedBatch(
+            batch=ClaimedValidationBatch(
                 batch_id=batch_id,
                 agent=agent_id,
-                rows=[GeneratedRow.model_validate(item) for item in normalized_rows],
+                rows=[MaskedValidationRow.model_validate(row) for row in masked_rows],
             ),
             progress=progress,
         )
 
-    def submit_batch_result(
+    def submit_validation_result(
         self,
         run_id: str,
         agent_id: str,
         batch_id: str,
-        rows: list[dict],
-        skipped_rows: list[dict] | None = None,
-        batch_stats: dict | None = None,
-    ) -> SubmitBatchResultResponse:
+        verdicts: list[dict],
+    ) -> SubmitValidationResultResponse:
         manifest = self._read_manifest(run_id)
         state = self._progress_tracking_service.build_run_state(run_id)
         claim = state.active_claims.get(batch_id)
@@ -207,31 +212,26 @@ class GenerationRunService:
                 f"Batch {batch_id} is claimed by {claim.agent}, not {agent_id}."
             )
 
-        normalized_rows, normalized_skips = self._validate_batch_result(
-            claim.source_uids,
-            rows,
-            {
-                self._uid_key(row[manifest.uid_column]): row["label"]
-                for row in self._load_target_dataframe(manifest).to_dict(
-                    orient="records"
-                )
-            },
-            skipped_rows,
-        )
-        output_path = None
-        if normalized_rows:
-            output_path = (
-                self._progress_tracking_service.get_outputs_dir(run_id)
-                / f"{batch_id}.csv"
+        source_rows = {
+            self._uid_key(row[manifest.uid_column]): row
+            for row in self._load_target_dataframe(manifest).to_dict(orient="records")
+        }
+        normalized_verdicts = self._validate_verdicts(claim.source_uids, verdicts)
+        rows = [
+            self._build_output_row(
+                source_rows[self._uid_key(verdict.source_uid)],
+                manifest,
+                verdict,
             )
-            self._dataset_writer_service.write_dataset(
-                DatasetWriteRequest(
-                    rows=[row.model_dump(mode="json") for row in normalized_rows],
-                    output=DatasetOutputConfig(path=str(output_path)),
-                )
-            )
+            for verdict in normalized_verdicts
+        ]
 
-        for row in normalized_rows:
+        output_path = (
+            self._progress_tracking_service.get_outputs_dir(run_id) / f"{batch_id}.csv"
+        )
+        self._write_rows(output_path, rows)
+        counts = self._count_acceptance(rows)
+        for row in rows:
             self._progress_tracking_service.append_event(
                 run_id,
                 agent_id,
@@ -239,20 +239,8 @@ class GenerationRunService:
                 {
                     "ts": self._now_iso(),
                     "batch_id": batch_id,
-                    "source_uid": row.source_uid,
-                },
-            )
-        for skipped_row in normalized_skips:
-            self._progress_tracking_service.append_event(
-                run_id,
-                agent_id,
-                "row.skip",
-                {
-                    "ts": self._now_iso(),
-                    "batch_id": batch_id,
-                    "source_uid": skipped_row.source_uid,
-                    "reason": skipped_row.reason,
-                    "retries": skipped_row.retries,
+                    "source_uid": row["source_uid"],
+                    "accepted": row["accepted"],
                 },
             )
         self._progress_tracking_service.append_event(
@@ -262,41 +250,41 @@ class GenerationRunService:
             {
                 "ts": self._now_iso(),
                 "batch_id": batch_id,
-                "file": output_path.name if output_path else None,
-                "row_count": len(claim.source_uids),
-                "written_count": len(normalized_rows),
-                "skipped_count": len(normalized_skips),
-                "stats": batch_stats or {},
+                "file": output_path.name,
+                "row_count": len(rows),
+                "accepted_count": counts["accepted"],
+                "rejected_count": counts["rejected"],
             },
         )
         progress = self._progress_tracking_service.build_progress_snapshot(
             run_id,
             manifest.total_target_rows,
         )
-        return SubmitBatchResultResponse(
+        return SubmitValidationResultResponse(
             status="committed",
             run_id=run_id,
             batch_id=batch_id,
-            rows_written=len(normalized_rows),
-            rows_skipped=len(normalized_skips),
-            output_path=str(output_path) if output_path else None,
+            rows_validated=len(rows),
+            accepted_count=counts["accepted"],
+            rejected_count=counts["rejected"],
+            output_path=str(output_path),
             progress=progress,
         )
 
-    def get_run_progress(self, run_id: str):
+    def get_validation_progress(self, run_id: str):
         manifest = self._read_manifest(run_id)
         return self._progress_tracking_service.build_progress_snapshot(
             run_id,
             manifest.total_target_rows,
         )
 
-    def release_batch_claim(
+    def release_validation_batch_claim(
         self,
         run_id: str,
         agent_id: str,
         batch_id: str,
         reason: str,
-    ) -> ReleaseBatchClaimResponse:
+    ) -> ReleaseValidationBatchClaimResponse:
         manifest = self._read_manifest(run_id)
         state = self._progress_tracking_service.build_run_state(run_id)
         claim = state.active_claims.get(batch_id)
@@ -320,18 +308,18 @@ class GenerationRunService:
             run_id,
             manifest.total_target_rows,
         )
-        return ReleaseBatchClaimResponse(
+        return ReleaseValidationBatchClaimResponse(
             status="released",
             run_id=run_id,
             batch_id=batch_id,
             progress=progress,
         )
 
-    def finalize_generation_run(
+    def finalize_validation_run(
         self,
         run_id: str,
-        agent_id: str = "aggregator",
-    ) -> FinalizeGenerationRunResponse:
+        agent_id: str = "validator-aggregator",
+    ) -> FinalizeValidationRunResponse:
         manifest = self._read_manifest(run_id)
         state = self._progress_tracking_service.build_run_state(run_id)
         if state.active_claims:
@@ -345,30 +333,28 @@ class GenerationRunService:
             for event in state.completed_batches.values()
             if event.get("file")
         ]
-        rows_written = self._merge_batch_outputs(
-            output_files,
-            Path(manifest.output_path),
-        )
+        output_path = Path(manifest.output_dir) / "validation_results.csv"
+        counts = self._merge_validation_outputs(output_files, output_path)
         self._progress_tracking_service.append_event(
             run_id,
             agent_id,
-            "merge.done",
+            "validation.merge.done",
             {
                 "ts": self._now_iso(),
-                "processed": rows_written,
-                "file": manifest.output_path,
-                "cleanup": False,
+                "file": output_path.name,
+                "total_rows": counts["total"],
+                "accepted_rows": counts["accepted"],
+                "rejected_rows": counts["rejected"],
             },
         )
         self._progress_tracking_service.append_event(
             run_id,
             agent_id,
-            "run.end",
+            "validation.end",
             {
                 "ts": self._now_iso(),
-                "processed": rows_written,
-                "skipped": len(state.skipped_rows),
-                "output_path": manifest.output_path,
+                "output_dir": manifest.output_dir,
+                "processed": counts["total"],
             },
         )
         progress = self._progress_tracking_service.build_progress_snapshot(
@@ -382,22 +368,24 @@ class GenerationRunService:
         )
         if not verification.ok:
             raise ValueError("Cannot cleanup run because progress verification failed.")
-        if rows_written != len(state.done_rows):
+        if counts["total"] != len(state.done_rows):
             raise ValueError(
-                "Cannot cleanup run because final output row count does not match completed rows."
+                "Cannot cleanup run because final output row count does not match validated rows."
             )
         self._progress_tracking_service.cleanup_outputs(run_id)
         self._progress_tracking_service.cleanup_run(run_id)
-        return FinalizeGenerationRunResponse(
+        return FinalizeValidationRunResponse(
             status="finalized",
             run_id=run_id,
-            output_path=manifest.output_path,
-            rows_written=rows_written,
+            output_path=str(output_path),
+            total_rows=counts["total"],
+            accepted_rows=counts["accepted"],
+            rejected_rows=counts["rejected"],
             state_cleaned=True,
             progress=progress,
         )
 
-    def verify_progress_log(
+    def verify_validation_progress_log(
         self,
         run_id: str,
         agent_id: str | None = None,
@@ -427,41 +415,41 @@ class GenerationRunService:
         verification.ok = verification.ok and not verification.count_mismatches
         return verification
 
-    def list_generation_runs(self) -> ListGenerationRunsResponse:
+    def list_validation_runs(self) -> ListValidationRunsResponse:
         runs_root = self._progress_tracking_service.get_run_dir("placeholder").parent
-        runs: list[GenerationRunListItem] = []
+        runs: list[ValidationRunListItem] = []
         if runs_root.exists():
             for manifest_path in sorted(runs_root.glob("*/manifest.json")):
-                manifest = GenerationRunManifest.model_validate_json(
+                manifest = ValidationRunManifest.model_validate_json(
                     manifest_path.read_text(encoding="utf-8")
                 )
                 runs.append(
-                    GenerationRunListItem(
+                    ValidationRunListItem(
                         run_id=manifest.run_id,
                         input_path=manifest.input_path,
-                        output_path=manifest.output_path,
+                        output_dir=manifest.output_dir,
                         created_at=manifest.created_at,
                     )
                 )
-        return ListGenerationRunsResponse(runs=runs)
+        return ListValidationRunsResponse(runs=runs)
 
-    def _load_target_dataframe(self, manifest: GenerationRunManifest) -> pd.DataFrame:
+    def _load_target_dataframe(self, manifest: ValidationRunManifest) -> pd.DataFrame:
         dataframe = self._read_dataframe(manifest.input_path)
         return dataframe.iloc[
             manifest.row_offset : manifest.row_offset + manifest.total_target_rows
         ]
 
-    def _read_manifest(self, run_id: str) -> GenerationRunManifest:
+    def _read_manifest(self, run_id: str) -> ValidationRunManifest:
         manifest_path = (
             self._progress_tracking_service.get_run_dir(run_id) / "manifest.json"
         )
         if not manifest_path.exists():
-            raise FileNotFoundError(f"Run manifest not found: {run_id}")
-        return GenerationRunManifest.model_validate_json(
+            raise FileNotFoundError(f"Validation run manifest not found: {run_id}")
+        return ValidationRunManifest.model_validate_json(
             manifest_path.read_text(encoding="utf-8")
         )
 
-    def _write_manifest(self, manifest: GenerationRunManifest) -> None:
+    def _write_manifest(self, manifest: ValidationRunManifest) -> None:
         manifest_path = (
             self._progress_tracking_service.get_run_dir(manifest.run_id)
             / "manifest.json"
@@ -486,57 +474,58 @@ class GenerationRunService:
         if len(set(uid_keys)) != len(uid_keys):
             raise ValueError("Dataset slice contains duplicate source_uid values.")
 
-    @staticmethod
-    def _resolve_uid_column(columns: list[str]) -> str:
-        if "source_uid" in columns:
-            return "source_uid"
-        if "uid" in columns:
-            return "uid"
-        raise ValueError("Dataset must contain either uid or source_uid.")
-
-    def _validate_batch_result(
+    def _validate_verdicts(
         self,
         claimed_source_uids: list[str | int],
-        rows: list[dict],
-        source_labels: dict[str, str | int],
-        skipped_rows: list[dict] | None = None,
-    ) -> tuple[list[GeneratedRow], list[SkippedRow]]:
-        normalized_rows = [GeneratedRow.model_validate(item) for item in rows]
-        normalized_skips = [
-            SkippedRow.model_validate(item) for item in (skipped_rows or [])
+        verdicts: list[dict],
+    ) -> list[ValidatorVerdict]:
+        normalized_verdicts = [
+            ValidatorVerdict.model_validate(item) for item in verdicts
         ]
-        if not normalized_rows and not normalized_skips:
-            raise ValueError("Batch result must include written rows or skipped rows.")
+        if not normalized_verdicts:
+            raise ValueError("Validation result must include verdicts.")
 
         claimed_keys = {self._uid_key(item) for item in claimed_source_uids}
-        returned_keys = {self._uid_key(item.source_uid) for item in normalized_rows} | {
-            self._uid_key(item.source_uid) for item in normalized_skips
-        }
-        if len(returned_keys) != len(normalized_rows) + len(normalized_skips):
-            raise ValueError("Duplicate source_uid values detected in batch result.")
+        returned_keys = {self._uid_key(item.source_uid) for item in normalized_verdicts}
+        if len(returned_keys) != len(normalized_verdicts):
+            raise ValueError("Duplicate source_uid values detected in verdicts.")
         if returned_keys != claimed_keys:
             raise ValueError(
-                "Batch result source_uids must match the claimed batch exactly."
+                "Validation result source_uids must match the claimed batch exactly."
             )
-        for row in normalized_rows:
-            if not row.premise.strip():
-                raise ValueError("premise must not be empty.")
-            if not row.hypothesis.strip():
-                raise ValueError("hypothesis must not be empty.")
-            if self._label_key(row.label) != self._label_key(
-                source_labels[self._uid_key(row.source_uid)]
-            ):
-                raise ValueError("Batch result label must match the source label.")
-        return normalized_rows, normalized_skips
+        for verdict in normalized_verdicts:
+            if not verdict.reason.strip():
+                raise ValueError("reason must not be empty.")
+        return normalized_verdicts
+
+    def _build_output_row(
+        self,
+        source_row: dict,
+        manifest: ValidationRunManifest,
+        verdict: ValidatorVerdict,
+    ) -> dict[str, str | int | bool]:
+        expected_label = source_row["label"]
+        accepted = self._labels_match(expected_label, verdict.predicted_label)
+        return {
+            "source_uid": source_row[manifest.uid_column],
+            "premise": source_row["premise"],
+            "hypothesis": source_row["hypothesis"],
+            "expected_label": expected_label,
+            "predicted_label": verdict.predicted_label,
+            "accepted": accepted,
+            "reason": verdict.reason,
+        }
 
     @classmethod
-    def _merge_batch_outputs(
-        cls, output_files: list[Path], final_output_path: Path
-    ) -> int:
-        final_output_path.parent.mkdir(parents=True, exist_ok=True)
-        rows_written = 0
+    def _merge_validation_outputs(
+        cls,
+        output_files: list[Path],
+        output_path: Path,
+    ) -> dict[str, int]:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with final_output_path.open("w", encoding="utf-8", newline="") as destination:
+        counts = {"total": 0, "accepted": 0, "rejected": 0}
+        with output_path.open("w", encoding="utf-8", newline="") as destination:
             writer = csv.DictWriter(destination, fieldnames=cls.OUTPUT_COLUMNS)
             writer.writeheader()
             for file_path in sorted(output_files):
@@ -548,25 +537,53 @@ class GenerationRunService:
                         raise ValueError(f"Batch output schema mismatch: {file_path}")
                     for row in reader:
                         writer.writerow(row)
-                        rows_written += 1
+                        counts["total"] += 1
+                        if cls._csv_bool(row["accepted"]):
+                            counts["accepted"] += 1
+                        else:
+                            counts["rejected"] += 1
+        return counts
 
-        return rows_written
+    @classmethod
+    def _write_rows(cls, output_path: Path, rows: list[dict]) -> None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=cls.OUTPUT_COLUMNS)
+            writer.writeheader()
+            writer.writerows(rows)
 
     @staticmethod
-    def _normalize_source_row(row: dict, uid_column: str) -> dict:
-        return {
-            "source_uid": row[uid_column],
-            "premise": row["premise"],
-            "hypothesis": row["hypothesis"],
-            "label": row["label"],
-        }
+    def _labels_match(expected_label: str | int, predicted_label: str | int) -> bool:
+        return str(expected_label) == str(predicted_label)
 
     @staticmethod
-    def _resolve_output_path(input_path: str, output_path: str | None) -> Path:
-        if output_path:
-            return Path(output_path).expanduser().resolve()
+    def _count_acceptance(rows: list[dict]) -> dict[str, int]:
+        counts = {"accepted": 0, "rejected": 0}
+        for row in rows:
+            if row["accepted"]:
+                counts["accepted"] += 1
+            else:
+                counts["rejected"] += 1
+        return counts
+
+    @staticmethod
+    def _csv_bool(value: str) -> bool:
+        return value.strip().lower() == "true"
+
+    @staticmethod
+    def _resolve_uid_column(columns: list[str]) -> str:
+        if "source_uid" in columns:
+            return "source_uid"
+        if "uid" in columns:
+            return "uid"
+        raise ValueError("Dataset must contain either uid or source_uid.")
+
+    @staticmethod
+    def _resolve_output_dir(input_path: str, output_dir: str | None) -> Path:
+        if output_dir:
+            return Path(output_dir).expanduser().resolve()
         input_stem = Path(input_path).stem
-        return (Path("data/generated") / f"{input_stem}_nli_adversarials.csv").resolve()
+        return (Path("data/validated") / input_stem).resolve()
 
     @staticmethod
     def _read_dataframe(input_path: str) -> pd.DataFrame:
@@ -578,10 +595,6 @@ class GenerationRunService:
     @staticmethod
     def _uid_key(source_uid: str | int) -> str:
         return str(source_uid)
-
-    @staticmethod
-    def _label_key(label: str | int) -> str:
-        return str(label)
 
     @staticmethod
     def _now_iso() -> str:
