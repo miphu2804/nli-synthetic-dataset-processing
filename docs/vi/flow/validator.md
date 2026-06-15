@@ -8,6 +8,9 @@ không.
 
 ```text
 START
+  -> đọc skill://instructor
+  -> đọc skill://execution
+  -> đọc skill://progress_tracking
   -> đọc skill://validator
   -> start_validation_run(from_sample, to_sample)
        tạo .pipeline/validation/runs/{run_id}

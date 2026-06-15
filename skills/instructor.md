@@ -30,6 +30,35 @@ source_uid,premise,hypothesis,label
 | Subagent | Transform one claimed batch and return JSON only |
 | MCP runtime | Claim batches, append progress, merge output and cleanup |
 
+## Tool Map
+
+Generation tools:
+
+```text
+start_generation_run
+calculate_dispatch_plan
+claim_next_batch
+submit_batch_result
+get_run_progress
+release_batch_claim
+verify_progress_log
+finalize_generation_run
+list_generation_runs
+```
+
+Validation tools:
+
+```text
+start_validation_run
+claim_next_validation_batch
+submit_validation_result
+get_validation_progress
+release_validation_batch_claim
+verify_validation_progress_log
+finalize_validation_run
+list_validation_runs
+```
+
 ## Resource Map
 
 Load only the resources needed by the current phase:
@@ -41,6 +70,7 @@ Load only the resources needed by the current phase:
 | `skill://generator` | Before generating rows. Learn transformation rules and self-checks. |
 | `skill://delegation` | When processing at least 100 assigned rows with subagents. |
 | `skill://aggregator` | Before finalizing a completed local run. |
+| `skill://validator` | Before validating generated rows with masked labels. |
 
 ## Generation Phase
 
@@ -61,17 +91,23 @@ load execution
 
 ## Validation Phase
 
-After generation is finalized, run offline validation:
+After generation is finalized, run MCP validation:
 
 ```text
-1. Mask labels    → uv run python -m src.utils.validation_masking_cli
-2. Agent validate → each model reads skill://validator and writes source_uid,predicted_label,reason
-3. Finalize       → trusted runtime writes one validation_results.csv with expected/predicted labels
-4. Analyze PMI    → uv run python -m src.utils.validation_aggregation_cli
+load execution
+  -> load progress_tracking
+  -> load validator
+  -> start_validation_run
+  -> claim_next_validation_batch
+  -> assign predicted_label from premise and hypothesis only
+  -> submit_validation_result
+  -> repeat until claim_next_validation_batch returns complete
+  -> verify_validation_progress_log
+  -> finalize_validation_run
 ```
 
-Read `skill://validator` for the scoring rubric and verdict contract that each validator agent must follow.
-Refer to `docs/validation-flow.md` for the full multi-model consensus and PMI flow.
+The validation runtime masks labels before returning claimed rows. Validators
+must not read the original labeled file directly after the run starts.
 
 ## Guardrails
 

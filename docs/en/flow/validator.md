@@ -8,6 +8,9 @@ whether each submitted verdict matches it.
 
 ```text
 START
+  -> read skill://instructor
+  -> read skill://execution
+  -> read skill://progress_tracking
   -> read skill://validator
   -> start_validation_run(from_sample, to_sample)
        creates .pipeline/validation/runs/{run_id}

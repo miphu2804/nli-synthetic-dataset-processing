@@ -7,6 +7,9 @@ Use this prompt when the Codex harness is already connected to MCP server
 You are connected to MCP server `nli-data-processing-mcp-server`.
 
 Available MCP resources:
+- skill://instructor
+- skill://execution
+- skill://progress_tracking
 - skill://validator
 
 Available validation tools:
@@ -28,7 +31,11 @@ Validate generated Vietnamese NLI rows through masked labels:
 - batch_size: 20
 
 Flow:
-1. Read skill://validator.
+1. Read MCP resources in this order:
+   - skill://instructor
+   - skill://execution
+   - skill://progress_tracking
+   - skill://validator
 2. Call start_validation_run with from_sample and to_sample.
 3. Loop:
    - claim_next_validation_batch
@@ -41,6 +48,8 @@ Flow:
    unresolved issues.
 
 Rules:
+- Use MCP resource reads for the listed `skill://...` resources before calling
+  validation tools.
 - Claimed rows expose only source_uid, premise, hypothesis, and masked_label.
 - Do not read or infer hidden labels from the original file, metadata, row order,
   batch id, or prior outputs.

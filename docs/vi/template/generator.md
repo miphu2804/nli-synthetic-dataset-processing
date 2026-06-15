@@ -34,8 +34,11 @@ Generate Vietnamese adversarial NLI rows from this assigned sample range:
 - batch_size: 20
 
 Flow:
-1. Read skill://instructor, skill://execution, skill://progress_tracking, and
-   skill://generator.
+1. Read MCP resources theo thứ tự:
+   - skill://instructor
+   - skill://execution
+   - skill://progress_tracking
+   - skill://generator
 2. Call start_generation_run with from_sample and to_sample.
 3. Call calculate_dispatch_plan for the assigned sample count.
 4. Loop:
@@ -50,6 +53,8 @@ Flow:
 8. Report run_id, output_path, rows_written, skipped rows, and unresolved issues.
 
 Rules:
+- Use MCP resource reads for the listed `skill://...` resources before calling
+  generation tools.
 - Only MCP runtime tools write progress.
 - Subagents, if used, return JSON only and never call MCP tools.
 - Batch CSV artifacts are runtime files under data/batches/{run_id}; finalize
