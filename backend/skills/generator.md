@@ -3,7 +3,7 @@
 Read `skill://instructor` first. This resource covers only the generation phase.
 
 Translate pre-labeled English NLI pairs to Vietnamese and apply one adversarial
-transformation while preserving the original label.
+transformation while preserving the expected_label.
 
 ## Generation Rules - Entailment
 
@@ -55,9 +55,9 @@ Avoid label-leaking cue words unless required by the source meaning:
 For each claimed row:
 
 1. Translate both `premise` and `hypothesis` to natural Vietnamese.
-2. Select one rule compatible with the original label. Prefer less-used rules.
+2. Select one rule compatible with the expected_label. Prefer less-used rules.
 3. Apply that rule to the hypothesis.
-4. Preserve the original label.
+4. Preserve the expected_label.
 5. Run these self-checks before returning or submitting the row:
 
 | Gate | Requirement |

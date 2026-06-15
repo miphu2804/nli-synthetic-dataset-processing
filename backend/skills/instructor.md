@@ -14,7 +14,7 @@ Natural Language Inference (NLI) compares a `premise` and a `hypothesis`:
 
 This pipeline starts from pre-labeled English NLI pairs. Translate both texts to
 natural Vietnamese, apply one label-compatible adversarial transformation and
-preserve the original label.
+preserve the expected_label.
 
 Output schema:
 
@@ -107,7 +107,7 @@ load execution
 ```
 
 The validation runtime masks labels before returning claimed rows. Validators
-must not read the original labeled file directly after the run starts.
+must not read the expected_label from the source file directly after the run starts.
 
 ## Guardrails
 

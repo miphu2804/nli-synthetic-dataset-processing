@@ -1,34 +1,112 @@
 # Validator Flow
 
-Validator phase kiểm tra generated Vietnamese NLI rows khi label bị mask khỏi
-validator. Trusted runtime giữ hidden label nội bộ và tính verdict có khớp hay
-không.
+Validator phase kiểm tra generated Vietnamese NLI rows theo sơ đồ 3 lớp
+(`0=entailment`, `1=neutral`, `2=contradiction`) với expected label bị mask khỏi
+validator. Có ba lớp: một **per-run** blind check do một model tạo ra (tính
+`accepted` deterministic), một **cross-model consensus** gộp nhiều file verdict
+per-run thành `decision` keep/review/discard, và một pass **artifact-flagging**
+deterministic tìm các token làm lộ label. Trusted runtime canonicalize cả hai phía
+(`src/utils/nli_labels.py: canonical_label`) để numeric expected label và string
+predicted label so sánh đúng.
 
 ## State Machine
 
+Lớp 1 — per-run blind check (một validator model). Đây là main run loop:
+
 ```text
-START
-  -> đọc skill://instructor
-  -> đọc skill://execution
-  -> đọc skill://progress_tracking
-  -> đọc skill://validator
-  -> start_validation_run(from_sample, to_sample)
-       tạo .pipeline/validation/runs/{run_id}
-       tạo data/batches/{run_id}
-  -> claim_next_validation_batch
-       trả về source_uid, premise, hypothesis, masked_label
-  -> predict labels mà không đọc hidden labels
-  -> submit_validation_result
-       runtime trusted ghi accepted/rejected comparison vào batch CSV
-  -> claim_next_validation_batch
-       claimed  -> lặp lại predict và submit
-       waiting  -> inspect active claims hoặc release abandoned claim
-       complete -> verify_validation_progress_log
-  -> finalize_validation_run
-       success -> validation_results.csv tồn tại
-               -> .pipeline/validation/runs/{run_id} bị xóa
-               -> data/batches/{run_id} bị xóa
-       failure -> runtime artifacts được giữ để debug
+┌──────────────────────────────────────────────────────────┐
+│ read skills:                                             │
+│ instructor · execution · progress_tracking · validator   │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│ start_validation_run(from_sample, to_sample)             │
+│ • .pipeline/validation/runs/{run_id}                     │
+│ • data/batches/{run_id}                                  │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│ claim_next_validation_batch                              │
+│ → source_uid, premise, hypothesis,                       │
+│   masked_label=[MASK]   (expected_label is hidden)       │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│ validator predicts 3-class label                         │
+│ entailment | neutral | contradiction                     │
+│ + reason (Vietnamese)                                    │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│ submit_validation_result            [deterministic]      │
+│ runtime joins hidden expected_label, then computes       │
+│ accepted = canonical(pred) == canonical(expected)        │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│ claim loop                                               │
+│ claimed  → predict & submit  (back to predict step)      │
+│ waiting  → inspect / release abandoned claim             │
+│ complete → verify_validation_progress_log                │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│ finalize_validation_run                                  │
+│ ok   → validation_results.csv ; run state wiped          │
+│ fail → runtime artifacts kept for debugging              │
+└──────────────────────────────────────────────────────────┘
+```
+
+Lớp 2 — cross-model consensus (offline, deterministic CLI). Chạy Lớp 1 một lần
+cho mỗi model để có N file verdict, rồi aggregate:
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ run Layer 1 once per model →  verdict files              │
+│ gpt4o.csv · deepseek.csv · llama.csv · …                 │
+│ (source_uid, predicted_label, reason)                    │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│ python -m src.cli aggregate                              │
+│   --verdicts-dir  --masked-input  --expected-input       │
+│ agree_count = #models canonical(pred)==canonical(exp)    │
+└──────────────────────────────────────────────────────────┘
+                              │
+     ┌────────────┼────────────┐
+     ▼            ▼            ▼
+┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
+│ KEEP             │   │ REVIEW           │   │ DISCARD          │
+│ agree ≥ 2        │   │ agree == 1       │   │ agree == 0       │
+└──────────────────┘   └──────────────────┘   └──────────────────┘
+
+KEEP → validation_votes.csv (+ pmi_consensus.csv: PMI on the KEPT subset)
+```
+
+Lớp 3 — artifact flagging (deterministic, corpus-level). Chạy trên các row
+validated/kept:
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ python -m src.cli pmi                                    │
+│   --input <kept.csv>  --pmi-threshold T                  │
+│ PMI computed ONCE over all rows (corpus-level)           │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│ pmi_artifact_tokens.csv   → (token, label, pmi, …)       │
+│ pmi_flagged_rows.csv      → hypotheses whose token       │
+│                             leaks its own expected_label │
+│                             → paraphrase these           │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ## Claimed Row Schema
@@ -43,14 +121,24 @@ source_uid,premise,hypothesis,masked_label
 source_uid,predicted_label,reason
 ```
 
-## Final Output Schema
+## Per-run Final Output Schema
 
 ```csv
 source_uid,premise,hypothesis,expected_label,predicted_label,accepted,reason
 ```
 
+## Consensus Vote Table Schema
+
+```csv
+source_uid,<model>_label...,expected_label,agree_count,decision
+```
+
 ## Ghi chú
 
-- Chỉ dùng `premise`, `hypothesis`, và label rubric.
-- Không suy hidden label từ row order, metadata, batch id, hoặc prior outputs.
-- Nếu run dùng numeric labels, trả đúng numeric label id.
+- Chỉ dùng `premise`, `hypothesis`, và rubric; tuyệt đối không suy hidden label
+  từ row order, metadata, batch id, hoặc prior outputs.
+- Trả về một trong 3 canonical name (`entailment`|`neutral`|`contradiction`);
+  runtime tự map sang numeric id. `reason` là tiếng Việt.
+- `accepted` (per-run, một model) và `decision` (cross-model consensus) là hai lớp
+  khác nhau: `accepted` = một model này có khớp `expected_label` không;
+  `decision` = có >= 2 trong N model khớp `expected_label` không.

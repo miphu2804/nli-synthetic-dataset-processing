@@ -30,7 +30,7 @@ Rules assigned in this batch:
 Constraints:
 - Translate both premise and hypothesis to natural Vietnamese.
 - Apply the assigned rule to hypothesis.
-- Preserve the original label.
+- Preserve the expected_label.
 - Avoid unnecessary label-leaking cue words.
 - Return JSON only.
 

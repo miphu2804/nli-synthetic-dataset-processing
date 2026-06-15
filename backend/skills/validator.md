@@ -1,6 +1,6 @@
 # Validator Skill
 
-Validate generated Vietnamese legal NLI rows without seeing the original label.
+Validate generated Vietnamese legal NLI rows without seeing the expected_label.
 
 ## Input Contract
 

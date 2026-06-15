@@ -77,8 +77,12 @@ are modelled on. Three properties matter:
    79.34% full 3-model agreement. Non-entailment is far easier to agree on
    (98.81% ≥2) than entailment (84.75% ≥2).
 
-So "validation" in the paper = **quality control of the generated gold labels**
+So "validation" in the paper = **quality control of the generated expected_labels**
 by an independent jury, with a 3-vote consensus to keep/discard/escalate.
+
+> Note on naming: the paper says "original label"; in this repo that value is the
+> `expected_label` column (the label the generator produced and the validator is
+> checked against). We use `expected_label` throughout.
 
 ---
 
@@ -88,11 +92,14 @@ by an independent jury, with a 3-vote consensus to keep/discard/escalate.
 
 - **Masking is enforced server-side**, not trusted to the harness.
   `claim_next_validation_batch` strips `label` and emits `masked_label="[MASK]"`
-  (`validation_run_service.py`); the gold label is re-joined only at submit time
-  in `_build_output_row`. This matches the paper's "without access to the
-  original labels." No label leakage — verdicts are genuinely blind.
-- **PMI artifact detection exists** — `compute_hypothesis_label_pmi` in
-  `validation_aggregation.py` implements the paper's Eq. (2).
+  (`validation_run_service.py`); the expected_label is re-joined only at submit
+  time in `_build_output_row`. This matches the paper's blind re-annotation
+  ("without access to the original labels"). No leakage — verdicts are blind.
+- **PMI artifact detection + remediation flagging exist** —
+  `compute_hypothesis_label_pmi` implements the paper's Eq. (2), and
+  `flag_pmi_artifacts` (both in `validation_aggregation.py`) applies a threshold
+  and joins back to the rows whose hypothesis leaks its own label (the ones to
+  paraphrase). Exposed via `src/cli.py pmi`.
 - **Multi-model vote table exists** — `build_validation_vote_table(..., min_agreement=2)`
   implements the paper's ≥2-of-N consensus.
 
@@ -100,25 +107,26 @@ by an independent jury, with a 3-vote consensus to keep/discard/escalate.
 
 | # | Gap | Paper says | Repo currently does | Status |
 |---|-----|-----------|---------------------|--------|
-| 1 | **Label space** | Paper binary; this project 3-class `0=entail / 1=neutral / 2=contradiction` | Was comparing numeric gold against string names with no mapping (`"0"=="entailment"` → always False) → `accepted` wrong | **Fixed** — `_CANONICAL_LABELS` maps 0→entailment, 1→neutral, 2→contradiction (and the string names) before comparing |
+| 1 | **Label space** | Paper binary; this project 3-class `0=entail / 1=neutral / 2=contradiction` | Was comparing numeric expected_label against string names with no mapping (`"0"=="entailment"` → always False) → `accepted` wrong | **Fixed** — `_CANONICAL_LABELS` maps 0→entailment, 1→neutral, 2→contradiction (and the string names) before comparing |
 | 2 | **Validator output space** | 3-class `entailment / neutral / contradiction` | `predicted_label` had no enforced canonical set / language | **Fixed** — skill specifies the 3 canonical names + server maps to ids |
 | 3 | **`reason` language** | Vietnamese dataset | Harness mixed English/Vietnamese | **Fixed** — skill mandates Vietnamese-only reason |
-| 4 | **Consensus retention** | Retain iff ≥2 of 3 *independent* models agree with gold; discard on 0; manual-review on 1 | A run uses a **single** validator model → `accepted`/`rejected` is one vote, not a 3-model consensus. The vote table is a standalone util, **not wired** into `finalize_validation_run` | **Open** |
+| 4 | **Consensus retention** | Retain iff ≥2 of 3 *independent* models agree with expected_label; discard on 0; manual-review on 1 | A run uses a **single** validator model → `accepted`/`rejected` is one vote, not a 3-model consensus. The vote table is a standalone util, **not wired** into `finalize_validation_run` | **Open** |
 | 5 | **Per-model independent prompts / tuning** | Independent, iteratively-refined prompt per labeling model, κ≥0.85 | One generic `validator.md` shared by all | **Open** (this is the "tune the validator system prompt" instinct — it's justified) |
 | 6 | **Disagreement buckets** | discard (0 agree) vs manual-review (1 agree) | Only binary accepted/rejected; no "needs manual review" state | **Open** |
-| 7 | **PMI wired into the run** | Step 7 runs on the validated set | PMI is a CLI/util, not part of `finalize_validation_run` | **Open** (acceptable if run separately) |
+| 7 | **PMI wired into the run** | Step 7 runs on the validated set | PMI + artifact flagging are a deterministic CLI (`src/cli.py pmi`), not part of `finalize_validation_run`; paraphrase of flagged rows is still manual | **Partial** (detection+flagging done; run-integration + paraphrase open) |
 
 ---
 
 ## 4. Answering the original questions
 
 - **"Does the harness read label leakage before scoring → results not transparent?"**
-  No. Masking is enforced in code before the batch leaves the server; gold is
-  joined back only after the verdict is submitted. Blind and transparent.
+  No. Masking is enforced in code before the batch leaves the server; the
+  expected_label is joined back only after the verdict is submitted. Blind and
+  transparent.
 
 - **"Is the validator phase scoring correct?"**
   The *mechanism* (blind re-labeling) is correct, but `accepted` was comparing
-  numeric gold ids against string label names with **no mapping**
+  numeric expected_label ids against string label names with **no mapping**
   (`"0"=="entailment"` is always False), so it rejected even correct predictions.
   After the fix (`_CANONICAL_LABELS`, 3-class) it scores correctly for a single
   model. To match the paper's quality bar it still needs **multi-model ≥2/3
@@ -135,7 +143,7 @@ by an independent jury, with a 3-vote consensus to keep/discard/escalate.
 ## 5. Recommended next steps (not yet done)
 
 1. **Wire ≥2/3 consensus into the validation run** — run N validator models per
-   row, retain on ≥2 agreement with gold, discard on 0, flag 1-agreement for
+   row, retain on ≥2 agreement with expected_label, discard on 0, flag 1-agreement for
    manual review (reuse `build_validation_vote_table`).
 2. **Add a 3-class, few-shot, Vietnamese legal validator prompt** per model and
    measure Fleiss' κ on a 50-sample calibration set, targeting κ≥0.85.
