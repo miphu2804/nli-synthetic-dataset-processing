@@ -36,9 +36,26 @@ docker compose up --build
 
 ## Container Start
 
+Both services via Compose (backend on 8000, frontend on 3000):
+
+```bash
+docker compose up --build
+```
+
+CI builds and pushes two images to Docker Hub:
+`nli-synthetic-data-processing` (backend) and
+`nli-synthetic-data-processing-frontend` (frontend).
+
+Backend only:
+
 ```bash
 docker run --pull=always -p 8000:8000 miphu2804/nli-synthetic-data-processing:latest
 ```
+
+The frontend's `VITE_API_ENDPOINT` is baked at build time (the bundle runs in the
+browser). For local same-machine use the default `http://localhost:8000` works because
+Compose publishes backend port 8000 to the host. For a remote deploy, rebuild the frontend
+with `--build-arg VITE_API_ENDPOINT=https://your-backend-url`.
 
 MCP endpoint:
 
