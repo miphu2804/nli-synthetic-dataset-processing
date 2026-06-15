@@ -30,8 +30,20 @@ Return one verdict per claimed `source_uid`:
 }
 ```
 
-`reason` is the audit explanation. It must be specific enough that a reviewer can
-see why the label was chosen from the premise and hypothesis alone.
+This is a **3-class** task. Return `predicted_label` as exactly one of three
+canonical names — `entailment`, `neutral`, or `contradiction`. Do not return
+numeric ids; the server maps the canonical name onto the run's numeric label
+space (0 = entailment, 1 = neutral, 2 = contradiction).
+
+> Note: this project uses 3 classes, unlike the binary ViLegalNLI paper. The
+> paper's single "non-entailment" is split here into `neutral` (insufficient
+> support) and `contradiction` (conflict) — keep them distinct.
+
+`reason` MUST be written in **Vietnamese only**. Do not mix English sentences or
+phrases. Proper nouns and legal citations (e.g. "Điều 40", names, "compact")
+may stay in their original form, but every explanatory clause is Vietnamese.
+The reason must be specific enough that a reviewer can see why the label was
+chosen from the premise and hypothesis alone.
 
 ## Scoring Rubric
 
@@ -39,13 +51,12 @@ Assign the label by judging the logical relation:
 
 | Relation | Use when |
 |----------|----------|
-| `entailment` | The premise gives enough information to support the hypothesis. |
+| `entailment` | The premise gives enough information to support the hypothesis, or the hypothesis is semantically equivalent within the legal context. |
+| `neutral` | The hypothesis is plausible but the premise neither proves nor contradicts it (insufficient support). |
 | `contradiction` | The hypothesis conflicts with, negates, or violates the premise. |
-| `neutral` | The hypothesis is plausible but not proven or contradicted by the premise. |
 
-If the run uses numeric label ids, return the exact id required by the run
-mapping. Do not invent extra labels. Explain the semantic relation in `reason`
-even when `predicted_label` is numeric.
+Never invent extra labels. The server maps the canonical name onto the run's
+numeric ids when needed.
 
 ## Checks
 

@@ -4,7 +4,6 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
-
 from src.services.dataset_reader_service import DatasetReaderService
 from src.services.progress_tracking_service import ProgressTrackingService
 from src.services.validation_run_service import ValidationRunService
@@ -80,6 +79,42 @@ class ValidationRunServiceTest(unittest.TestCase):
         self.assertEqual(submitted.accepted_count, 2)
         self.assertEqual(submitted.rejected_count, 1)
         self.assertEqual(submitted.progress.done_rows, 3)
+
+    def test_submit_validation_result_matches_string_labels_to_numeric_gold(
+        self,
+    ) -> None:
+        started = self.service.start_validation_run(
+            input_path=str(self.input_path),
+            output_dir=str(self.root / "validation-output"),
+            batch_size=3,
+        )
+        claim = self.service.claim_next_validation_batch(started.run_id, "judge-a")
+
+        submitted = self.service.submit_validation_result(
+            run_id=started.run_id,
+            agent_id="judge-a",
+            batch_id=claim.batch.batch_id,
+            verdicts=[
+                {
+                    "source_uid": 1,  # gold 1 = neutral
+                    "predicted_label": "neutral",
+                    "reason": "Tiền đề không đủ thông tin để xác nhận giả thuyết.",
+                },
+                {
+                    "source_uid": 2,  # gold 0 = entailment
+                    "predicted_label": "Entailment",
+                    "reason": "Tiền đề hỗ trợ trực tiếp giả thuyết.",
+                },
+                {
+                    "source_uid": 3,  # gold 1 = neutral, predicted lệch
+                    "predicted_label": "contradiction",
+                    "reason": "Giả thuyết mâu thuẫn với tiền đề.",
+                },
+            ],
+        )
+
+        self.assertEqual(submitted.accepted_count, 2)
+        self.assertEqual(submitted.rejected_count, 1)
 
     def test_submit_validation_result_writes_intermediate_csv_under_data_batches(
         self,
