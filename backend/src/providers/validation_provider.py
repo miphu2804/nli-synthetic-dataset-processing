@@ -4,7 +4,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from fastmcp.tools import tool
 from pydantic import Field
-
 from src.services.dataset_reader_service import DatasetReaderService
 from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
 from src.services.progress_tracking_service import ProgressTrackingService
@@ -27,7 +26,12 @@ class ValidationToolProvider:
         input_path: Annotated[
             str,
             Field(
-                description="Generated CSV or parquet path inside the server container."
+                description=(
+                    "Path to the generated CSV or Parquet file inside the server container. "
+                    "Must contain a 'label' column with the ground-truth labels — "
+                    "do NOT pass a pre-masked file (masked_label only). "
+                    "Labels are masked internally before being returned to validators."
+                )
             ),
         ],
         output_dir: Annotated[

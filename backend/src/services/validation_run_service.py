@@ -4,7 +4,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import pandas as pd
-
 from src.schemas.generation_runtime_schema import ProgressVerificationResponse
 from src.schemas.validation_runtime_schema import (
     ClaimedValidationBatch,
@@ -465,7 +464,12 @@ class ValidationRunService:
         ]
         if missing_columns:
             missing = ", ".join(missing_columns)
-            raise ValueError(f"Dataset is missing required columns: {missing}")
+            hint = (
+                " (pass the original generated file with a 'label' column, not a pre-masked file)"
+                if "label" in missing_columns
+                else ""
+            )
+            raise ValueError(f"Dataset is missing required columns: {missing}{hint}")
 
     def _validate_source_uids(self, source_uids: list[str | int]) -> None:
         if any(pd.isna(source_uid) for source_uid in source_uids):
