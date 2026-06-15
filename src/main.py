@@ -8,6 +8,8 @@ from src.providers import (
     register_validation_tools,
 )
 from src.routers.dispatch_plan_router import dispatch_plan_router
+from src.routers.drive_router import drive_router
+from src.routers.mcp_router import init_mcp_router, mcp_router
 from src.routers.reader_router import reader_router
 from src.routers.skill_router import skill_router
 from src.routers.writer_router import writer_router
@@ -15,6 +17,8 @@ from src.services.skill_service import SkillService
 
 app = FastAPI()
 app.include_router(dispatch_plan_router)
+app.include_router(drive_router)
+app.include_router(mcp_router)
 app.include_router(reader_router)
 app.include_router(skill_router)
 app.include_router(writer_router)
@@ -40,6 +44,7 @@ app.mount("/mcp", mcp_app)
 generation_tool_provider = register_generation_tools(mcp)
 dispatch_planning_tool_provider = register_dispatch_planning_tools(mcp)
 validation_tool_provider = register_validation_tools(mcp)
+init_mcp_router(mcp)
 
 skill_service = SkillService()
 

@@ -1,10 +1,26 @@
-from src.schemas.dataset_reader_schema import DatasetReadRequest, DatasetReadResponse
+from src.schemas.dataset_reader_schema import (
+    DatasetListResponse,
+    DatasetReadRequest,
+    DatasetReadResponse,
+    FileInfo,
+)
 from src.schemas.dataset_writer_schema import (
     DatasetOutputConfig,
     DatasetWriteRequest,
     DatasetWriteResponse,
 )
 from src.schemas.dispatch_plan_schema import DispatchPlanRequest, DispatchPlanResponse
+from src.schemas.drive_schema import (
+    BrowseDriveFilesResponse,
+    DriveAuthCompleteResponse,
+    DriveAuthStartResponse,
+    DriveAuthStatus,
+    DriveDownloadRequest,
+    DriveDownloadResponse,
+    DriveFileInfo,
+    DriveUploadRequest,
+    DriveUploadResponse,
+)
 from src.schemas.generation_runtime_schema import (
     ClaimNextBatchResponse,
     FinalizeGenerationRunResponse,
@@ -34,8 +50,19 @@ from src.schemas.validation_runtime_schema import (
 )
 
 __all__ = [
+    "BrowseDriveFilesResponse",
+    "DatasetListResponse",
     "DatasetReadRequest",
     "DatasetReadResponse",
+    "DriveAuthCompleteResponse",
+    "DriveAuthStartResponse",
+    "DriveAuthStatus",
+    "DriveDownloadRequest",
+    "DriveDownloadResponse",
+    "DriveFileInfo",
+    "DriveUploadRequest",
+    "DriveUploadResponse",
+    "FileInfo",
     "DatasetOutputConfig",
     "DatasetWriteRequest",
     "DatasetWriteResponse",

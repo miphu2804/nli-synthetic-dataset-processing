@@ -17,9 +17,14 @@ data/batches/
 data/generated/
 .codegraph/
 
-# Harness 
+# Harness
 .claude/
 .codex/
 CLAUDE.md
-CODEX.md 
+CODEX.md
 docs/handoff.md
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/.env

@@ -3,6 +3,19 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class FileInfo(BaseModel):
+    path: str
+    name: str
+    size_bytes: int
+    rows: int | None = None
+    kind: str  # "csv" | "parquet"
+
+
+class DatasetListResponse(BaseModel):
+    inputs: list[FileInfo]
+    outputs: list[FileInfo]
+
+
 class DatasetReadRequest(BaseModel):
     path: str = Field(description="Absolute or relative path to a local dataset file.")
     batch_size: int = Field(default=5, ge=1, le=1000)
