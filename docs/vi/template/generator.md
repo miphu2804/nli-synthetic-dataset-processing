@@ -1,10 +1,10 @@
 # Generator Prompt Template
 
 Dùng prompt này khi Codex harness đã connect sẵn với MCP server
-`nli-data-processing-mcp-server`.
+`nli-tools`.
 
 ```text
-You are connected to MCP server `nli-data-processing-mcp-server`.
+You are connected to MCP server `nli-tools`.
 
 Available MCP resources:
 - skill://instructor

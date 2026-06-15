@@ -5,8 +5,27 @@ Vietnamese README: [README.vi.md](README.vi.md)
 Monorepo layout:
 
 ```text
-backend/    FastAPI + FastMCP server (Python, uv)
-frontend/   NLI Studio dashboard (Vite + React + TS)
+nli-synthetic-data-processing/
+├── backend/                        FastAPI + FastMCP server (Python, uv)
+│   ├── src/
+│   │   ├── main.py                 App entry — wires FastAPI + FastMCP
+│   │   ├── app_config.py           Pydantic-settings config singleton
+│   │   ├── routers/                HTTP route handlers
+│   │   ├── providers/              MCP tool registration (@tool wrappers)
+│   │   ├── services/               Business logic (generation, validation, …)
+│   │   ├── schemas/                Pydantic request/response models
+│   │   └── utils/                  Standalone CLI utilities (masking, aggregation)
+│   ├── skills/                     MCP skill markdown files (served at skill://)
+│   └── tests/
+├── frontend/                       NLI Studio dashboard (Vite + React + TS)
+│   └── src/
+│       ├── pages/                  Route-level page components
+│       ├── components/             Shared UI components
+│       └── lib/                    API client helpers
+├── docs/
+│   ├── en/                         English guides (flow/, template/)
+│   └── vi/                         Vietnamese guides (flow/, template/)
+└── docker-compose.yml
 ```
 
 ## Local Start
@@ -63,7 +82,7 @@ MCP endpoint:
 http://localhost:8000/mcp/
 ```
 
-## Resources
+## Resources (MCP server: `nli-tools`)
 
 | Resource | Purpose |
 |----------|---------|

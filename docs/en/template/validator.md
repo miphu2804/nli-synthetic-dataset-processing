@@ -1,10 +1,10 @@
 # Validator Prompt Template
 
 Use this prompt when the Codex harness is already connected to MCP server
-`nli-data-processing-mcp-server`.
+`nli-tools`.
 
 ```text
-You are connected to MCP server `nli-data-processing-mcp-server`.
+You are connected to MCP server `nli-tools`.
 
 Available MCP resources:
 - skill://instructor
