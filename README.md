@@ -41,11 +41,14 @@ http://localhost:8000/mcp/
 
 Use these docs when the Codex harness is already connected to the MCP server.
 
-| Phase | Guide | Output |
-|-------|-------|--------|
+| Area | Guide | Output |
+|------|-------|--------|
 | Project overview | [docs/en/project-overview.md](docs/en/project-overview.md) | `Architecture and runtime ownership` |
-| Generator | [docs/en/generator_prompt_template.md](docs/en/generator_prompt_template.md) | `data/generated/*.csv` |
-| Validator | [docs/en/validator_prompt_template.md](docs/en/validator_prompt_template.md) | `data/validated/*/validation_results.csv` |
+| Generator flow | [docs/en/flow/generator.md](docs/en/flow/generator.md) | `data/generated/*.csv` |
+| Validator flow | [docs/en/flow/validator.md](docs/en/flow/validator.md) | `data/validated/*/validation_results.csv` |
+| Progress tracking | [docs/en/flow/progress-tracking.md](docs/en/flow/progress-tracking.md) | Runtime state and cleanup |
+| Generator template | [docs/en/template/generator.md](docs/en/template/generator.md) | Codex harness prompt |
+| Validator template | [docs/en/template/validator.md](docs/en/template/validator.md) | Codex harness prompt |
 
 The MCP start tools use 1-based inclusive sample ranges:
 

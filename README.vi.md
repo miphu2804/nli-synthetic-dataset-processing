@@ -41,11 +41,14 @@ http://localhost:8000/mcp/
 
 Dùng các docs này khi Codex harness đã connect sẵn với MCP server.
 
-| Phase | Guide | Output |
-|-------|-------|--------|
+| Area | Guide | Output |
+|------|-------|--------|
 | Project overview | [docs/vi/project-overview.md](docs/vi/project-overview.md) | `Architecture and runtime ownership` |
-| Generator | [docs/vi/generator_prompt_template.md](docs/vi/generator_prompt_template.md) | `data/generated/*.csv` |
-| Validator | [docs/vi/validator_prompt_template.md](docs/vi/validator_prompt_template.md) | `data/validated/*/validation_results.csv` |
+| Generator flow | [docs/vi/flow/generator.md](docs/vi/flow/generator.md) | `data/generated/*.csv` |
+| Validator flow | [docs/vi/flow/validator.md](docs/vi/flow/validator.md) | `data/validated/*/validation_results.csv` |
+| Progress tracking | [docs/vi/flow/progress-tracking.md](docs/vi/flow/progress-tracking.md) | Runtime state and cleanup |
+| Generator template | [docs/vi/template/generator.md](docs/vi/template/generator.md) | Codex harness prompt |
+| Validator template | [docs/vi/template/validator.md](docs/vi/template/validator.md) | Codex harness prompt |
 
 MCP start tools dùng sample range 1-based inclusive:
 

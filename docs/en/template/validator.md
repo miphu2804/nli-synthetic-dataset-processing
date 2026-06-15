@@ -48,27 +48,3 @@ Rules:
 - Finalize writes validation_results.csv and cleans both .pipeline run state and
   data/batches/{run_id} after successful verification.
 ```
-
-## State Machine
-
-```text
-START
-  -> read skill://validator
-  -> start_validation_run(from_sample, to_sample)
-       creates .pipeline/validation/runs/{run_id}
-       creates data/batches/{run_id}
-  -> claim_next_validation_batch
-       returns source_uid, premise, hypothesis, masked_label
-  -> predict labels without reading hidden labels
-  -> submit_validation_result
-       writes trusted accepted/rejected comparison to batch CSV
-  -> claim_next_validation_batch
-       claimed  -> repeat predict and submit
-       waiting  -> inspect active claims or release abandoned claim
-       complete -> verify_validation_progress_log
-  -> finalize_validation_run
-       success -> validation_results.csv exists
-               -> .pipeline/validation/runs/{run_id} removed
-               -> data/batches/{run_id} removed
-       failure -> runtime artifacts remain for debugging
-```
