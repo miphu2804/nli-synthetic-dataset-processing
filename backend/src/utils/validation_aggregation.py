@@ -4,6 +4,7 @@ from collections import Counter
 from pathlib import Path
 
 import pandas as pd
+from src.utils.nli_labels import canonical_label
 
 SOURCE_UID_COLUMN = "source_uid"
 PREDICTED_LABEL_COLUMN = "predicted_label"
@@ -11,6 +12,7 @@ PREDICTED_LABEL_COLUMN = "predicted_label"
 
 def build_validation_vote_table(
     model_label_paths: dict[str, str | Path],
+    expected_labels: dict[str, str | int],
     min_agreement: int = 2,
 ) -> pd.DataFrame:
     if not model_label_paths:
@@ -31,23 +33,28 @@ def build_validation_vote_table(
     ]
     vote_rows = []
     for _, row in vote_table.iterrows():
-        labels = [str(row[column]) for column in label_columns]
-        counts = Counter(labels)
-        consensus_label, consensus_size = counts.most_common(1)[0]
-        agreement_status = _agreement_status(
-            consensus_size, len(label_columns), min_agreement
+        source_uid = row[SOURCE_UID_COLUMN]
+        uid_key = str(source_uid)
+        if uid_key not in expected_labels:
+            raise ValueError(f"Missing expected_label for source_uid: {uid_key}")
+        expected_label_raw = expected_labels[uid_key]
+        expected = canonical_label(expected_label_raw)
+        agree_count = sum(
+            1 for column in label_columns if canonical_label(row[column]) == expected
         )
+        if agree_count >= min_agreement:
+            decision = "keep"
+        elif agree_count == 0:
+            decision = "discard"
+        else:
+            decision = "review"
         vote_rows.append(
             {
-                SOURCE_UID_COLUMN: row[SOURCE_UID_COLUMN],
+                SOURCE_UID_COLUMN: source_uid,
                 **{column: row[column] for column in label_columns},
-                **{
-                    f"vote_count_{label}": counts[label]
-                    for label in sorted(counts.keys())
-                },
-                "consensus_label": consensus_label,
-                "consensus_size": consensus_size,
-                "agreement_status": agreement_status,
+                "expected_label": expected_label_raw,
+                "agree_count": agree_count,
+                "decision": decision,
             }
         )
     return pd.DataFrame(vote_rows)
@@ -138,6 +145,73 @@ def compute_hypothesis_label_pmi(
     )
 
 
+def flag_pmi_artifacts(
+    dataframe: pd.DataFrame,
+    label_column: str = "expected_label",
+    text_column: str = "hypothesis",
+    uid_column: str = "source_uid",
+    pmi_threshold: float = 1.0,
+    min_joint_count: int = 1,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Detect label-leaking artifact tokens and the rows that carry them.
+
+    Returns (artifact_tokens, flagged_rows):
+    - artifact_tokens: the PMI table filtered to (token, label) pairs whose PMI is
+      at or above ``pmi_threshold`` — i.e. tokens that leak a specific label.
+    - flagged_rows: rows whose ``text_column`` contains an artifact token that
+      leaks that row's own ``label_column`` value. These are the hypotheses to
+      paraphrase before the dataset is published.
+
+    This only detects/flags; rewriting the flagged hypotheses is a separate step.
+    """
+    required_columns = [uid_column, text_column, label_column]
+    missing_columns = [
+        column for column in required_columns if column not in dataframe.columns
+    ]
+    if missing_columns:
+        missing = ", ".join(missing_columns)
+        raise ValueError(f"Artifact dataframe is missing required columns: {missing}")
+
+    pmi_table = compute_hypothesis_label_pmi(
+        dataframe,
+        label_column=label_column,
+        text_column=text_column,
+        min_joint_count=min_joint_count,
+    )
+    artifact_tokens = pmi_table[pmi_table["pmi"] >= pmi_threshold].reset_index(
+        drop=True
+    )
+    artifact_pairs = {
+        (str(token), str(label))
+        for token, label in zip(artifact_tokens["token"], artifact_tokens["label"])
+    }
+
+    FLAGGED_COLUMNS = [
+        uid_column,
+        text_column,
+        label_column,
+        "artifact_tokens",
+        "artifact_count",
+    ]
+    flagged_rows = []
+    for _, row in dataframe.iterrows():
+        row_label = str(row[label_column])
+        tokens = set(_tokenize(str(row[text_column])))
+        hits = sorted(token for token in tokens if (token, row_label) in artifact_pairs)
+        if hits:
+            flagged_rows.append(
+                {
+                    uid_column: row[uid_column],
+                    text_column: row[text_column],
+                    label_column: row[label_column],
+                    "artifact_tokens": " ".join(hits),
+                    "artifact_count": len(hits),
+                }
+            )
+    flagged_df = pd.DataFrame(flagged_rows, columns=FLAGGED_COLUMNS)
+    return artifact_tokens, flagged_df
+
+
 def _read_model_label_column(model_name: str, path: str | Path) -> pd.DataFrame:
     dataframe = _read_table(path)
     required_columns = [SOURCE_UID_COLUMN, PREDICTED_LABEL_COLUMN]
@@ -162,18 +236,6 @@ def _validate_same_source_uids(label_tables: list[pd.DataFrame]) -> None:
             raise ValueError(
                 "All model label files must contain the same source_uid set."
             )
-
-
-def _agreement_status(
-    consensus_size: int,
-    model_count: int,
-    min_agreement: int,
-) -> str:
-    if consensus_size == model_count:
-        return "unanimous"
-    if consensus_size >= min_agreement:
-        return "majority"
-    return "review"
 
 
 def _read_table(path: str | Path) -> pd.DataFrame:

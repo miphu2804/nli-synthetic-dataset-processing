@@ -3,12 +3,68 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
-
 from src.utils.validation_aggregation import (
     attach_masked_text,
     build_validation_vote_table,
     compute_hypothesis_label_pmi,
+    flag_pmi_artifacts,
 )
+
+
+class FlagPmiArtifactsTest(unittest.TestCase):
+    def _dataset(self) -> pd.DataFrame:
+        # "alpha" leaks entailment, "beta" leaks neutral, "shared" is balanced.
+        return pd.DataFrame(
+            [
+                {
+                    "source_uid": 1,
+                    "hypothesis": "alpha shared",
+                    "expected_label": "entailment",
+                },
+                {
+                    "source_uid": 2,
+                    "hypothesis": "alpha shared",
+                    "expected_label": "entailment",
+                },
+                {
+                    "source_uid": 3,
+                    "hypothesis": "beta shared",
+                    "expected_label": "neutral",
+                },
+                {
+                    "source_uid": 4,
+                    "hypothesis": "beta shared",
+                    "expected_label": "neutral",
+                },
+            ]
+        )
+
+    def test_flags_label_leaking_tokens_and_rows(self) -> None:
+        artifact_tokens, flagged_rows = flag_pmi_artifacts(
+            self._dataset(),
+            pmi_threshold=0.5,
+            min_joint_count=1,
+        )
+
+        self.assertEqual(set(artifact_tokens["token"]), {"alpha", "beta"})
+        self.assertNotIn("shared", set(artifact_tokens["token"]))
+        self.assertEqual(len(flagged_rows), 4)
+        row1 = flagged_rows.loc[flagged_rows["source_uid"] == 1].iloc[0]
+        self.assertEqual(row1["artifact_tokens"], "alpha")
+
+    def test_high_threshold_flags_nothing(self) -> None:
+        artifact_tokens, flagged_rows = flag_pmi_artifacts(
+            self._dataset(),
+            pmi_threshold=10.0,
+            min_joint_count=1,
+        )
+
+        self.assertEqual(len(artifact_tokens), 0)
+        self.assertEqual(len(flagged_rows), 0)
+
+    def test_missing_column_raises(self) -> None:
+        with self.assertRaisesRegex(ValueError, "missing required columns"):
+            flag_pmi_artifacts(pd.DataFrame([{"source_uid": 1, "hypothesis": "x"}]))
 
 
 class ValidationAggregationTest(unittest.TestCase):
@@ -17,19 +73,29 @@ class ValidationAggregationTest(unittest.TestCase):
             root = Path(temp_dir)
             model_paths = self._write_model_label_files(root)
 
-            vote_table = build_validation_vote_table(model_paths)
+            # row-1: all 3 predict 1, expected 1 -> 3 agree -> keep
+            # row-2: predict 0,0,1, expected 2 -> 0 agree -> discard
+            # row-3: predict 0,1,2, expected 1 -> 1 agree -> review
+            expected_labels = {"row-1": 1, "row-2": 2, "row-3": 1}
+            vote_table = build_validation_vote_table(model_paths, expected_labels)
 
         self.assertEqual(
             list(vote_table["source_uid"]),
             ["row-1", "row-2", "row-3"],
         )
         self.assertEqual(vote_table.loc[0, "gpt4o_label"], 1)
-        self.assertEqual(vote_table.loc[0, "consensus_label"], "1")
-        self.assertEqual(vote_table.loc[0, "consensus_size"], 3)
-        self.assertEqual(vote_table.loc[0, "agreement_status"], "unanimous")
-        self.assertEqual(vote_table.loc[1, "vote_count_0"], 2)
-        self.assertEqual(vote_table.loc[1, "agreement_status"], "majority")
-        self.assertEqual(vote_table.loc[2, "agreement_status"], "review")
+
+        self.assertEqual(vote_table.loc[0, "expected_label"], 1)
+        self.assertEqual(vote_table.loc[0, "agree_count"], 3)
+        self.assertEqual(vote_table.loc[0, "decision"], "keep")
+
+        self.assertEqual(vote_table.loc[1, "expected_label"], 2)
+        self.assertEqual(vote_table.loc[1, "agree_count"], 0)
+        self.assertEqual(vote_table.loc[1, "decision"], "discard")
+
+        self.assertEqual(vote_table.loc[2, "expected_label"], 1)
+        self.assertEqual(vote_table.loc[2, "agree_count"], 1)
+        self.assertEqual(vote_table.loc[2, "decision"], "review")
 
     def test_build_validation_vote_table_requires_same_source_uids(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -44,7 +110,10 @@ class ValidationAggregationTest(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ValueError, "same source_uid set"):
-                build_validation_vote_table({"gpt4o": first, "deepseek": second})
+                build_validation_vote_table(
+                    {"gpt4o": first, "deepseek": second},
+                    {"row-1": 1, "row-2": 1},
+                )
 
     def test_compute_hypothesis_label_pmi_uses_masked_text_and_consensus(self) -> None:
         masked = pd.DataFrame(
