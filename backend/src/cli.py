@@ -1,0 +1,668 @@
+import argparse
+from dataclasses import dataclass
+from pathlib import Path
+
+import pandas as pd
+from rich.console import Console
+from rich.prompt import Confirm, IntPrompt, Prompt
+from rich.table import Table
+from src.utils.validation_aggregation import (
+    attach_masked_text,
+    build_validation_vote_table,
+    compute_hypothesis_label_pmi,
+    flag_pmi_artifacts,
+)
+from src.utils.validation_masking import write_masked_validation_dataset
+
+DATASET_SUFFIXES = (".csv", ".parquet")
+MASK_DEFAULT_SEARCH_DIRS = (
+    Path("data/generated"),
+    Path("data/processed"),
+    Path("data/original"),
+)
+VERDICT_DEFAULT_SEARCH_DIRS = (
+    Path("data/validation"),
+    Path("data/validated"),
+)
+VERDICT_REQUIRED_COLUMNS = {"source_uid", "predicted_label", "reason"}
+
+
+def read_dataset(path: Path) -> pd.DataFrame:
+    if path.suffix.lower() == ".parquet":
+        return pd.read_parquet(path)
+    return pd.read_csv(path)
+
+
+def read_columns(path: Path) -> list[str]:
+    if path.suffix.lower() == ".parquet":
+        return list(pd.read_parquet(path, columns=[]).columns)
+    return list(pd.read_csv(path, nrows=0).columns)
+
+
+# --------------------------------------------------------------------------- #
+# mask command
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class DatasetCandidate:
+    path: Path
+    columns: list[str]
+
+
+def discover_dataset_files(search_dirs: list[Path]) -> list[Path]:
+    candidates: list[Path] = []
+    for search_dir in search_dirs:
+        if not search_dir.exists():
+            continue
+        for path in sorted(search_dir.rglob("*")):
+            if path.is_file() and path.suffix.lower() in DATASET_SUFFIXES:
+                candidates.append(path)
+    return candidates
+
+
+def build_dataset_candidates(paths: list[Path]) -> list[DatasetCandidate]:
+    candidates: list[DatasetCandidate] = []
+    for path in paths:
+        try:
+            columns = read_columns(path)
+        except Exception:
+            columns = []
+        candidates.append(DatasetCandidate(path=path, columns=columns))
+    return candidates
+
+
+def infer_uid_column(columns: list[str]) -> str | None:
+    if "source_uid" in columns:
+        return "source_uid"
+    if "uid" in columns:
+        return "uid"
+    return None
+
+
+def default_output_path(input_path: Path) -> Path:
+    return input_path.with_name(
+        f"{input_path.stem}_validation_masked{input_path.suffix}"
+    )
+
+
+def render_candidates_table(
+    console: Console,
+    candidates: list[DatasetCandidate],
+) -> None:
+    table = Table(title="Validation Masking - Select Input Dataset")
+    table.add_column("#", justify="right")
+    table.add_column("Path")
+    table.add_column("UID", style="cyan")
+    table.add_column("Has label", justify="center")
+    table.add_column("Columns")
+
+    for index, candidate in enumerate(candidates, start=1):
+        uid_column = infer_uid_column(candidate.columns) or "-"
+        has_label = "yes" if "label" in candidate.columns else "no"
+        table.add_row(
+            str(index),
+            str(candidate.path),
+            uid_column,
+            has_label,
+            ", ".join(candidate.columns[:8]),
+        )
+    console.print(table)
+
+
+def run_masking(
+    input_path: Path,
+    output_path: Path,
+    uid_column: str,
+    label_column: str,
+) -> Path:
+    dataframe = read_dataset(input_path)
+    return write_masked_validation_dataset(
+        dataframe,
+        output_path=output_path,
+        uid_column=uid_column,
+        label_column=label_column,
+    )
+
+
+def _run_mask_command(args: argparse.Namespace, console: Console) -> int:
+    search_dirs = [Path(item) for item in args.search_dir] or list(
+        MASK_DEFAULT_SEARCH_DIRS
+    )
+    input_path = Path(args.input).expanduser() if args.input else None
+
+    if input_path is None:
+        candidates = build_dataset_candidates(discover_dataset_files(search_dirs))
+        if candidates:
+            render_candidates_table(console, candidates)
+            choice = IntPrompt.ask(
+                "Choose dataset number",
+                default=1,
+                choices=[str(index) for index in range(1, len(candidates) + 1)],
+            )
+            input_path = candidates[choice - 1].path
+        else:
+            console.print(
+                "[yellow]No CSV/parquet datasets found in search dirs.[/yellow]"
+            )
+            input_path = Path(Prompt.ask("Input dataset path")).expanduser()
+
+    if not input_path.exists():
+        console.print(f"[red]Input dataset not found:[/red] {input_path}")
+        return 2
+
+    columns = read_columns(input_path)
+    uid_column = args.uid_column or infer_uid_column(columns)
+    if uid_column is None:
+        uid_column = Prompt.ask("UID column name", default="source_uid")
+
+    output_path = (
+        Path(args.output).expanduser()
+        if args.output
+        else default_output_path(input_path)
+    )
+    label_column = args.label_column
+
+    console.print()
+    console.print(f"[bold]Input:[/bold] {input_path}")
+    console.print(f"[bold]Output:[/bold] {output_path}")
+    console.print(f"[bold]UID column:[/bold] {uid_column}")
+    console.print(f"[bold]Label column to drop:[/bold] {label_column}")
+    if not args.yes and not Confirm.ask(
+        "Create masked validation dataset?", default=True
+    ):
+        console.print("[yellow]Cancelled.[/yellow]")
+        return 1
+
+    try:
+        written_path = run_masking(
+            input_path=input_path,
+            output_path=output_path,
+            uid_column=uid_column,
+            label_column=label_column,
+        )
+    except Exception as exc:
+        console.print(f"[red]Failed:[/red] {exc}")
+        return 2
+
+    masked_columns = read_columns(written_path)
+    result_table = Table(title="Masked Dataset Created")
+    result_table.add_column("Output")
+    result_table.add_column("Columns")
+    result_table.add_column("Label leaked?", justify="center")
+    result_table.add_row(
+        str(written_path),
+        ", ".join(masked_columns),
+        "yes" if label_column in masked_columns else "no",
+    )
+    console.print(result_table)
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# aggregate command
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class VerdictFileCandidate:
+    path: Path
+    columns: list[str]
+    model_name: str
+    is_valid: bool
+
+
+def discover_verdict_files(search_dir: Path) -> list[Path]:
+    if not search_dir.exists():
+        return []
+    return sorted(
+        path
+        for path in search_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in DATASET_SUFFIXES
+    )
+
+
+def build_verdict_candidates(paths: list[Path]) -> list[VerdictFileCandidate]:
+    candidates = []
+    for path in paths:
+        try:
+            columns = read_columns(path)
+        except Exception:
+            columns = []
+        is_valid = VERDICT_REQUIRED_COLUMNS.issubset(set(columns))
+        candidates.append(
+            VerdictFileCandidate(
+                path=path,
+                columns=columns,
+                model_name=path.stem,
+                is_valid=is_valid,
+            )
+        )
+    return candidates
+
+
+def render_verdict_candidates_table(
+    console: Console,
+    candidates: list[VerdictFileCandidate],
+) -> None:
+    table = Table(title="Verdict Files Discovered")
+    table.add_column("#", justify="right")
+    table.add_column("File")
+    table.add_column("Model name")
+    table.add_column("Valid?", justify="center")
+    table.add_column("Columns")
+    for index, candidate in enumerate(candidates, start=1):
+        valid = "[green]yes[/green]" if candidate.is_valid else "[red]no[/red]"
+        table.add_row(
+            str(index),
+            candidate.path.name,
+            candidate.model_name,
+            valid,
+            ", ".join(candidate.columns[:6]),
+        )
+    console.print(table)
+
+
+def load_expected_labels(
+    path: Path, uid_column: str, label_column: str
+) -> dict[str, object]:
+    df = read_dataset(path)
+    for col in (uid_column, label_column):
+        if col not in df.columns:
+            raise ValueError(f"Expected-label dataset is missing column: {col}")
+    return {str(uid): label for uid, label in zip(df[uid_column], df[label_column])}
+
+
+def run_aggregation(
+    valid_candidates: list[VerdictFileCandidate],
+    masked_dataset_path: Path,
+    output_dir: Path,
+    min_joint_count: int,
+    expected_labels: dict,
+) -> dict:
+    model_label_paths = {
+        candidate.model_name: candidate.path for candidate in valid_candidates
+    }
+    vote_table = build_validation_vote_table(model_label_paths, expected_labels)
+    votes_output = output_dir / "validation_votes.csv"
+    vote_table.to_csv(votes_output, index=False)
+
+    masked_df = read_dataset(masked_dataset_path)
+    kept = vote_table[vote_table["decision"] == "keep"]
+    analysis_df = attach_masked_text(masked_df, kept)
+    pmi_df = compute_hypothesis_label_pmi(
+        analysis_df,
+        label_column="expected_label",
+        text_column="hypothesis",
+        min_joint_count=min_joint_count,
+    )
+    pmi_output = output_dir / "pmi_consensus.csv"
+    pmi_df.to_csv(pmi_output, index=False)
+
+    decision_counts = vote_table["decision"].value_counts().to_dict()
+    return {
+        "votes_output": votes_output,
+        "pmi_output": pmi_output,
+        "total_rows": len(vote_table),
+        "keep": decision_counts.get("keep", 0),
+        "discard": decision_counts.get("discard", 0),
+        "review": decision_counts.get("review", 0),
+        "pmi_tokens": len(pmi_df),
+    }
+
+
+def _resolve_verdicts_dir(args: argparse.Namespace, console: Console) -> Path | None:
+    if args.verdicts_dir:
+        return Path(args.verdicts_dir).expanduser()
+    for default_dir in VERDICT_DEFAULT_SEARCH_DIRS:
+        if default_dir.exists():
+            return default_dir
+    raw = Prompt.ask("Path to directory containing model verdict files")
+    return Path(raw).expanduser()
+
+
+def _resolve_masked_input(args: argparse.Namespace, console: Console) -> Path | None:
+    if args.masked_input:
+        return Path(args.masked_input).expanduser()
+    raw = Prompt.ask("Path to masked validation dataset (for PMI text join)")
+    return Path(raw).expanduser()
+
+
+def _resolve_expected_input(args: argparse.Namespace, console: Console) -> Path | None:
+    if args.expected_input:
+        return Path(args.expected_input).expanduser()
+    raw = Prompt.ask("Path to original dataset with the expected_label column")
+    return Path(raw).expanduser()
+
+
+def _run_aggregate_command(args: argparse.Namespace, console: Console) -> int:
+    verdicts_dir = _resolve_verdicts_dir(args, console)
+    if verdicts_dir is None:
+        return 2
+    if not verdicts_dir.exists():
+        console.print(f"[red]Verdicts directory not found:[/red] {verdicts_dir}")
+        return 2
+
+    candidates = build_verdict_candidates(discover_verdict_files(verdicts_dir))
+    valid_candidates = [c for c in candidates if c.is_valid]
+
+    if candidates:
+        render_verdict_candidates_table(console, candidates)
+
+    if len(valid_candidates) < 2:
+        console.print(
+            "[red]Need at least 2 valid verdict files "
+            "(columns: source_uid, predicted_label, reason).[/red]"
+        )
+        return 2
+
+    masked_input = _resolve_masked_input(args, console)
+    if masked_input is None:
+        return 2
+    if not masked_input.exists():
+        console.print(f"[red]Masked dataset not found:[/red] {masked_input}")
+        return 2
+
+    expected_input = _resolve_expected_input(args, console)
+    if expected_input is None:
+        return 2
+    if not expected_input.exists():
+        console.print(f"[red]Expected-label dataset not found:[/red] {expected_input}")
+        return 2
+
+    output_dir = Path(args.output_dir).expanduser() if args.output_dir else verdicts_dir
+
+    console.print()
+    console.print(f"[bold]Verdicts dir:[/bold]  {verdicts_dir}")
+    console.print(
+        f"[bold]Models:[/bold]       {', '.join(c.model_name for c in valid_candidates)}"
+    )
+    console.print(f"[bold]Masked input:[/bold] {masked_input}")
+    console.print(f"[bold]Expected input:[/bold] {expected_input}")
+    console.print(f"[bold]Output dir:[/bold]   {output_dir}")
+    console.print(f"[bold]PMI min count:[/bold] {args.min_joint_count}")
+
+    if not args.yes and not Confirm.ask("Run aggregation and PMI?", default=True):
+        console.print("[yellow]Cancelled.[/yellow]")
+        return 1
+
+    try:
+        expected_labels = load_expected_labels(
+            expected_input, args.uid_column, args.label_column
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        result = run_aggregation(
+            valid_candidates=valid_candidates,
+            masked_dataset_path=masked_input,
+            output_dir=output_dir,
+            min_joint_count=args.min_joint_count,
+            expected_labels=expected_labels,
+        )
+    except Exception as exc:
+        console.print(f"[red]Failed:[/red] {exc}")
+        return 2
+
+    summary = Table(title="Aggregation Complete")
+    summary.add_column("Metric")
+    summary.add_column("Value", justify="right")
+    summary.add_row("Total rows", str(result["total_rows"]))
+    summary.add_row("Keep", str(result["keep"]))
+    summary.add_row("Discard", str(result["discard"]))
+    summary.add_row("Review", str(result["review"]))
+    summary.add_row("PMI tokens", str(result["pmi_tokens"]))
+    summary.add_row("Votes output", str(result["votes_output"]))
+    summary.add_row("PMI output", str(result["pmi_output"]))
+    console.print(summary)
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# pmi command
+# --------------------------------------------------------------------------- #
+def run_pmi(
+    input_path: Path,
+    output_dir: Path,
+    label_column: str,
+    text_column: str,
+    uid_column: str,
+    pmi_threshold: float,
+    min_joint_count: int,
+) -> dict:
+    dataframe = read_dataset(input_path)
+    artifact_tokens, flagged_rows = flag_pmi_artifacts(
+        dataframe,
+        label_column=label_column,
+        text_column=text_column,
+        uid_column=uid_column,
+        pmi_threshold=pmi_threshold,
+        min_joint_count=min_joint_count,
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tokens_output = output_dir / "pmi_artifact_tokens.csv"
+    rows_output = output_dir / "pmi_flagged_rows.csv"
+    artifact_tokens.to_csv(tokens_output, index=False)
+    flagged_rows.to_csv(rows_output, index=False)
+    return {
+        "tokens_output": tokens_output,
+        "rows_output": rows_output,
+        "total_rows": len(dataframe),
+        "artifact_tokens": len(artifact_tokens),
+        "flagged_rows": len(flagged_rows),
+    }
+
+
+def _run_pmi_command(args: argparse.Namespace, console: Console) -> int:
+    input_path = Path(args.input).expanduser()
+    if not input_path.exists():
+        console.print(f"[red]Input dataset not found:[/red] {input_path}")
+        return 2
+
+    output_dir = (
+        Path(args.output_dir).expanduser() if args.output_dir else input_path.parent
+    )
+
+    console.print(f"[bold]Input:[/bold]         {input_path}")
+    console.print(f"[bold]Label column:[/bold]  {args.label_column}")
+    console.print(f"[bold]Text column:[/bold]   {args.text_column}")
+    console.print(f"[bold]PMI threshold:[/bold] {args.pmi_threshold}")
+    console.print(f"[bold]Min count:[/bold]     {args.min_joint_count}")
+    console.print(f"[bold]Output dir:[/bold]    {output_dir}")
+
+    try:
+        result = run_pmi(
+            input_path=input_path,
+            output_dir=output_dir,
+            label_column=args.label_column,
+            text_column=args.text_column,
+            uid_column=args.uid_column,
+            pmi_threshold=args.pmi_threshold,
+            min_joint_count=args.min_joint_count,
+        )
+    except Exception as exc:
+        console.print(f"[red]Failed:[/red] {exc}")
+        return 2
+
+    summary = Table(title="PMI Artifact Detection Complete")
+    summary.add_column("Metric")
+    summary.add_column("Value", justify="right")
+    summary.add_row("Total rows", str(result["total_rows"]))
+    summary.add_row("Artifact tokens", str(result["artifact_tokens"]))
+    summary.add_row("Flagged rows (to paraphrase)", str(result["flagged_rows"]))
+    summary.add_row("Tokens output", str(result["tokens_output"]))
+    summary.add_row("Flagged rows output", str(result["rows_output"]))
+    console.print(summary)
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# dispatch
+# --------------------------------------------------------------------------- #
+_COMMAND_HANDLERS = {
+    "mask": _run_mask_command,
+    "aggregate": _run_aggregate_command,
+    "pmi": _run_pmi_command,
+    # "lexical": _run_lexical_command,  # future
+    # "split": _run_split_command,      # future
+}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if not getattr(args, "command", None):
+        parser.print_help()
+        return 2
+    console = Console(quiet=args.quiet)
+    handler = _COMMAND_HANDLERS.get(args.command)
+    if handler is None:
+        parser.print_help()
+        return 2
+    return handler(args, console)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="validation-cli",
+        description=(
+            "Deterministic validation pipeline: masking, multi-model consensus "
+            "aggregation, and PMI artifact detection (ViLegalNLI)."
+        ),
+    )
+    subparsers = parser.add_subparsers(dest="command")
+    _add_mask_parser(subparsers)
+    _add_aggregate_parser(subparsers)
+    _add_pmi_parser(subparsers)
+    # _add_lexical_parser(subparsers)  # future
+    # _add_split_parser(subparsers)    # future
+    return parser
+
+
+def _add_mask_parser(subparsers: argparse._SubParsersAction) -> None:
+    mask = subparsers.add_parser(
+        "mask",
+        help="Create a validation dataset with label values removed.",
+    )
+    mask.add_argument("--input", help="Input CSV/parquet dataset path.")
+    mask.add_argument("--output", help="Output masked dataset path.")
+    mask.add_argument("--uid-column", help="UID column. Defaults to source_uid or uid.")
+    mask.add_argument(
+        "--label-column",
+        default="label",
+        help="Label column to remove. Default: label.",
+    )
+    mask.add_argument(
+        "--search-dir",
+        action="append",
+        default=[],
+        help="Directory to scan when --input is omitted. Can be repeated.",
+    )
+    mask.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts for scripted runs.",
+    )
+    mask.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress Rich output for tests or scripted runs.",
+    )
+
+
+def _add_aggregate_parser(subparsers: argparse._SubParsersAction) -> None:
+    aggregate = subparsers.add_parser(
+        "aggregate",
+        help="Aggregate multi-model verdicts into consensus votes + consensus PMI.",
+    )
+    aggregate.add_argument(
+        "--verdicts-dir",
+        help="Directory containing model verdict CSV/parquet files (e.g. gpt4o.csv).",
+    )
+    aggregate.add_argument(
+        "--masked-input",
+        help="Path to masked validation dataset for PMI text join.",
+    )
+    aggregate.add_argument(
+        "--expected-input",
+        help="Original dataset (with the expected_label/label column) "
+        "to score consensus against.",
+    )
+    aggregate.add_argument(
+        "--uid-column",
+        default="source_uid",
+        help="UID column in the expected-label dataset. Default: source_uid.",
+    )
+    aggregate.add_argument(
+        "--label-column",
+        default="label",
+        help="Expected-label column in the expected-label dataset. Default: label.",
+    )
+    aggregate.add_argument(
+        "--output-dir",
+        help="Directory for validation_votes.csv and pmi_consensus.csv. "
+        "Defaults to --verdicts-dir.",
+    )
+    aggregate.add_argument(
+        "--min-joint-count",
+        type=int,
+        default=3,
+        help="Minimum joint token-label count included in PMI output. Default: 3.",
+    )
+    aggregate.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts for scripted runs.",
+    )
+    aggregate.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress Rich output for tests or scripted runs.",
+    )
+
+
+def _add_pmi_parser(subparsers: argparse._SubParsersAction) -> None:
+    pmi = subparsers.add_parser(
+        "pmi",
+        help="Flag label-leaking artifact tokens and the rows that carry them.",
+    )
+    pmi.add_argument(
+        "--input",
+        required=True,
+        help="Path to a labeled dataset (CSV/parquet) with a settled label column.",
+    )
+    pmi.add_argument(
+        "--label-column",
+        default="expected_label",
+        help="Label column to score against. Default: expected_label.",
+    )
+    pmi.add_argument(
+        "--text-column",
+        default="hypothesis",
+        help="Text column to tokenize. Default: hypothesis.",
+    )
+    pmi.add_argument(
+        "--uid-column",
+        default="source_uid",
+        help="Row identifier column. Default: source_uid.",
+    )
+    pmi.add_argument(
+        "--pmi-threshold",
+        type=float,
+        default=1.0,
+        help="Minimum PMI for a (token, label) pair to count as an artifact. "
+        "Default: 1.0. Tune per dataset.",
+    )
+    pmi.add_argument(
+        "--min-joint-count",
+        type=int,
+        default=3,
+        help="Minimum joint token-label count included in PMI. Default: 3.",
+    )
+    pmi.add_argument(
+        "--output-dir",
+        help="Directory for output CSVs. Defaults to the input file's directory.",
+    )
+    pmi.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress Rich output for tests or scripted runs.",
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

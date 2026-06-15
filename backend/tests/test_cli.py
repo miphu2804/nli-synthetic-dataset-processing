@@ -3,13 +3,80 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
-
-from src.utils.validation_aggregation_cli import (
+from src.cli import (
     build_verdict_candidates,
+    default_output_path,
+    discover_dataset_files,
     discover_verdict_files,
+    infer_uid_column,
     main,
     run_aggregation,
+    run_pmi,
 )
+
+
+class ValidationMaskingCliTest(unittest.TestCase):
+    def test_infer_uid_column_prefers_source_uid(self) -> None:
+        self.assertEqual(infer_uid_column(["uid", "source_uid"]), "source_uid")
+        self.assertEqual(infer_uid_column(["uid"]), "uid")
+        self.assertIsNone(infer_uid_column(["id"]))
+
+    def test_default_output_path_adds_validation_masked_suffix(self) -> None:
+        self.assertEqual(
+            default_output_path(Path("data/generated/foo.csv")),
+            Path("data/generated/foo_validation_masked.csv"),
+        )
+
+    def test_discover_dataset_files_finds_csv_and_parquet(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "nested").mkdir()
+            (root / "a.csv").write_text("source_uid,premise,hypothesis,label\n")
+            (root / "nested" / "b.parquet").write_text("")
+            (root / "c.txt").write_text("")
+
+            discovered = discover_dataset_files([root])
+
+        self.assertEqual(
+            sorted(path.name for path in discovered),
+            ["a.csv", "b.parquet"],
+        )
+
+    def test_main_writes_masked_dataset_with_noninteractive_args(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_path = root / "generated.csv"
+            output_path = root / "masked.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": "row-1",
+                        "premise": "p",
+                        "hypothesis": "h",
+                        "label": 1,
+                    }
+                ]
+            ).to_csv(input_path, index=False)
+
+            exit_code = main(
+                [
+                    "mask",
+                    "--input",
+                    str(input_path),
+                    "--output",
+                    str(output_path),
+                    "--yes",
+                    "--quiet",
+                ]
+            )
+
+            masked = pd.read_csv(output_path)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            list(masked.columns),
+            ["source_uid", "premise", "hypothesis", "masked_label"],
+        )
+        self.assertNotIn("label", masked.columns)
 
 
 class ValidationAggregationCliTest(unittest.TestCase):
@@ -20,6 +87,7 @@ class ValidationAggregationCliTest(unittest.TestCase):
         self.verdicts_dir.mkdir()
         self.output_dir = self.root / "output"
         self.masked_path = self.root / "masked.csv"
+        self.expected_path = self.root / "expected.csv"
 
         pd.DataFrame(
             [
@@ -27,6 +95,26 @@ class ValidationAggregationCliTest(unittest.TestCase):
                 {"source_uid": "row-2", "premise": "p2", "hypothesis": "du mien thue"},
             ]
         ).to_csv(self.masked_path, index=False)
+
+        # row-1 expected entailment (both models predict entailment) -> keep
+        # row-2 expected entailment (both models predict non-entailment) -> discard
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": "row-1",
+                    "premise": "p1",
+                    "hypothesis": "khi nop thue",
+                    "label": 0,
+                },
+                {
+                    "source_uid": "row-2",
+                    "premise": "p2",
+                    "hypothesis": "du mien thue",
+                    "label": 0,
+                },
+            ]
+        ).to_csv(self.expected_path, index=False)
+        self.expected_labels = {"row-1": 0, "row-2": 0}
 
         pd.DataFrame(
             [
@@ -95,17 +183,19 @@ class ValidationAggregationCliTest(unittest.TestCase):
             masked_dataset_path=self.masked_path,
             output_dir=self.output_dir,
             min_joint_count=1,
+            expected_labels=self.expected_labels,
         )
 
         votes = pd.read_csv(result["votes_output"])
         self.assertEqual(len(votes), 2)
-        self.assertIn("consensus_label", votes.columns)
-        self.assertIn("agreement_status", votes.columns)
-        self.assertTrue(all(votes["agreement_status"] == "unanimous"))
+        self.assertIn("expected_label", votes.columns)
+        self.assertIn("agree_count", votes.columns)
+        self.assertIn("decision", votes.columns)
+        self.assertEqual(set(votes["decision"]), {"keep", "discard"})
         self.assertTrue(Path(result["pmi_output"]).exists())
         self.assertEqual(result["total_rows"], 2)
-        self.assertEqual(result["unanimous"], 2)
-        self.assertEqual(result["majority"], 0)
+        self.assertEqual(result["keep"], 1)
+        self.assertEqual(result["discard"], 1)
         self.assertEqual(result["review"], 0)
 
     def test_run_aggregation_pmi_filters_by_min_joint_count(self) -> None:
@@ -118,22 +208,29 @@ class ValidationAggregationCliTest(unittest.TestCase):
             masked_dataset_path=self.masked_path,
             output_dir=self.output_dir,
             min_joint_count=1,
+            expected_labels=self.expected_labels,
         )
         result_strict = run_aggregation(
             valid_candidates=valid_candidates,
             masked_dataset_path=self.masked_path,
             output_dir=self.output_dir,
             min_joint_count=999,
+            expected_labels=self.expected_labels,
         )
         self.assertGreater(result_loose["pmi_tokens"], result_strict["pmi_tokens"])
 
     def test_main_noninteractive_run_exits_zero(self) -> None:
         exit_code = main(
             [
+                "aggregate",
                 "--verdicts-dir",
                 str(self.verdicts_dir),
                 "--masked-input",
                 str(self.masked_path),
+                "--expected-input",
+                str(self.expected_path),
+                "--label-column",
+                "label",
                 "--output-dir",
                 str(self.output_dir),
                 "--min-joint-count",
@@ -149,10 +246,15 @@ class ValidationAggregationCliTest(unittest.TestCase):
     def test_main_fails_with_missing_verdicts_dir(self) -> None:
         exit_code = main(
             [
+                "aggregate",
                 "--verdicts-dir",
                 str(self.root / "nonexistent"),
                 "--masked-input",
                 str(self.masked_path),
+                "--expected-input",
+                str(self.expected_path),
+                "--label-column",
+                "label",
                 "--output-dir",
                 str(self.output_dir),
                 "--yes",
@@ -176,10 +278,15 @@ class ValidationAggregationCliTest(unittest.TestCase):
 
         exit_code = main(
             [
+                "aggregate",
                 "--verdicts-dir",
                 str(lone_dir),
                 "--masked-input",
                 str(self.masked_path),
+                "--expected-input",
+                str(self.expected_path),
+                "--label-column",
+                "label",
                 "--output-dir",
                 str(self.output_dir),
                 "--yes",
@@ -191,16 +298,93 @@ class ValidationAggregationCliTest(unittest.TestCase):
     def test_main_fails_with_missing_masked_input(self) -> None:
         exit_code = main(
             [
+                "aggregate",
                 "--verdicts-dir",
                 str(self.verdicts_dir),
                 "--masked-input",
                 str(self.root / "nonexistent.csv"),
+                "--expected-input",
+                str(self.expected_path),
+                "--label-column",
+                "label",
                 "--output-dir",
                 str(self.output_dir),
                 "--yes",
                 "--quiet",
             ]
         )
+        self.assertEqual(exit_code, 2)
+
+
+class ValidationPmiCommandTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.input_path = self.root / "validated.csv"
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": 1,
+                    "hypothesis": "alpha shared",
+                    "expected_label": "entailment",
+                },
+                {
+                    "source_uid": 2,
+                    "hypothesis": "alpha shared",
+                    "expected_label": "entailment",
+                },
+                {
+                    "source_uid": 3,
+                    "hypothesis": "beta shared",
+                    "expected_label": "neutral",
+                },
+                {
+                    "source_uid": 4,
+                    "hypothesis": "beta shared",
+                    "expected_label": "neutral",
+                },
+            ]
+        ).to_csv(self.input_path, index=False)
+        self.output_dir = self.root / "pmi-out"
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_run_pmi_writes_token_and_flagged_outputs(self) -> None:
+        result = run_pmi(
+            input_path=self.input_path,
+            output_dir=self.output_dir,
+            label_column="expected_label",
+            text_column="hypothesis",
+            uid_column="source_uid",
+            pmi_threshold=0.5,
+            min_joint_count=1,
+        )
+
+        self.assertEqual(result["flagged_rows"], 4)
+        self.assertEqual(result["artifact_tokens"], 2)
+        self.assertTrue((self.output_dir / "pmi_artifact_tokens.csv").exists())
+        self.assertTrue((self.output_dir / "pmi_flagged_rows.csv").exists())
+
+    def test_main_pmi_subcommand_exits_zero(self) -> None:
+        exit_code = main(
+            [
+                "pmi",
+                "--input",
+                str(self.input_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--pmi-threshold",
+                "0.5",
+                "--min-joint-count",
+                "1",
+                "--quiet",
+            ]
+        )
+        self.assertEqual(exit_code, 0)
+
+    def test_main_pmi_fails_on_missing_input(self) -> None:
+        exit_code = main(["pmi", "--input", str(self.root / "nope.csv"), "--quiet"])
         self.assertEqual(exit_code, 2)
 
 
