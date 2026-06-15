@@ -21,21 +21,8 @@ from src.schemas.validation_runtime_schema import (
 from src.services.dataset_reader_service import DatasetReaderService
 from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
 from src.services.progress_tracking_service import ProgressTrackingService
+from src.utils.nli_labels import canonical_label
 from src.utils.validation_masking import build_masked_validation_dataset
-
-# This project uses a 3-class scheme (unlike ViLegalNLI, which is binary): it
-# splits non-entailment into neutral and contradiction.
-#   0 = entailment, 1 = neutral, 2 = contradiction
-# This maps numeric gold ids and harness label names onto that space so a numeric
-# gold label compares equal to a string verdict from the harness.
-_CANONICAL_LABELS = {
-    "0": "entailment",
-    "entailment": "entailment",
-    "1": "neutral",
-    "neutral": "neutral",
-    "2": "contradiction",
-    "contradiction": "contradiction",
-}
 
 
 class ValidationRunService:
@@ -574,14 +561,7 @@ class ValidationRunService:
     def _labels_match(
         cls, expected_label: str | int, predicted_label: str | int
     ) -> bool:
-        return cls._canonical_label(expected_label) == cls._canonical_label(
-            predicted_label
-        )
-
-    @staticmethod
-    def _canonical_label(label: str | int) -> str:
-        key = str(label).strip().lower()
-        return _CANONICAL_LABELS.get(key, key)
+        return canonical_label(expected_label) == canonical_label(predicted_label)
 
     @staticmethod
     def _count_acceptance(rows: list[dict]) -> dict[str, int]:
