@@ -45,6 +45,10 @@ class GenerationProviderTest(unittest.TestCase):
                 tool.parameters["properties"]["batch_size"]["default"],
                 20,
             )
+            self.assertIn("from_sample", tool.parameters["properties"])
+            self.assertIn("to_sample", tool.parameters["properties"])
+            self.assertNotIn("row_offset", tool.parameters["properties"])
+            self.assertNotIn("row_limit", tool.parameters["properties"])
 
         asyncio.run(scenario())
 
@@ -70,8 +74,8 @@ class GenerationProviderTest(unittest.TestCase):
                 {
                     "input_path": str(self.input_path),
                     "output_path": str(self.root / "output.csv"),
-                    "row_offset": 1,
-                    "row_limit": 2,
+                    "from_sample": 2,
+                    "to_sample": 3,
                     "batch_size": 1,
                 },
             )

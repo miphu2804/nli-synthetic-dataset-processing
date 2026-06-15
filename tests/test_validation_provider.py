@@ -34,6 +34,17 @@ class ValidationProviderTest(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_start_validation_run_tool_uses_sample_range_schema(self) -> None:
+        async def scenario() -> None:
+            tool = await self.mcp.get_tool("start_validation_run")
+
+            self.assertIn("from_sample", tool.parameters["properties"])
+            self.assertIn("to_sample", tool.parameters["properties"])
+            self.assertNotIn("row_offset", tool.parameters["properties"])
+            self.assertNotIn("row_limit", tool.parameters["properties"])
+
+        asyncio.run(scenario())
+
     def test_validation_tool_round_trip_uses_masked_rows(self) -> None:
         async def scenario() -> None:
             started = await self.mcp.call_tool(
@@ -41,6 +52,8 @@ class ValidationProviderTest(unittest.TestCase):
                 {
                     "input_path": str(self.input_path),
                     "output_dir": str(self.root / "validation-output"),
+                    "from_sample": 1,
+                    "to_sample": 2,
                     "batch_size": 2,
                 },
             )

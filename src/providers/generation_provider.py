@@ -35,15 +35,19 @@ class GenerationToolProvider:
                 description="Final CSV path inside the server container, such as /data/generated/result.csv."
             ),
         ] = None,
-        row_offset: Annotated[
+        from_sample: Annotated[
             int,
             Field(
-                ge=0, description="Zero-based first input row assigned to this user."
+                ge=1,
+                description="One-based first sample number assigned to this run.",
             ),
-        ] = 0,
-        row_limit: Annotated[
+        ] = 1,
+        to_sample: Annotated[
             int | None,
-            Field(ge=1, description="Maximum rows assigned to this local run."),
+            Field(
+                ge=1,
+                description="One-based last sample number assigned to this run, inclusive.",
+            ),
         ] = None,
         batch_size: Annotated[
             int,
@@ -54,6 +58,10 @@ class GenerationToolProvider:
             Field(description="Progress writer identifier. Use main for normal runs."),
         ] = "main",
     ) -> dict[str, Any]:
+        row_offset, row_limit = self._sample_range_to_offset_limit(
+            from_sample=from_sample,
+            to_sample=to_sample,
+        )
         return self._generation_run_service.start_generation_run(
             input_path=input_path,
             output_path=output_path,
@@ -62,6 +70,17 @@ class GenerationToolProvider:
             batch_size=batch_size,
             agent_id=agent_id,
         ).model_dump(mode="json")
+
+    @staticmethod
+    def _sample_range_to_offset_limit(
+        from_sample: int,
+        to_sample: int | None,
+    ) -> tuple[int, int | None]:
+        if to_sample is not None and to_sample < from_sample:
+            raise ValueError("to_sample must be greater than or equal to from_sample.")
+        row_offset = from_sample - 1
+        row_limit = None if to_sample is None else to_sample - from_sample + 1
+        return row_offset, row_limit
 
     @tool(
         name="claim_next_batch",

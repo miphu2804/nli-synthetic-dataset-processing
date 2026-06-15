@@ -34,15 +34,19 @@ class ValidationToolProvider:
             str | None,
             Field(description="Directory for the final validation_results.csv output."),
         ] = None,
-        row_offset: Annotated[
+        from_sample: Annotated[
             int,
             Field(
-                ge=0, description="Zero-based first generated row assigned to this run."
+                ge=1,
+                description="One-based first generated sample number assigned to this run.",
             ),
-        ] = 0,
-        row_limit: Annotated[
+        ] = 1,
+        to_sample: Annotated[
             int | None,
-            Field(ge=1, description="Maximum generated rows assigned to this run."),
+            Field(
+                ge=1,
+                description="One-based last generated sample number assigned to this run, inclusive.",
+            ),
         ] = None,
         batch_size: Annotated[
             int,
@@ -53,6 +57,10 @@ class ValidationToolProvider:
             Field(description="Progress writer identifier. Use main for normal runs."),
         ] = "main",
     ) -> dict[str, Any]:
+        row_offset, row_limit = self._sample_range_to_offset_limit(
+            from_sample=from_sample,
+            to_sample=to_sample,
+        )
         return self._validation_run_service.start_validation_run(
             input_path=input_path,
             output_dir=output_dir,
@@ -61,6 +69,17 @@ class ValidationToolProvider:
             batch_size=batch_size,
             agent_id=agent_id,
         ).model_dump(mode="json")
+
+    @staticmethod
+    def _sample_range_to_offset_limit(
+        from_sample: int,
+        to_sample: int | None,
+    ) -> tuple[int, int | None]:
+        if to_sample is not None and to_sample < from_sample:
+            raise ValueError("to_sample must be greater than or equal to from_sample.")
+        row_offset = from_sample - 1
+        row_limit = None if to_sample is None else to_sample - from_sample + 1
+        return row_offset, row_limit
 
     @tool(
         name="claim_next_validation_batch",

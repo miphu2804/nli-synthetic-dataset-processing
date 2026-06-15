@@ -7,7 +7,7 @@ Keep text generation and runtime state separate.
 | Translate and transform NLI text | LLM worker |
 | Validate semantic label | Main agent |
 | Claim, submit, progress, merge and cleanup | MCP runtime tools |
-| Dataset slice assignment between users | User-provided `row_offset` and `row_limit` |
+| Dataset slice assignment between users | User-provided `from_sample` and `to_sample` |
 
 ## Rules
 
