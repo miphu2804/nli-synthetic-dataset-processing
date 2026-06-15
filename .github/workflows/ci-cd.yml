@@ -46,12 +46,11 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Resolve Docker namespace
+        run: echo "DOCKER_USERNAME=$(echo '${{ secrets.DOCKER_USERNAME }}' | xargs)" >> "$GITHUB_ENV"
+
       - name: Build both images via compose
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: docker compose build
 
       - name: Push both images via compose
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: docker compose push
