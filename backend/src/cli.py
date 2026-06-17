@@ -7,9 +7,10 @@ from rich.console import Console
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 from src.utils.validation_aggregation import (
-    attach_masked_text,
+    apply_paraphrases,
+    build_retained_dataset,
     build_validation_vote_table,
-    compute_hypothesis_label_pmi,
+    compute_fleiss_kappa,
     flag_pmi_artifacts,
 )
 from src.utils.validation_masking import write_masked_validation_dataset
@@ -273,7 +274,6 @@ def run_aggregation(
     valid_candidates: list[VerdictFileCandidate],
     masked_dataset_path: Path,
     output_dir: Path,
-    min_joint_count: int,
     expected_labels: dict,
 ) -> dict:
     model_label_paths = {
@@ -284,26 +284,19 @@ def run_aggregation(
     vote_table.to_csv(votes_output, index=False)
 
     masked_df = read_dataset(masked_dataset_path)
-    kept = vote_table[vote_table["decision"] == "keep"]
-    analysis_df = attach_masked_text(masked_df, kept)
-    pmi_df = compute_hypothesis_label_pmi(
-        analysis_df,
-        label_column="expected_label",
-        text_column="hypothesis",
-        min_joint_count=min_joint_count,
-    )
-    pmi_output = output_dir / "pmi_consensus.csv"
-    pmi_df.to_csv(pmi_output, index=False)
+    retained_df = build_retained_dataset(masked_df, vote_table)
+    validated_output = output_dir / "validated_dataset.csv"
+    retained_df.to_csv(validated_output, index=False)
 
     decision_counts = vote_table["decision"].value_counts().to_dict()
     return {
         "votes_output": votes_output,
-        "pmi_output": pmi_output,
+        "validated_output": validated_output,
         "total_rows": len(vote_table),
         "keep": decision_counts.get("keep", 0),
         "discard": decision_counts.get("discard", 0),
         "review": decision_counts.get("review", 0),
-        "pmi_tokens": len(pmi_df),
+        "retained_rows": len(retained_df),
     }
 
 
@@ -376,9 +369,8 @@ def _run_aggregate_command(args: argparse.Namespace, console: Console) -> int:
     console.print(f"[bold]Masked input:[/bold] {masked_input}")
     console.print(f"[bold]Expected input:[/bold] {expected_input}")
     console.print(f"[bold]Output dir:[/bold]   {output_dir}")
-    console.print(f"[bold]PMI min count:[/bold] {args.min_joint_count}")
 
-    if not args.yes and not Confirm.ask("Run aggregation and PMI?", default=True):
+    if not args.yes and not Confirm.ask("Run aggregation?", default=True):
         console.print("[yellow]Cancelled.[/yellow]")
         return 1
 
@@ -391,7 +383,6 @@ def _run_aggregate_command(args: argparse.Namespace, console: Console) -> int:
             valid_candidates=valid_candidates,
             masked_dataset_path=masked_input,
             output_dir=output_dir,
-            min_joint_count=args.min_joint_count,
             expected_labels=expected_labels,
         )
     except Exception as exc:
@@ -405,9 +396,9 @@ def _run_aggregate_command(args: argparse.Namespace, console: Console) -> int:
     summary.add_row("Keep", str(result["keep"]))
     summary.add_row("Discard", str(result["discard"]))
     summary.add_row("Review", str(result["review"]))
-    summary.add_row("PMI tokens", str(result["pmi_tokens"]))
+    summary.add_row("Retained rows", str(result["retained_rows"]))
     summary.add_row("Votes output", str(result["votes_output"]))
-    summary.add_row("PMI output", str(result["pmi_output"]))
+    summary.add_row("Validated dataset output", str(result["validated_output"]))
     console.print(summary)
     return 0
 
@@ -491,12 +482,142 @@ def _run_pmi_command(args: argparse.Namespace, console: Console) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# kappa command
+# --------------------------------------------------------------------------- #
+KAPPA_THRESHOLD = 0.85
+
+
+def run_kappa(verdicts_dir: Path) -> dict:
+    candidates = build_verdict_candidates(discover_verdict_files(verdicts_dir))
+    valid_candidates = [c for c in candidates if c.is_valid]
+    if len(valid_candidates) < 2:
+        raise ValueError("Fleiss' Kappa requires at least 2 valid verdict files.")
+    model_label_paths = {
+        candidate.model_name: candidate.path for candidate in valid_candidates
+    }
+    result = compute_fleiss_kappa(model_label_paths)
+    result["models"] = list(model_label_paths.keys())
+    return result
+
+
+def _run_kappa_command(args: argparse.Namespace, console: Console) -> int:
+    verdicts_dir = Path(args.verdicts_dir).expanduser()
+    if not verdicts_dir.exists():
+        console.print(f"[red]Verdicts directory not found:[/red] {verdicts_dir}")
+        return 2
+
+    candidates = build_verdict_candidates(discover_verdict_files(verdicts_dir))
+    valid_candidates = [c for c in candidates if c.is_valid]
+    if candidates:
+        render_verdict_candidates_table(console, candidates)
+
+    if len(valid_candidates) < 2:
+        console.print(
+            "[red]Need at least 2 valid verdict files "
+            "(columns: source_uid, predicted_label, reason).[/red]"
+        )
+        return 2
+
+    try:
+        result = run_kappa(verdicts_dir)
+    except Exception as exc:
+        console.print(f"[red]Failed:[/red] {exc}")
+        return 2
+
+    kappa = result["kappa"]
+    summary = Table(title="Fleiss' Kappa (Prompt Calibration)")
+    summary.add_column("Metric")
+    summary.add_column("Value", justify="right")
+    summary.add_row("Kappa", f"{kappa:.4f}")
+    summary.add_row("Items", str(result["n_items"]))
+    summary.add_row("Raters (models)", str(result["n_raters"]))
+    summary.add_row("Models", ", ".join(result["models"]))
+    console.print(summary)
+    if kappa >= KAPPA_THRESHOLD:
+        console.print("[green]κ ≥ 0.85 → lock prompt[/green]")
+    else:
+        console.print("[yellow]κ < 0.85 → refine prompt[/yellow]")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# apply-paraphrase command
+# --------------------------------------------------------------------------- #
+def run_apply_paraphrase(
+    input_path: Path,
+    paraphrases_path: Path,
+    output_path: Path,
+    uid_column: str,
+    text_column: str,
+) -> dict:
+    dataset = read_dataset(input_path)
+    paraphrases = read_dataset(paraphrases_path)
+    processed, replaced = apply_paraphrases(
+        dataset,
+        paraphrases,
+        uid_column=uid_column,
+        text_column=text_column,
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    processed.to_csv(output_path, index=False)
+    return {
+        "output_path": output_path,
+        "total_rows": len(processed),
+        "replaced_rows": replaced,
+    }
+
+
+def _run_apply_paraphrase_command(args: argparse.Namespace, console: Console) -> int:
+    input_path = Path(args.input).expanduser()
+    if not input_path.exists():
+        console.print(f"[red]Validated dataset not found:[/red] {input_path}")
+        return 2
+    paraphrases_path = Path(args.paraphrases).expanduser()
+    if not paraphrases_path.exists():
+        console.print(f"[red]Paraphrases file not found:[/red] {paraphrases_path}")
+        return 2
+
+    output_path = (
+        Path(args.output).expanduser()
+        if args.output
+        else input_path.with_name("processed_dataset.csv")
+    )
+
+    console.print(f"[bold]Input:[/bold]       {input_path}")
+    console.print(f"[bold]Paraphrases:[/bold] {paraphrases_path}")
+    console.print(f"[bold]Output:[/bold]      {output_path}")
+
+    try:
+        result = run_apply_paraphrase(
+            input_path=input_path,
+            paraphrases_path=paraphrases_path,
+            output_path=output_path,
+            uid_column=args.uid_column,
+            text_column=args.text_column,
+        )
+    except Exception as exc:
+        console.print(f"[red]Failed:[/red] {exc}")
+        return 2
+
+    summary = Table(title="Paraphrase Apply Complete")
+    summary.add_column("Metric")
+    summary.add_column("Value", justify="right")
+    summary.add_row("Total rows", str(result["total_rows"]))
+    summary.add_row("Replaced rows", str(result["replaced_rows"]))
+    summary.add_row("Processed dataset output", str(result["output_path"]))
+    console.print(summary)
+    return 0
+
+
+# --------------------------------------------------------------------------- #
 # dispatch
 # --------------------------------------------------------------------------- #
 _COMMAND_HANDLERS = {
     "mask": _run_mask_command,
     "aggregate": _run_aggregate_command,
     "pmi": _run_pmi_command,
+    "kappa": _run_kappa_command,
+    "apply-paraphrase": _run_apply_paraphrase_command,
     # "lexical": _run_lexical_command,  # future
     # "split": _run_split_command,      # future
 }
@@ -528,6 +649,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_mask_parser(subparsers)
     _add_aggregate_parser(subparsers)
     _add_pmi_parser(subparsers)
+    _add_kappa_parser(subparsers)
+    _add_apply_paraphrase_parser(subparsers)
     # _add_lexical_parser(subparsers)  # future
     # _add_split_parser(subparsers)    # future
     return parser
@@ -594,14 +717,8 @@ def _add_aggregate_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     aggregate.add_argument(
         "--output-dir",
-        help="Directory for validation_votes.csv and pmi_consensus.csv. "
+        help="Directory for validation_votes.csv and validated_dataset.csv. "
         "Defaults to --verdicts-dir.",
-    )
-    aggregate.add_argument(
-        "--min-joint-count",
-        type=int,
-        default=3,
-        help="Minimum joint token-label count included in PMI output. Default: 3.",
     )
     aggregate.add_argument(
         "--yes",
@@ -627,8 +744,9 @@ def _add_pmi_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     pmi.add_argument(
         "--label-column",
-        default="expected_label",
-        help="Label column to score against. Default: expected_label.",
+        default="label",
+        help="Label column to score against. Default: label "
+        "(matches validated_dataset.csv).",
     )
     pmi.add_argument(
         "--text-column",
@@ -658,6 +776,60 @@ def _add_pmi_parser(subparsers: argparse._SubParsersAction) -> None:
         help="Directory for output CSVs. Defaults to the input file's directory.",
     )
     pmi.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress Rich output for tests or scripted runs.",
+    )
+
+
+def _add_kappa_parser(subparsers: argparse._SubParsersAction) -> None:
+    kappa = subparsers.add_parser(
+        "kappa",
+        help="Compute Fleiss' Kappa inter-model agreement over calibration verdicts.",
+    )
+    kappa.add_argument(
+        "--verdicts-dir",
+        required=True,
+        help="Directory containing model verdict CSV/parquet files (e.g. gpt4o.csv).",
+    )
+    kappa.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress Rich output for tests or scripted runs.",
+    )
+
+
+def _add_apply_paraphrase_parser(subparsers: argparse._SubParsersAction) -> None:
+    apply = subparsers.add_parser(
+        "apply-paraphrase",
+        help="Overwrite flagged hypotheses with paraphrased rewrites into the "
+        "final processed dataset.",
+    )
+    apply.add_argument(
+        "--input",
+        required=True,
+        help="Validated dataset (e.g. validated_dataset.csv) to update.",
+    )
+    apply.add_argument(
+        "--paraphrases",
+        required=True,
+        help="CSV/parquet of paraphrased rows (source_uid + rewritten hypothesis).",
+    )
+    apply.add_argument(
+        "--output",
+        help="Output path. Defaults to processed_dataset.csv next to --input.",
+    )
+    apply.add_argument(
+        "--uid-column",
+        default="source_uid",
+        help="Row identifier column. Default: source_uid.",
+    )
+    apply.add_argument(
+        "--text-column",
+        default="hypothesis",
+        help="Text column to overwrite. Default: hypothesis.",
+    )
+    apply.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress Rich output for tests or scripted runs.",

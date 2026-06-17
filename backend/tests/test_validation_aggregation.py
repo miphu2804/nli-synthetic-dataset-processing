@@ -1,11 +1,15 @@
+import math
 import tempfile
 import unittest
 from pathlib import Path
 
 import pandas as pd
 from src.utils.validation_aggregation import (
+    apply_paraphrases,
     attach_masked_text,
+    build_retained_dataset,
     build_validation_vote_table,
+    compute_fleiss_kappa,
     compute_hypothesis_label_pmi,
     flag_pmi_artifacts,
 )
@@ -142,6 +146,115 @@ class ValidationAggregationTest(unittest.TestCase):
         self.assertGreater(khi_label_one["pmi"], 0)
         self.assertEqual(khi_label_one["joint_count"], 2)
 
+    def test_compute_hypothesis_label_pmi_counts_per_example_not_occurrence(
+        self,
+    ) -> None:
+        # "x" repeats within one hypothesis; example-level PMI counts it once.
+        dataframe = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "hypothesis": "x x y", "label": "A"},
+                {"source_uid": "row-2", "hypothesis": "y", "label": "B"},
+            ]
+        )
+
+        pmi_table = compute_hypothesis_label_pmi(dataframe, label_column="label")
+
+        x_row = pmi_table[
+            (pmi_table["token"] == "x") & (pmi_table["label"] == "A")
+        ].iloc[0]
+        # occurrence-level counting would report token_count=2, joint_count=2.
+        self.assertEqual(x_row["token_count"], 1)
+        self.assertEqual(x_row["joint_count"], 1)
+        # P(x,A)=1/2, P(x)=1/2, P(A)=1/2 -> PMI = log(2).
+        self.assertAlmostEqual(x_row["pmi"], math.log(2))
+
+    def test_build_retained_dataset_keeps_only_kept_rows(self) -> None:
+        masked = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "premise": "p1", "hypothesis": "h1"},
+                {"source_uid": "row-2", "premise": "p2", "hypothesis": "h2"},
+                {"source_uid": "row-3", "premise": "p3", "hypothesis": "h3"},
+            ]
+        )
+        vote_table = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "expected_label": 1, "decision": "keep"},
+                {"source_uid": "row-2", "expected_label": 0, "decision": "discard"},
+                {"source_uid": "row-3", "expected_label": 2, "decision": "review"},
+            ]
+        )
+
+        retained = build_retained_dataset(masked, vote_table)
+
+        self.assertEqual(
+            list(retained.columns),
+            ["source_uid", "premise", "hypothesis", "label"],
+        )
+        self.assertEqual(list(retained["source_uid"]), ["row-1"])
+        self.assertEqual(retained.loc[0, "label"], 1)
+
+    def test_build_retained_dataset_requires_vote_columns(self) -> None:
+        with self.assertRaisesRegex(ValueError, "missing required columns"):
+            build_retained_dataset(
+                pd.DataFrame(
+                    [{"source_uid": "row-1", "premise": "p", "hypothesis": "h"}]
+                ),
+                pd.DataFrame([{"source_uid": "row-1"}]),
+            )
+
+    def test_apply_paraphrases_overwrites_only_flagged_rows(self) -> None:
+        dataset = pd.DataFrame(
+            [
+                {
+                    "source_uid": "row-1",
+                    "premise": "p1",
+                    "hypothesis": "h1",
+                    "label": 0,
+                },
+                {
+                    "source_uid": "row-2",
+                    "premise": "p2",
+                    "hypothesis": "h2",
+                    "label": 1,
+                },
+                {
+                    "source_uid": "row-3",
+                    "premise": "p3",
+                    "hypothesis": "h3",
+                    "label": 2,
+                },
+            ]
+        )
+        paraphrases = pd.DataFrame(
+            [
+                {"source_uid": "row-2", "hypothesis": "h2-rewritten"},
+            ]
+        )
+
+        processed, replaced = apply_paraphrases(dataset, paraphrases)
+
+        self.assertEqual(replaced, 1)
+        self.assertEqual(list(processed.columns), list(dataset.columns))
+        self.assertEqual(list(processed["hypothesis"]), ["h1", "h2-rewritten", "h3"])
+        self.assertEqual(list(processed["label"]), [0, 1, 2])
+
+    def test_apply_paraphrases_rejects_unknown_uid(self) -> None:
+        dataset = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1"}])
+        paraphrases = pd.DataFrame([{"source_uid": "row-9", "hypothesis": "x"}])
+        with self.assertRaisesRegex(ValueError, "unknown source_uid"):
+            apply_paraphrases(dataset, paraphrases)
+
+    def test_apply_paraphrases_rejects_duplicate_uid(self) -> None:
+        dataset = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1"}])
+        paraphrases = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "hypothesis": "a"},
+                {"source_uid": "row-1", "hypothesis": "b"},
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate source_uid"):
+            apply_paraphrases(dataset, paraphrases)
+
     @staticmethod
     def _write_model_label_files(root: Path) -> dict[str, Path]:
         model_rows = {
@@ -167,6 +280,92 @@ class ValidationAggregationTest(unittest.TestCase):
             pd.DataFrame(rows).to_csv(path, index=False)
             paths[model_name] = path
         return paths
+
+
+class ComputeFleissKappaTest(unittest.TestCase):
+    @staticmethod
+    def _write(root: Path, model_rows: dict[str, list[dict]]) -> dict[str, Path]:
+        paths = {}
+        for model_name, rows in model_rows.items():
+            path = root / f"{model_name}.csv"
+            pd.DataFrame(rows).to_csv(path, index=False)
+            paths[model_name] = path
+        return paths
+
+    def test_perfect_agreement_returns_kappa_one(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # Mix numeric and string forms that canonicalize equal.
+            paths = self._write(
+                root,
+                {
+                    "gpt4o": [
+                        {"source_uid": "row-1", "predicted_label": "entailment"},
+                        {"source_uid": "row-2", "predicted_label": "neutral"},
+                        {"source_uid": "row-3", "predicted_label": "contradiction"},
+                    ],
+                    "deepseek": [
+                        {"source_uid": "row-1", "predicted_label": 0},
+                        {"source_uid": "row-2", "predicted_label": 1},
+                        {"source_uid": "row-3", "predicted_label": 2},
+                    ],
+                    "llama": [
+                        {"source_uid": "row-1", "predicted_label": "entailment"},
+                        {"source_uid": "row-2", "predicted_label": 1},
+                        {"source_uid": "row-3", "predicted_label": "contradiction"},
+                    ],
+                },
+            )
+            result = compute_fleiss_kappa(paths)
+            self.assertAlmostEqual(result["kappa"], 1.0)
+            self.assertEqual(result["n_items"], 3)
+            self.assertEqual(result["n_raters"], 3)
+
+    def test_partial_agreement_between_zero_and_one(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._write(
+                root,
+                {
+                    "gpt4o": [
+                        {"source_uid": "row-1", "predicted_label": 0},
+                        {"source_uid": "row-2", "predicted_label": 1},
+                        {"source_uid": "row-3", "predicted_label": 2},
+                        {"source_uid": "row-4", "predicted_label": 0},
+                    ],
+                    "deepseek": [
+                        {"source_uid": "row-1", "predicted_label": 0},
+                        {"source_uid": "row-2", "predicted_label": 1},
+                        {"source_uid": "row-3", "predicted_label": 1},
+                        {"source_uid": "row-4", "predicted_label": 0},
+                    ],
+                    "llama": [
+                        {"source_uid": "row-1", "predicted_label": 0},
+                        {"source_uid": "row-2", "predicted_label": 2},
+                        {"source_uid": "row-3", "predicted_label": 2},
+                        {"source_uid": "row-4", "predicted_label": 1},
+                    ],
+                },
+            )
+            result = compute_fleiss_kappa(paths)
+            self.assertGreater(result["kappa"], 0.0)
+            self.assertLess(result["kappa"], 1.0)
+            self.assertEqual(result["n_items"], 4)
+            self.assertEqual(result["n_raters"], 3)
+
+    def test_fewer_than_two_models_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._write(
+                root,
+                {
+                    "gpt4o": [
+                        {"source_uid": "row-1", "predicted_label": 0},
+                    ],
+                },
+            )
+            with self.assertRaises(ValueError):
+                compute_fleiss_kappa(paths)
 
 
 if __name__ == "__main__":

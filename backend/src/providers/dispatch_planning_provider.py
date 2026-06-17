@@ -3,7 +3,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from fastmcp.tools import tool
 from pydantic import Field
-
 from src.services import DispatchPlanningService
 from src.services.dispatch_planning_service import (
     DEFAULT_GENERATION_BATCH_SIZE,

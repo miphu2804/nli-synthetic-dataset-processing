@@ -96,10 +96,12 @@ by an independent jury, with a 3-vote consensus to keep/discard/escalate.
   time in `_build_output_row`. This matches the paper's blind re-annotation
   ("without access to the original labels"). No leakage — verdicts are blind.
 - **PMI artifact detection + remediation flagging exist** —
-  `compute_hypothesis_label_pmi` implements the paper's Eq. (2), and
-  `flag_pmi_artifacts` (both in `validation_aggregation.py`) applies a threshold
-  and joins back to the rows whose hypothesis leaks its own label (the ones to
-  paraphrase). Exposed via `src/cli.py pmi`.
+  `compute_hypothesis_label_pmi` implements the paper's Eq. (2) at the
+  **example level** (token *presence* per hypothesis; `P(y)` is the per-example
+  label distribution, not token-frequency weighted), and `flag_pmi_artifacts`
+  (both in `validation_aggregation.py`) applies a threshold and joins back to the
+  rows whose hypothesis leaks its own label (the ones to paraphrase). Exposed via
+  `src/cli.py pmi` (default `--label-column label`, matching `validated_dataset.csv`).
 - **Multi-model vote table exists** — `build_validation_vote_table(..., min_agreement=2)`
   implements the paper's ≥2-of-N consensus.
 
@@ -149,3 +151,48 @@ by an independent jury, with a 3-vote consensus to keep/discard/escalate.
    measure Fleiss' κ on a 50-sample calibration set, targeting κ≥0.85.
 3. **Run PMI artifact detection** on the validated output and paraphrase
    high-PMI hypotheses (Step 7) before publishing the dataset.
+
+---
+
+## 6. Dataset split (paper §4.1.8) — not yet implemented here
+
+After validation + artifact mitigation, the paper splits the cleaned dataset
+**8 : 1 : 1** into train / dev / test, **grouped by premise**:
+
+> "All hypotheses derived from the same premise are assigned to the same subset,
+> so that no premise appears in multiple splits." (§4.1.8)
+
+This premise-grouping is the anti-leakage guarantee — a model must never see, in
+training, a premise it will be tested on. Final distribution (Table 11):
+
+| Split | Instances |
+|-------|-----------|
+| Train | 34,121 |
+| Dev   | 4,160 |
+| Test  | 3,731 |
+| **Total** | **42,012** |
+
+> **Repo status:** no split code exists yet. A deterministic, premise-grouped
+> 8:1:1 splitter (with a no-premise-overlap assertion) is the next stage to build.
+
+---
+
+## 7. Evaluation / benchmark (paper §6.3) — not yet implemented here
+
+The paper benchmarks a wide model family on the test set:
+
+- **Multilingual:** mBERT, XLM-R (base/large), InfoXLM (base/large)
+- **Vietnamese-specific:** PhoBERT (base/large), viBERT, CafeBERT
+- **Enhanced transformers:** DeBERTa-v3 (base/large)
+- **LLMs:** Gemma-2, Gemma-3, Qwen2.5
+
+**Best result:** Qwen2.5 under few-shot prompting — **90.72% test accuracy,
+90.64% F1** (Table 14). The fine-tuned PLMs (incl. XLM-R) are baselines, not the
+top scorer.
+
+> Note: the CafeBERT ≈88–90% figure in §1.2 is the **hypothesis-only** artifact
+> probe (Step 7), a different number from the full premise+hypothesis leaderboard
+> above. Do not conflate them.
+>
+> **Repo status:** no training/eval code exists. Running XLM-R (or any of the
+> above) is paper-faithful only as a **baseline reproduction**, not as the SOTA.

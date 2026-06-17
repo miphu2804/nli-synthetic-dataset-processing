@@ -88,7 +88,9 @@ per model to get N verdict files, then aggregate:
 │ agree ≥ 2        │   │ agree == 1       │   │ agree == 0       │
 └──────────────────┘   └──────────────────┘   └──────────────────┘
 
-KEEP → validation_votes.csv (+ pmi_consensus.csv: PMI on the KEPT subset)
+KEEP → validation_votes.csv
+     + validated_dataset.csv  (source_uid,premise,hypothesis,label — kept rows)
+     + pmi_consensus.csv      (PMI on the KEPT subset)
 ```
 
 Layer 3 — artifact flagging (deterministic, corpus-level). Run on the
@@ -97,17 +99,36 @@ validated/kept rows:
 ```text
 ┌──────────────────────────────────────────────────────────┐
 │ python -m src.cli pmi                                    │
-│   --input <kept.csv>  --pmi-threshold T                  │
-│ PMI computed ONCE over all rows (corpus-level)           │
+│   --input <validated_dataset.csv> --pmi-threshold T     │
+│ PMI computed ONCE over all rows, example-level (Eq. 2)   │
+│ default --label-column label                             │
 └──────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────┐
 │ pmi_artifact_tokens.csv   → (token, label, pmi, …)       │
 │ pmi_flagged_rows.csv      → hypotheses whose token       │
-│                             leaks its own expected_label │
+│                             leaks its own label          │
 │                             → paraphrase these           │
 └──────────────────────────────────────────────────────────┘
+```
+
+Layer 4 — apply paraphrase (deterministic). The harness paraphrases the
+hypotheses in `pmi_flagged_rows.csv` (the LLM step, outside the code), emits a
+`source_uid,hypothesis` file of rewrites, then applies them back to close the
+stage:
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ python -m src.cli apply-paraphrase                       │
+│   --input validated_dataset.csv                          │
+│   --paraphrases <paraphrased.csv>                        │
+│ Overwrites flagged hypotheses, leaves the rest unchanged │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+   processed_dataset.csv  (source_uid,premise,hypothesis,label)
+   → final deliverable of the validation stage, ready to split/train
 ```
 
 ## Claimed Row Schema

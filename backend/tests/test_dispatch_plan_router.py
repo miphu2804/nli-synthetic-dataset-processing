@@ -2,7 +2,6 @@ import unittest
 
 import httpx
 from fastapi import FastAPI
-
 from src.routers.dispatch_plan_router import dispatch_plan_router
 
 

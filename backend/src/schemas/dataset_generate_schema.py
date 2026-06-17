@@ -1,7 +1,6 @@
 from typing import Literal
 
 from pydantic import BaseModel, Field
-
 from src.schemas.dataset_writer_schema import DatasetOutputConfig
 
 

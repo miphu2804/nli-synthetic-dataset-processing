@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException
-
 from src.services.skill_service import SkillService
 
 skill_router = APIRouter(prefix="/api/skills", tags=["skill"])

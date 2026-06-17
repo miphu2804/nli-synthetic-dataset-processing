@@ -29,21 +29,40 @@ class RunState:
     claim_count: int = 0
 
 
+@dataclass
+class _VerificationScan:
+    """Raw findings collected in a single pass over a run's progress events, before they are judged into a verdict."""
+
+    checked_agents: set[str] = field(default_factory=set)
+    broken_hashes: list[dict[str, Any]] = field(default_factory=list)
+    seen_done: dict[str, int] = field(default_factory=dict)
+    skipped: set[str] = field(default_factory=set)
+    missing_batch_files: list[str] = field(default_factory=list)
+
+
 class ProgressTrackingService:
     def __init__(self, pipeline_dir: Path | None = None) -> None:
+        """Resolve the .pipeline root (default ./.pipeline) and its sibling data/ directory used for run state and batch outputs."""
         self._pipeline_dir = (pipeline_dir or Path(".pipeline")).resolve()
         self._data_dir = self._derive_data_dir(self._pipeline_dir).resolve()
 
     def get_run_dir(self, run_id: str) -> Path:
+        """Return the run's state directory under .pipeline/runs/{run_id}."""
         return self._pipeline_dir / "runs" / run_id
 
     def get_progress_path(self, run_id: str) -> Path:
+        """Return the path to the run's append-only progress.jsonl log."""
         return self.get_run_dir(run_id) / "progress.jsonl"
 
     def get_outputs_dir(self, run_id: str) -> Path:
+        """Return the run's batch outputs directory under data/batches/{run_id}."""
         return self._data_dir / "batches" / run_id
 
     def resolve_output_file(self, run_id: str, file_name: str) -> Path:
+        """Resolve a batch output file, preferring the current outputs dir and falling back to the legacy run/outputs location.
+
+        Returns the current-location path even when neither exists, so callers can report it as missing.
+        """
         output_path = self.get_outputs_dir(run_id) / file_name
         if output_path.exists():
             return output_path
@@ -53,19 +72,23 @@ class ProgressTrackingService:
         return output_path
 
     def ensure_run_directories(self, run_id: str) -> None:
+        """Create the run state directory and its batch outputs directory if they do not already exist."""
         run_dir = self.get_run_dir(run_id)
         run_dir.mkdir(parents=True, exist_ok=True)
         self.get_outputs_dir(run_id).mkdir(parents=True, exist_ok=True)
 
     def cleanup_run(self, run_id: str) -> None:
+        """Delete the run's state directory (.pipeline/runs/{run_id}) and everything under it."""
         shutil.rmtree(self.get_run_dir(run_id))
 
     def cleanup_outputs(self, run_id: str) -> None:
+        """Delete the run's batch outputs directory if it exists."""
         outputs_dir = self.get_outputs_dir(run_id)
         if outputs_dir.exists():
             shutil.rmtree(outputs_dir)
 
     def read_events(self, run_id: str) -> list[dict[str, Any]]:
+        """Read and parse all events from the run's progress.jsonl, returning an empty list when the log does not exist."""
         progress_path = self.get_progress_path(run_id)
         if not progress_path.exists():
             return []
@@ -82,6 +105,10 @@ class ProgressTrackingService:
         event: str,
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Append an event to the run's progress log, chaining it to the agent's previous event via prev_hash and a per-agent sequence id.
+
+        Side effects: ensures run directories exist and writes one JSON line to progress.jsonl. Returns the written event.
+        """
         self.ensure_run_directories(run_id)
         progress_path = self.get_progress_path(run_id)
         events = self.read_events(run_id)
@@ -112,6 +139,7 @@ class ProgressTrackingService:
         return event_payload
 
     def build_run_state(self, run_id: str) -> RunState:
+        """Replay the run's events into a RunState aggregating done/skipped rows, active claims, and completed/failed batches."""
         state = RunState()
         for event in self.read_events(run_id):
             event_type = event["event"]
@@ -141,6 +169,7 @@ class ProgressTrackingService:
         run_id: str,
         total_target_rows: int,
     ) -> RunProgressSnapshot:
+        """Build a progress snapshot from the run state: done/skipped/claimed/pending row counts and active-claim summaries."""
         state = self.build_run_state(run_id)
         claimed_rows = sum(
             len(item.source_uids) for item in state.active_claims.values()
@@ -178,23 +207,69 @@ class ProgressTrackingService:
         agent_id: str | None = None,
         require_batch_files: bool = False,
     ) -> ProgressVerificationResponse:
-        events = self.read_events(run_id)
-        previous_hashes: dict[str, str] = {}
-        seen_done: dict[str, int] = {}
-        skipped: set[str] = set()
-        checked_agents: set[str] = set()
-        broken_hashes: list[dict[str, Any]] = []
-        missing_batch_files: list[str] = []
-        count_mismatches: list[str] = []
+        """Verify a run's progress log and return a verdict: scans events once, then derives hash-chain breaks, duplicate/overlapping rows, missing batch files, and count mismatches.
 
-        for event in events:
+        When agent_id is given only that agent's events are checked; total_target_rows enables the row-count ceiling check.
+        """
+        scan = self._scan_events(run_id, agent_id, require_batch_files)
+
+        duplicate_done_source_uids = [
+            uid for uid, count in scan.seen_done.items() if count > 1
+        ]
+        done_skip_overlap = [uid for uid in scan.seen_done if uid in scan.skipped]
+
+        count_mismatches: list[str] = []
+        if total_target_rows is not None:
+            accounted_rows = len(set(scan.seen_done)) + len(
+                scan.skipped - set(scan.seen_done)
+            )
+            if accounted_rows > total_target_rows:
+                count_mismatches.append(
+                    f"accounted_rows={accounted_rows} exceeds total_target_rows={total_target_rows}"
+                )
+
+        ok = not any(
+            [
+                scan.broken_hashes,
+                duplicate_done_source_uids,
+                done_skip_overlap,
+                scan.missing_batch_files,
+                count_mismatches,
+            ]
+        )
+        return ProgressVerificationResponse(
+            ok=ok,
+            run_id=run_id,
+            checked_agents=sorted(scan.checked_agents),
+            broken_hashes=scan.broken_hashes,
+            duplicate_done_source_uids=duplicate_done_source_uids,
+            done_skip_overlap_source_uids=done_skip_overlap,
+            missing_batch_files=scan.missing_batch_files,
+            count_mismatches=count_mismatches,
+            active_claims=list(self.build_run_state(run_id).active_claims.keys()),
+        )
+
+    def _scan_events(
+        self,
+        run_id: str,
+        agent_id: str | None,
+        require_batch_files: bool,
+    ) -> _VerificationScan:
+        """Make one pass over the run's events collecting raw verification findings into a _VerificationScan.
+
+        Checks each agent's per-agent hash chain, tallies row.done/row.skip uids, and (when require_batch_files)
+        records batch.done files that are missing on disk. Events from other agents are skipped when agent_id is set.
+        """
+        scan = _VerificationScan()
+        previous_hashes: dict[str, str] = {}
+        for event in self.read_events(run_id):
             current_agent = event["agent"]
             if agent_id and current_agent != agent_id:
                 continue
-            checked_agents.add(current_agent)
+            scan.checked_agents.add(current_agent)
             expected_hash = previous_hashes.get(current_agent, "0")
             if event["prev_hash"] != expected_hash:
-                broken_hashes.append(
+                scan.broken_hashes.append(
                     {
                         "id": event["id"],
                         "agent": current_agent,
@@ -205,52 +280,21 @@ class ProgressTrackingService:
             previous_hashes[current_agent] = self._event_hash(event)
             if event["event"] == "row.done":
                 uid_key = self._uid_key(event["source_uid"])
-                seen_done[uid_key] = seen_done.get(uid_key, 0) + 1
+                scan.seen_done[uid_key] = scan.seen_done.get(uid_key, 0) + 1
             if event["event"] == "row.skip":
-                skipped.add(self._uid_key(event["source_uid"]))
+                scan.skipped.add(self._uid_key(event["source_uid"]))
             if (
                 require_batch_files
                 and event["event"] == "batch.done"
                 and event.get("file")
                 and not self.resolve_output_file(run_id, event["file"]).exists()
             ):
-                missing_batch_files.append(event["file"])
-
-        duplicate_done_source_uids = [
-            uid for uid, count in seen_done.items() if count > 1
-        ]
-        done_skip_overlap = [uid for uid in seen_done if uid in skipped]
-
-        if total_target_rows is not None:
-            accounted_rows = len(set(seen_done)) + len(skipped - set(seen_done))
-            if accounted_rows > total_target_rows:
-                count_mismatches.append(
-                    f"accounted_rows={accounted_rows} exceeds total_target_rows={total_target_rows}"
-                )
-
-        ok = not any(
-            [
-                broken_hashes,
-                duplicate_done_source_uids,
-                done_skip_overlap,
-                missing_batch_files,
-                count_mismatches,
-            ]
-        )
-        return ProgressVerificationResponse(
-            ok=ok,
-            run_id=run_id,
-            checked_agents=sorted(checked_agents),
-            broken_hashes=broken_hashes,
-            duplicate_done_source_uids=duplicate_done_source_uids,
-            done_skip_overlap_source_uids=done_skip_overlap,
-            missing_batch_files=missing_batch_files,
-            count_mismatches=count_mismatches,
-            active_claims=list(self.build_run_state(run_id).active_claims.keys()),
-        )
+                scan.missing_batch_files.append(event["file"])
+        return scan
 
     @staticmethod
     def _extract_sequence(event_id: str, agent: str) -> int:
+        """Parse the numeric sequence suffix from an '{agent}-{n}' event id; return -1 if it does not match the agent prefix."""
         prefix = f"{agent}-"
         if not event_id.startswith(prefix):
             return -1
@@ -258,15 +302,18 @@ class ProgressTrackingService:
 
     @staticmethod
     def _event_hash(event: dict[str, Any]) -> str:
+        """Return the SHA-256 hex digest of the event's compact JSON serialization, used to chain events per agent."""
         serialized = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _uid_key(source_uid: str | int) -> str:
+        """Return the canonical string key for a source_uid so int/str values compare consistently."""
         return str(source_uid)
 
     @staticmethod
     def _derive_data_dir(pipeline_dir: Path) -> Path:
+        """Derive the sibling data/ directory from a .pipeline path, falling back to ./data when no .pipeline ancestor exists."""
         candidates = [pipeline_dir, *pipeline_dir.parents]
         for path in candidates:
             if path.name == ".pipeline":

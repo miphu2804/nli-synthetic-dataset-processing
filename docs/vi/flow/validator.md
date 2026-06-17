@@ -87,7 +87,9 @@ cho mỗi model để có N file verdict, rồi aggregate:
 │ agree ≥ 2        │   │ agree == 1       │   │ agree == 0       │
 └──────────────────┘   └──────────────────┘   └──────────────────┘
 
-KEEP → validation_votes.csv (+ pmi_consensus.csv: PMI on the KEPT subset)
+KEEP → validation_votes.csv
+     + validated_dataset.csv  (source_uid,premise,hypothesis,label — kept rows)
+     + pmi_consensus.csv      (PMI on the KEPT subset)
 ```
 
 Lớp 3 — artifact flagging (deterministic, corpus-level). Chạy trên các row
@@ -96,17 +98,35 @@ validated/kept:
 ```text
 ┌──────────────────────────────────────────────────────────┐
 │ python -m src.cli pmi                                    │
-│   --input <kept.csv>  --pmi-threshold T                  │
-│ PMI computed ONCE over all rows (corpus-level)           │
+│   --input <validated_dataset.csv> --pmi-threshold T     │
+│ PMI computed ONCE over all rows, example-level (Eq. 2)   │
+│ default --label-column label                             │
 └──────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────┐
 │ pmi_artifact_tokens.csv   → (token, label, pmi, …)       │
 │ pmi_flagged_rows.csv      → hypotheses whose token       │
-│                             leaks its own expected_label │
+│                             leaks its own label          │
 │                             → paraphrase these           │
 └──────────────────────────────────────────────────────────┘
+```
+
+Lớp 4 — apply paraphrase (deterministic). Harness paraphrase các hypothesis
+trong `pmi_flagged_rows.csv` (bước LLM, ngoài code), xuất file
+`source_uid,hypothesis` đã viết lại, rồi apply ngược để khép stage:
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ python -m src.cli apply-paraphrase                       │
+│   --input validated_dataset.csv                          │
+│   --paraphrases <paraphrased.csv>                        │
+│ Ghi đè hypothesis của các row flagged, giữ nguyên còn lại│
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+   processed_dataset.csv  (source_uid,premise,hypothesis,label)
+   → deliverable cuối của stage validation, sẵn sàng để split/train
 ```
 
 ## Claimed Row Schema

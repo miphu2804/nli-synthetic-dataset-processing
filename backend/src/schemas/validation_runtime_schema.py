@@ -1,7 +1,6 @@
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-
 from src.schemas.generation_runtime_schema import RunProgressSnapshot
 
 

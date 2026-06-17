@@ -173,7 +173,7 @@ class ValidationAggregationCliTest(unittest.TestCase):
             sorted(c.model_name for c in candidates), ["deepseek", "gpt4o"]
         )
 
-    def test_run_aggregation_writes_votes_and_pmi(self) -> None:
+    def test_run_aggregation_writes_votes_and_validated_dataset(self) -> None:
         paths = discover_verdict_files(self.verdicts_dir)
         valid_candidates = [c for c in build_verdict_candidates(paths) if c.is_valid]
         self.output_dir.mkdir()
@@ -182,7 +182,6 @@ class ValidationAggregationCliTest(unittest.TestCase):
             valid_candidates=valid_candidates,
             masked_dataset_path=self.masked_path,
             output_dir=self.output_dir,
-            min_joint_count=1,
             expected_labels=self.expected_labels,
         )
 
@@ -192,32 +191,19 @@ class ValidationAggregationCliTest(unittest.TestCase):
         self.assertIn("agree_count", votes.columns)
         self.assertIn("decision", votes.columns)
         self.assertEqual(set(votes["decision"]), {"keep", "discard"})
-        self.assertTrue(Path(result["pmi_output"]).exists())
         self.assertEqual(result["total_rows"], 2)
         self.assertEqual(result["keep"], 1)
         self.assertEqual(result["discard"], 1)
         self.assertEqual(result["review"], 0)
 
-    def test_run_aggregation_pmi_filters_by_min_joint_count(self) -> None:
-        paths = discover_verdict_files(self.verdicts_dir)
-        valid_candidates = [c for c in build_verdict_candidates(paths) if c.is_valid]
-        self.output_dir.mkdir()
-
-        result_loose = run_aggregation(
-            valid_candidates=valid_candidates,
-            masked_dataset_path=self.masked_path,
-            output_dir=self.output_dir,
-            min_joint_count=1,
-            expected_labels=self.expected_labels,
+        validated = pd.read_csv(result["validated_output"])
+        self.assertEqual(
+            list(validated.columns),
+            ["source_uid", "premise", "hypothesis", "label"],
         )
-        result_strict = run_aggregation(
-            valid_candidates=valid_candidates,
-            masked_dataset_path=self.masked_path,
-            output_dir=self.output_dir,
-            min_joint_count=999,
-            expected_labels=self.expected_labels,
-        )
-        self.assertGreater(result_loose["pmi_tokens"], result_strict["pmi_tokens"])
+        self.assertEqual(list(validated["source_uid"]), ["row-1"])
+        self.assertEqual(validated.loc[0, "label"], 0)
+        self.assertEqual(result["retained_rows"], 1)
 
     def test_main_noninteractive_run_exits_zero(self) -> None:
         exit_code = main(
@@ -233,15 +219,14 @@ class ValidationAggregationCliTest(unittest.TestCase):
                 "label",
                 "--output-dir",
                 str(self.output_dir),
-                "--min-joint-count",
-                "1",
                 "--yes",
                 "--quiet",
             ]
         )
         self.assertEqual(exit_code, 0)
         self.assertTrue((self.output_dir / "validation_votes.csv").exists())
-        self.assertTrue((self.output_dir / "pmi_consensus.csv").exists())
+        self.assertFalse((self.output_dir / "pmi_consensus.csv").exists())
+        self.assertTrue((self.output_dir / "validated_dataset.csv").exists())
 
     def test_main_fails_with_missing_verdicts_dir(self) -> None:
         exit_code = main(
@@ -326,22 +311,22 @@ class ValidationPmiCommandTest(unittest.TestCase):
                 {
                     "source_uid": 1,
                     "hypothesis": "alpha shared",
-                    "expected_label": "entailment",
+                    "label": "entailment",
                 },
                 {
                     "source_uid": 2,
                     "hypothesis": "alpha shared",
-                    "expected_label": "entailment",
+                    "label": "entailment",
                 },
                 {
                     "source_uid": 3,
                     "hypothesis": "beta shared",
-                    "expected_label": "neutral",
+                    "label": "neutral",
                 },
                 {
                     "source_uid": 4,
                     "hypothesis": "beta shared",
-                    "expected_label": "neutral",
+                    "label": "neutral",
                 },
             ]
         ).to_csv(self.input_path, index=False)
@@ -354,7 +339,7 @@ class ValidationPmiCommandTest(unittest.TestCase):
         result = run_pmi(
             input_path=self.input_path,
             output_dir=self.output_dir,
-            label_column="expected_label",
+            label_column="label",
             text_column="hypothesis",
             uid_column="source_uid",
             pmi_threshold=0.5,
@@ -385,6 +370,115 @@ class ValidationPmiCommandTest(unittest.TestCase):
 
     def test_main_pmi_fails_on_missing_input(self) -> None:
         exit_code = main(["pmi", "--input", str(self.root / "nope.csv"), "--quiet"])
+        self.assertEqual(exit_code, 2)
+
+
+class ValidationKappaCommandTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.verdicts_dir = self.root / "verdicts"
+        self.verdicts_dir.mkdir()
+        model_rows = {
+            "gpt4o": [0, 1, 2, 0],
+            "deepseek": [0, 1, 1, 0],
+            "llama": [0, 2, 2, 1],
+        }
+        for model_name, labels in model_rows.items():
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": f"row-{index}",
+                        "predicted_label": label,
+                        "reason": "ok",
+                    }
+                    for index, label in enumerate(labels)
+                ]
+            ).to_csv(self.verdicts_dir / f"{model_name}.csv", index=False)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_main_kappa_subcommand_exits_zero(self) -> None:
+        exit_code = main(["kappa", "--verdicts-dir", str(self.verdicts_dir), "--quiet"])
+        self.assertEqual(exit_code, 0)
+
+    def test_main_kappa_fails_on_missing_dir(self) -> None:
+        exit_code = main(
+            ["kappa", "--verdicts-dir", str(self.root / "nope"), "--quiet"]
+        )
+        self.assertEqual(exit_code, 2)
+
+    def test_main_kappa_fails_with_only_one_valid_file(self) -> None:
+        lone_dir = self.root / "lone"
+        lone_dir.mkdir()
+        pd.DataFrame(
+            [{"source_uid": "row-0", "predicted_label": 0, "reason": "ok"}]
+        ).to_csv(lone_dir / "only_one.csv", index=False)
+        exit_code = main(["kappa", "--verdicts-dir", str(lone_dir), "--quiet"])
+        self.assertEqual(exit_code, 2)
+
+
+class ApplyParaphraseCommandTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.input_path = self.root / "validated_dataset.csv"
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": "row-1",
+                    "premise": "p1",
+                    "hypothesis": "h1",
+                    "label": 0,
+                },
+                {
+                    "source_uid": "row-2",
+                    "premise": "p2",
+                    "hypothesis": "h2",
+                    "label": 1,
+                },
+            ]
+        ).to_csv(self.input_path, index=False)
+        self.paraphrases_path = self.root / "paraphrases.csv"
+        pd.DataFrame([{"source_uid": "row-2", "hypothesis": "h2-rewritten"}]).to_csv(
+            self.paraphrases_path, index=False
+        )
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_main_apply_paraphrase_writes_processed_dataset(self) -> None:
+        exit_code = main(
+            [
+                "apply-paraphrase",
+                "--input",
+                str(self.input_path),
+                "--paraphrases",
+                str(self.paraphrases_path),
+                "--quiet",
+            ]
+        )
+        self.assertEqual(exit_code, 0)
+        output_path = self.root / "processed_dataset.csv"
+        self.assertTrue(output_path.exists())
+        processed = pd.read_csv(output_path)
+        self.assertEqual(list(processed["hypothesis"]), ["h1", "h2-rewritten"])
+
+    def test_main_apply_paraphrase_fails_on_unknown_uid(self) -> None:
+        pd.DataFrame([{"source_uid": "row-9", "hypothesis": "x"}]).to_csv(
+            self.paraphrases_path, index=False
+        )
+        exit_code = main(
+            [
+                "apply-paraphrase",
+                "--input",
+                str(self.input_path),
+                "--paraphrases",
+                str(self.paraphrases_path),
+                "--quiet",
+            ]
+        )
         self.assertEqual(exit_code, 2)
 
 

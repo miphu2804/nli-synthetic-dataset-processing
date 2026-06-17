@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException
-
 from src.schemas import DispatchPlanRequest, DispatchPlanResponse
 from src.services import DispatchPlanningService
 
