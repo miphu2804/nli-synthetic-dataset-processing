@@ -3,11 +3,9 @@ from pathlib import Path
 import pandas as pd
 from src.schemas import DatasetReadResponse
 
-DEFAULT_BATCH_SIZE = 5
-
 
 class DatasetReaderService:
-    """Template method — skeleton read_dataset dispatches to format-specific batch readers."""
+    """Expose raw DataFrame and response reads with format dispatch in one helper."""
 
     def read_dataframe(
         self,
@@ -16,7 +14,7 @@ class DatasetReaderService:
         row_limit: int | None = None,
     ) -> pd.DataFrame:
         """Read and return a raw DataFrame slice from a supported dataset."""
-        dataframe, _, _, _ = self._read_dataframe_slice(path, row_limit, row_offset)
+        dataframe, _, _, _ = self._read_dataframe_slice(path, row_offset, row_limit)
         return dataframe
 
     def read_dataset(
@@ -25,12 +23,11 @@ class DatasetReaderService:
         batch_size: int | None = None,
         batch_offset: int = 0,
     ) -> DatasetReadResponse:
-        """Resolve path, detect format, dispatch to batch reader, build response."""
+        """Return a structured response from a format-dispatched DataFrame slice."""
         dataframe, total_rows, resolved_path, file_extension = (
-            self._read_dataframe_slice(path, batch_size, batch_offset)
+            self._read_dataframe_slice(path, batch_offset, batch_size)
         )
 
-        batch_size = batch_size or DEFAULT_BATCH_SIZE
         return self._build_response(
             path=resolved_path,
             file_extension=file_extension,
@@ -41,8 +38,8 @@ class DatasetReaderService:
     def _read_dataframe_slice(
         self,
         path: str,
-        row_limit: int | None,
         row_offset: int,
+        row_limit: int | None,
     ) -> tuple[pd.DataFrame, int, Path, str]:
         """Resolve path, detect format, and return a DataFrame slice with metadata."""
         resolved_path = Path(path).expanduser().resolve()
@@ -52,11 +49,11 @@ class DatasetReaderService:
 
         if file_extension == ".csv":
             dataframe, total_rows = self._read_csv_batch(
-                resolved_path, row_limit, row_offset
+                resolved_path, row_offset, row_limit
             )
         elif file_extension == ".parquet":
             dataframe, total_rows = self._read_parquet_batch(
-                resolved_path, row_limit, row_offset
+                resolved_path, row_offset, row_limit
             )
         else:
             raise ValueError(
@@ -72,29 +69,25 @@ class DatasetReaderService:
     def _read_csv_batch(
         self,
         path: Path,
-        batch_size: int | None,
-        batch_offset: int,
+        row_offset: int,
+        row_limit: int | None,
     ) -> tuple[pd.DataFrame, int]:
         """Load full CSV, count via shape, then slice one batch."""
         dataframe = pd.read_csv(path)
         total_rows = int(dataframe.shape[0])
-        dataframe = dataframe.iloc[
-            batch_offset : batch_offset + (batch_size or total_rows)
-        ]
+        dataframe = dataframe.iloc[row_offset : row_offset + (row_limit or total_rows)]
         return dataframe, total_rows
 
     def _read_parquet_batch(
         self,
         path: Path,
-        batch_size: int | None,
-        batch_offset: int,
+        row_offset: int,
+        row_limit: int | None,
     ) -> tuple[pd.DataFrame, int]:
         """Load full parquet, slice one batch, report total."""
         dataframe = pd.read_parquet(path)
         total_rows = int(dataframe.shape[0])
-        dataframe = dataframe.iloc[
-            batch_offset : batch_offset + (batch_size or len(dataframe))
-        ]
+        dataframe = dataframe.iloc[row_offset : row_offset + (row_limit or total_rows)]
         return dataframe, total_rows
 
     def _build_response(
