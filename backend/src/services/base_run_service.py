@@ -1,6 +1,5 @@
 import csv
 from datetime import UTC, datetime
-from pathlib import Path
 from uuid import uuid4
 
 import pandas as pd
@@ -283,11 +282,11 @@ class BaseRunService:
 
     def _load_target_dataframe(self, run_settings):
         """Read and return the row window described by the persisted run settings."""
-        dataframe = self._read_dataframe(run_settings.input_path)
-        return dataframe.iloc[
-            run_settings.row_offset : run_settings.row_offset
-            + run_settings.total_target_rows
-        ]
+        return self._dataset_reader_service.read_dataframe(
+            run_settings.input_path,
+            row_offset=run_settings.row_offset,
+            row_limit=run_settings.total_target_rows,
+        )
 
     @staticmethod
     def _validate_run_args(row_offset, row_limit, batch_size):
@@ -312,9 +311,11 @@ class BaseRunService:
         if available_rows == 0:
             raise ValueError("row_offset must point to an available dataset row.")
         total_target_rows = min(row_limit or available_rows, available_rows)
-        target_dataframe = self._read_dataframe(input_path).iloc[
-            row_offset : row_offset + total_target_rows
-        ]
+        target_dataframe = self._dataset_reader_service.read_dataframe(
+            input_path,
+            row_offset=row_offset,
+            row_limit=total_target_rows,
+        )
         self._validate_source_uids(target_dataframe[uid_column].tolist())
         return target_dataframe, total_target_rows
 
@@ -355,14 +356,6 @@ class BaseRunService:
                 f"Batch {batch_id} is claimed by {claim.agent}, not {agent_id}."
             )
         return claim
-
-    @staticmethod
-    def _read_dataframe(input_path):
-        """Read a parquet or CSV dataset into a DataFrame."""
-        path = Path(input_path)
-        if path.suffix.lower() == ".parquet":
-            return pd.read_parquet(path)
-        return pd.read_csv(path)
 
     @staticmethod
     def _uid_key(source_uid):

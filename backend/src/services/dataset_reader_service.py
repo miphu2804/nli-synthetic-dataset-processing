@@ -9,6 +9,16 @@ DEFAULT_BATCH_SIZE = 5
 class DatasetReaderService:
     """Template method — skeleton read_dataset dispatches to format-specific batch readers."""
 
+    def read_dataframe(
+        self,
+        path: str,
+        row_offset: int = 0,
+        row_limit: int | None = None,
+    ) -> pd.DataFrame:
+        """Read and return a raw DataFrame slice from a supported dataset."""
+        dataframe, _, _, _ = self._read_dataframe_slice(path, row_limit, row_offset)
+        return dataframe
+
     def read_dataset(
         self,
         path: str,
@@ -16,23 +26,9 @@ class DatasetReaderService:
         batch_offset: int = 0,
     ) -> DatasetReadResponse:
         """Resolve path, detect format, dispatch to batch reader, build response."""
-        resolved_path = Path(path).expanduser().resolve()
-        if not resolved_path.exists():
-            raise FileNotFoundError(f"Dataset not found: {resolved_path}")
-        file_extension = self._get_file_extension(resolved_path)
-
-        if file_extension == ".csv":
-            dataframe, total_rows = self._read_csv_batch(
-                resolved_path, batch_size, batch_offset
-            )
-        elif file_extension == ".parquet":
-            dataframe, total_rows = self._read_parquet_batch(
-                resolved_path, batch_size, batch_offset
-            )
-        else:
-            raise ValueError(
-                f"Unsupported format: {file_extension}. Supported: .csv, .parquet."
-            )
+        dataframe, total_rows, resolved_path, file_extension = (
+            self._read_dataframe_slice(path, batch_size, batch_offset)
+        )
 
         batch_size = batch_size or DEFAULT_BATCH_SIZE
         return self._build_response(
@@ -41,6 +37,32 @@ class DatasetReaderService:
             total_rows=total_rows,
             dataframe=dataframe,
         )
+
+    def _read_dataframe_slice(
+        self,
+        path: str,
+        row_limit: int | None,
+        row_offset: int,
+    ) -> tuple[pd.DataFrame, int, Path, str]:
+        """Resolve path, detect format, and return a DataFrame slice with metadata."""
+        resolved_path = Path(path).expanduser().resolve()
+        if not resolved_path.exists():
+            raise FileNotFoundError(f"Dataset not found: {resolved_path}")
+        file_extension = self._get_file_extension(resolved_path)
+
+        if file_extension == ".csv":
+            dataframe, total_rows = self._read_csv_batch(
+                resolved_path, row_limit, row_offset
+            )
+        elif file_extension == ".parquet":
+            dataframe, total_rows = self._read_parquet_batch(
+                resolved_path, row_limit, row_offset
+            )
+        else:
+            raise ValueError(
+                f"Unsupported format: {file_extension}. Supported: .csv, .parquet."
+            )
+        return dataframe, total_rows, resolved_path, file_extension
 
     @staticmethod
     def _get_file_extension(path: Path) -> str:
