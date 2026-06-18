@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
+import pyarrow.parquet as pq
 from src.schemas import DatasetReadResponse
 
 
@@ -48,11 +49,11 @@ class DatasetReaderService:
         file_extension = self._get_file_extension(resolved_path)
 
         if file_extension == ".csv":
-            dataframe, total_rows = self._read_csv_batch(
+            dataframe, total_rows = self._read_csv_window(
                 resolved_path, row_offset, row_limit
             )
         elif file_extension == ".parquet":
-            dataframe, total_rows = self._read_parquet_batch(
+            dataframe, total_rows = self._read_parquet_window(
                 resolved_path, row_offset, row_limit
             )
         else:
@@ -66,28 +67,70 @@ class DatasetReaderService:
         """Extract file extension with dot prefix, lowercased."""
         return path.suffix.lower()
 
-    def _read_csv_batch(
+    def _read_csv_window(
         self,
         path: Path,
         row_offset: int,
         row_limit: int | None,
     ) -> tuple[pd.DataFrame, int]:
-        """Load full CSV, count via shape, then slice one batch."""
-        dataframe = pd.read_csv(path)
-        total_rows = int(dataframe.shape[0])
-        dataframe = dataframe.iloc[row_offset : row_offset + (row_limit or total_rows)]
+        """Count parsed CSV records and read only the requested row window."""
+        total_rows = 0
+        # CSV records may contain quoted newlines, so count parsed one-column chunks
+        # instead of physical lines while avoiding full-file materialization.
+        for chunk in pd.read_csv(path, usecols=[0], chunksize=100_000):
+            total_rows += int(chunk.shape[0])
+
+        dataframe = pd.read_csv(
+            path,
+            skiprows=range(1, row_offset + 1),
+            nrows=row_limit or total_rows,
+        )
+        slice_start = min(row_offset, total_rows)
+        dataframe.index = pd.RangeIndex(
+            start=slice_start,
+            stop=slice_start + len(dataframe),
+        )
         return dataframe, total_rows
 
-    def _read_parquet_batch(
+    def _read_parquet_window(
         self,
         path: Path,
         row_offset: int,
         row_limit: int | None,
     ) -> tuple[pd.DataFrame, int]:
-        """Load full parquet, slice one batch, report total."""
-        dataframe = pd.read_parquet(path)
-        total_rows = int(dataframe.shape[0])
-        dataframe = dataframe.iloc[row_offset : row_offset + (row_limit or total_rows)]
+        """Read only row groups overlapping the requested Parquet window."""
+        parquet_file = pq.ParquetFile(path)
+        total_rows = int(parquet_file.metadata.num_rows)
+        window_end = min(row_offset + (row_limit or total_rows), total_rows)
+
+        row_groups = []
+        row_group_start = 0
+        first_row_group_start = 0
+        for row_group_index in range(parquet_file.num_row_groups):
+            row_group_rows = parquet_file.metadata.row_group(row_group_index).num_rows
+            row_group_end = row_group_start + row_group_rows
+            if row_group_end > row_offset and row_group_start < window_end:
+                if not row_groups:
+                    first_row_group_start = row_group_start
+                row_groups.append(row_group_index)
+            row_group_start = row_group_end
+
+        if row_groups:
+            table = parquet_file.read_row_groups(row_groups)
+            table = table.slice(
+                max(row_offset - first_row_group_start, 0),
+                max(window_end - row_offset, 0),
+            )
+        else:
+            table = parquet_file.schema_arrow.empty_table()
+
+        dataframe = table.to_pandas()
+        if isinstance(dataframe.index, pd.RangeIndex):
+            slice_start = min(row_offset, total_rows)
+            dataframe.index = pd.RangeIndex(
+                start=slice_start,
+                stop=slice_start + len(dataframe),
+            )
         return dataframe, total_rows
 
     def _build_response(

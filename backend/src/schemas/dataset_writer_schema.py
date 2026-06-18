@@ -22,7 +22,7 @@ class DatasetWriteRequest(BaseModel):
 
 class DatasetWriteResponse(BaseModel):
     status: Literal["written"]
-    output_format: Literal["csv"] = "csv"
+    output_format: Literal["csv", "parquet"] = "csv"
     output_path: str
     rows_written: int
     message: str | None = None
