@@ -9,6 +9,7 @@ from rich.table import Table
 from src.utils.validation_aggregation import (
     apply_paraphrases,
     build_retained_dataset,
+    build_review_dataset,
     build_validation_vote_table,
     compute_fleiss_kappa,
     flag_pmi_artifacts,
@@ -288,15 +289,21 @@ def run_aggregation(
     validated_output = output_dir / "validated_dataset.csv"
     retained_df.to_csv(validated_output, index=False)
 
+    review_df = build_review_dataset(masked_df, vote_table)
+    review_output = output_dir / "review_dataset.csv"
+    review_df.to_csv(review_output, index=False)
+
     decision_counts = vote_table["decision"].value_counts().to_dict()
     return {
         "votes_output": votes_output,
         "validated_output": validated_output,
+        "review_output": review_output,
         "total_rows": len(vote_table),
         "keep": decision_counts.get("keep", 0),
         "discard": decision_counts.get("discard", 0),
         "review": decision_counts.get("review", 0),
         "retained_rows": len(retained_df),
+        "review_rows": len(review_df),
     }
 
 
@@ -397,8 +404,10 @@ def _run_aggregate_command(args: argparse.Namespace, console: Console) -> int:
     summary.add_row("Discard", str(result["discard"]))
     summary.add_row("Review", str(result["review"]))
     summary.add_row("Retained rows", str(result["retained_rows"]))
+    summary.add_row("Review rows", str(result["review_rows"]))
     summary.add_row("Votes output", str(result["votes_output"]))
     summary.add_row("Validated dataset output", str(result["validated_output"]))
+    summary.add_row("Review dataset output", str(result["review_output"]))
     console.print(summary)
     return 0
 

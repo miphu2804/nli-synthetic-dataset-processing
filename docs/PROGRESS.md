@@ -1,3 +1,120 @@
+### [2026-06-18 00:01] — Rewrite paper explanation as paper-only note
+
+**What was done:**
+- Pulled the ViLegalNLI paper context from arXiv and rewrote `docs/paper_explanation.md` as a standalone paper explanation.
+- Removed repo/codebase comparison sections and replaced them with a full paper flow: task definition, seven-step dataset construction, prompt optimization, validation, PMI artifact mitigation, splitting, dataset analysis, experiments, result analysis, and conclusion.
+- Clarified the important distinction: low κ belongs to prompt/data-construction calibration, while high PMI leads to paraphrasing hypothesis text.
+
+**Files changed:**
+- `docs/paper_explanation.md` — rewritten as paper-only explanation.
+- `docs/PROGRESS.md` — added this progress entry.
+
+**Blockers:**
+- None.
+
+**Remaining issues:**
+- None known.
+
+**Flow explained:**
+`paper_explanation.md` now treats ViLegalNLI as the source of truth and avoids mixing in implementation status. The key mental model is: prompt optimization happens before large-scale generation and uses Fleiss' κ to calibrate generation/labeling prompt setup; data validation happens after generation and retains examples with at least two validating models agreeing with the original label; PMI/artifact mitigation happens after validation and paraphrases high-PMI hypotheses; benchmarking happens only after the final split.
+
+---
+
+### [2026-06-17 21:35] — Fix stale validator docs + add review_dataset.csv artifact
+
+**What was done:**
+- Removed stale `pmi_consensus.csv` references from `docs/en/flow/validator.md` and `docs/vi/flow/validator.md` (aggregate no longer writes it; PMI is the separate `cli pmi` step). Also corrected the misleading diagram label: `validation_votes.csv` holds ALL rows + decisions, `validated_dataset.csv` only the KEEP subset.
+- Addressed the operational risk that REVIEW rows (agree==1) had no downstream artifact: `aggregate` now also writes `review_dataset.csv` (manual-review queue).
+
+**Files changed:**
+- `backend/src/utils/validation_aggregation.py` — extracted `_assert_masked_coverage()` helper (shared by retained + review builders); added `build_review_dataset()`.
+- `backend/src/cli.py` — `run_aggregation()` writes `review_dataset.csv`; summary table + result dict report review rows/output; import added.
+- `backend/tests/test_validation_aggregation.py` — added 2 tests for `build_review_dataset` (filter + coverage guard).
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — corrected aggregate outputs, documented review_dataset.csv.
+
+**Blockers:**
+- None.
+
+**Remaining issues:**
+- None known.
+
+**Flow explained:**
+`aggregate` now emits 3 files: `validation_votes.csv` (full vote table, every row + keep/review/discard decision), `validated_dataset.csv` (KEEP only, expected_label→label, publishable schema), and `review_dataset.csv` (REVIEW only — text joined onto vote rows, keeps per-model labels + expected_label + agree_count so a human can see disagreement; expected_label is NOT renamed since these rows are unverified). Both retained and review builders share `_assert_masked_coverage()`, which raises on any kept/review source_uid missing from — or duplicated in — masked_input, preventing silent row loss or one-to-many inflation in the inner join. PMI remains a separate `cli pmi` step on `validated_dataset.csv`; no `pmi_consensus.csv` is produced.
+
+---
+
+### [2026-06-17 21:32] — Re-check aggregation coverage and review artifact
+
+**What was done:**
+- Re-checked the current aggregation changes after the retained-row fix and review artifact addition.
+- Confirmed old missing-UID repro now fails explicitly for both retained rows and review rows.
+- Confirmed active validator flow docs no longer reference `pmi_consensus.csv`.
+- Ran a smoke aggregate: it wrote `validation_votes.csv`, `validated_dataset.csv`, and `review_dataset.csv`; review output kept text plus per-model labels, `expected_label`, `agree_count`, and `decision`.
+- Ran the backend unittest suite: 80 tests pass.
+
+**Files changed:**
+- `docs/PROGRESS.md` — added this re-check entry.
+
+**Blockers:**
+- None.
+
+**Remaining issues:**
+- Older append-only `docs/PROGRESS.md` entries still mention previous `pmi_consensus.csv` behavior as history; active flow docs and current code/tests no longer do.
+
+**Flow explained:**
+The current aggregate path is now coverage-guarded for both publishable kept rows and manual-review rows. Missing or duplicated masked `source_uid` values fail before output generation, preventing silent row loss or one-to-many join inflation. Aggregate currently emits all-row votes, keep-only validated data, and review-only manual queue; PMI remains a separate step on the validated data.
+
+---
+
+### [2026-06-17 21:19] — Verify retained dataset coverage fix
+
+**What was done:**
+- Reviewed the fix for `validated_dataset.csv` silently dropping kept rows when `masked_input` is incomplete.
+- Confirmed `build_retained_dataset()` now validates every kept `source_uid` exists in the masked dataset before joining text.
+- Confirmed duplicate masked `source_uid` values for kept rows now fail instead of duplicating or ambiguously joining output rows.
+- Ran the old repro: it now raises `ValueError: Expected 2 kept rows, but masked dataset is missing 1 source_uid(s): row-2`.
+- Ran the backend unittest suite: 78 tests pass.
+
+**Files changed:**
+- `docs/PROGRESS.md` — added this verification entry.
+
+**Blockers:**
+- None.
+
+**Remaining issues:**
+- Validator flow docs still mention `pmi_consensus.csv` as an aggregate output, while current code/tests say aggregate only writes `validation_votes.csv` and `validated_dataset.csv`.
+- `review` consensus rows still do not have a dedicated downstream manual-review artifact.
+
+**Flow explained:**
+The retained dataset step now fails before writing if the keep set from `validation_votes.csv` cannot be fully joined back to `masked_input`. That changes the previous silent truncation failure mode into an explicit data-integrity error with the missing `source_uid` values listed.
+
+---
+
+### [2026-06-17 20:30] — Review current pipeline against project docs
+
+**What was done:**
+- Reviewed `README.md`, Vietnamese flow docs, latest `docs/PROGRESS.md`, and current backend pipeline implementation.
+- Verified MCP generation/validation paths still match the documented state machine at a high level: start, claim, submit, verify/finalize, then cleanup successful run state and `data/batches/{run_id}`.
+- Found one real aggregation correctness risk: `build_retained_dataset()` inner-joins kept vote rows with `masked_input`, so a wrong or incomplete masked file silently drops kept rows instead of failing.
+- Found a docs contradiction: latest `docs/PROGRESS.md` says `aggregate` intentionally no longer writes `pmi_consensus.csv`, tests enforce that, but `docs/en/flow/validator.md` and `docs/vi/flow/validator.md` still list `pmi_consensus.csv` as an aggregate output.
+- Ran backend unittest suite from the backend working directory and a focused repro for the retained-row drop.
+
+**Files changed:**
+- `docs/PROGRESS.md` — created this review entry.
+
+**Blockers:**
+- None.
+
+**Remaining issues:**
+- `backend/src/utils/validation_aggregation.py` should validate masked text coverage for all kept rows before writing `validated_dataset.csv`.
+- `docs/en/flow/validator.md` and `docs/vi/flow/validator.md` should remove or relocate `pmi_consensus.csv` to match current code/tests.
+- `review` consensus rows remain only in `validation_votes.csv`; there is still no dedicated downstream manual-review artifact.
+
+**Flow explained:**
+Current pipeline has two paths. MCP runtime handles generation and single-model blind validation with trusted hidden-label comparison and cleanup after verified finalize. Deterministic CLI handles `mask -> aggregate -> pmi -> apply-paraphrase`: `aggregate` should produce only `validation_votes.csv` and `validated_dataset.csv`; `pmi` then runs on `validated_dataset.csv`; `apply-paraphrase` writes `processed_dataset.csv`. The main correctness gap is that `validated_dataset.csv` can currently be smaller than the keep set if `masked_input` is incomplete, because the text join is not coverage-checked.
+
+---
+
 ### [2026-06-17 10:00] — Bỏ PMI thừa khỏi aggregate; thêm Fleiss kappa + apply-paraphrase CLI
 
 **What was done:**

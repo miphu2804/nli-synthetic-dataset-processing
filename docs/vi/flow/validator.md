@@ -87,10 +87,16 @@ cho mỗi model để có N file verdict, rồi aggregate:
 │ agree ≥ 2        │   │ agree == 1       │   │ agree == 0       │
 └──────────────────┘   └──────────────────┘   └──────────────────┘
 
-KEEP → validation_votes.csv
-     + validated_dataset.csv  (source_uid,premise,hypothesis,label — kept rows)
-     + pmi_consensus.csv      (PMI on the KEPT subset)
+TẤT CẢ row → validation_votes.csv     (mọi row + decision keep/review/discard)
+CHỈ KEEP   → validated_dataset.csv     (source_uid,premise,hypothesis,label)
+CHỈ REVIEW → review_dataset.csv        (source_uid,premise,hypothesis + label từng
+                                        model, expected_label, agree_count)
 ```
+
+`review_dataset.csv` là hàng đợi manual review (agree == 1), giữ đầy đủ vote
+context để người duyệt thấy chỗ bất đồng; `expected_label` được giữ nguyên (không
+đổi thành `label`) vì các row này chưa được xác thực. PMI là bước riêng (Lớp 3
+bên dưới), không phải output của aggregate.
 
 Lớp 3 — artifact flagging (deterministic, corpus-level). Chạy trên các row
 validated/kept:

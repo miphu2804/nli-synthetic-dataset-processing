@@ -8,6 +8,7 @@ from src.utils.validation_aggregation import (
     apply_paraphrases,
     attach_masked_text,
     build_retained_dataset,
+    build_review_dataset,
     build_validation_vote_table,
     compute_fleiss_kappa,
     compute_hypothesis_label_pmi,
@@ -192,6 +193,68 @@ class ValidationAggregationTest(unittest.TestCase):
         )
         self.assertEqual(list(retained["source_uid"]), ["row-1"])
         self.assertEqual(retained.loc[0, "label"], 1)
+
+    def test_build_review_dataset_keeps_only_review_rows(self) -> None:
+        masked = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "premise": "p1", "hypothesis": "h1"},
+                {"source_uid": "row-2", "premise": "p2", "hypothesis": "h2"},
+                {"source_uid": "row-3", "premise": "p3", "hypothesis": "h3"},
+            ]
+        )
+        vote_table = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "expected_label": 1, "decision": "keep"},
+                {"source_uid": "row-2", "expected_label": 0, "decision": "review"},
+                {"source_uid": "row-3", "expected_label": 2, "decision": "discard"},
+            ]
+        )
+
+        review = build_review_dataset(masked, vote_table)
+
+        self.assertEqual(list(review["source_uid"]), ["row-2"])
+        # text columns lead, expected_label is preserved (not renamed to label)
+        self.assertEqual(
+            list(review.columns)[:3], ["source_uid", "premise", "hypothesis"]
+        )
+        self.assertIn("expected_label", review.columns)
+        self.assertNotIn("label", review.columns)
+
+    def test_build_review_dataset_raises_on_missing_masked_uid(self) -> None:
+        masked = pd.DataFrame(
+            [{"source_uid": "row-1", "premise": "p1", "hypothesis": "h1"}]
+        )
+        vote_table = pd.DataFrame(
+            [{"source_uid": "row-2", "expected_label": 0, "decision": "review"}]
+        )
+        with self.assertRaisesRegex(ValueError, "row-2"):
+            build_review_dataset(masked, vote_table)
+
+    def test_build_retained_dataset_raises_on_missing_masked_uid(self) -> None:
+        masked = pd.DataFrame(
+            [{"source_uid": "row-1", "premise": "p1", "hypothesis": "h1"}]
+        )
+        vote_table = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "expected_label": 1, "decision": "keep"},
+                {"source_uid": "row-2", "expected_label": 0, "decision": "keep"},
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "row-2"):
+            build_retained_dataset(masked, vote_table)
+
+    def test_build_retained_dataset_raises_on_duplicate_masked_uid(self) -> None:
+        masked = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "premise": "p1", "hypothesis": "h1"},
+                {"source_uid": "row-1", "premise": "p1b", "hypothesis": "h1b"},
+            ]
+        )
+        vote_table = pd.DataFrame(
+            [{"source_uid": "row-1", "expected_label": 1, "decision": "keep"}]
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate source_uid"):
+            build_retained_dataset(masked, vote_table)
 
     def test_build_retained_dataset_requires_vote_columns(self) -> None:
         with self.assertRaisesRegex(ValueError, "missing required columns"):

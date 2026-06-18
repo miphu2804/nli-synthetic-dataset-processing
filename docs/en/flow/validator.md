@@ -88,10 +88,16 @@ per model to get N verdict files, then aggregate:
 │ agree ≥ 2        │   │ agree == 1       │   │ agree == 0       │
 └──────────────────┘   └──────────────────┘   └──────────────────┘
 
-KEEP → validation_votes.csv
-     + validated_dataset.csv  (source_uid,premise,hypothesis,label — kept rows)
-     + pmi_consensus.csv      (PMI on the KEPT subset)
+ALL rows    → validation_votes.csv    (every row + its keep/review/discard decision)
+KEEP only   → validated_dataset.csv    (source_uid,premise,hypothesis,label)
+REVIEW only → review_dataset.csv       (source_uid,premise,hypothesis + per-model
+                                        labels, expected_label, agree_count)
 ```
+
+`review_dataset.csv` is the manual-review queue (agree == 1). It keeps the full
+vote context so a human can see the disagreement; `expected_label` is preserved
+(not renamed to `label`) because these rows are unverified. PMI is a separate
+step (Layer 3 below), not an aggregate output.
 
 Layer 3 — artifact flagging (deterministic, corpus-level). Run on the
 validated/kept rows:
