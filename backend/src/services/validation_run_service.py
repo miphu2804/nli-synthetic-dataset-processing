@@ -366,25 +366,19 @@ class ValidationRunService(BaseRunService):
 
     def _merge_validation_outputs(self, output_files, output_path):
         """Concatenate validation result CSVs into output_path and return {total, accepted, rejected}."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
         counts = {"total": 0, "accepted": 0, "rejected": 0}
-        with output_path.open("w", encoding="utf-8", newline="") as destination:
-            writer = csv.DictWriter(destination, fieldnames=self.OUTPUT_COLUMNS)
-            writer.writeheader()
-            for file_path in sorted(output_files):
-                if not file_path.exists():
-                    raise FileNotFoundError(f"Missing batch output file: {file_path}")
-                with file_path.open("r", encoding="utf-8", newline="") as source:
-                    reader = csv.DictReader(source)
-                    if reader.fieldnames != list(self.OUTPUT_COLUMNS):
-                        raise ValueError(f"Batch output schema mismatch: {file_path}")
-                    for row in reader:
-                        writer.writerow(row)
-                        counts["total"] += 1
-                        if self._csv_bool(row["accepted"]):
-                            counts["accepted"] += 1
-                        else:
-                            counts["rejected"] += 1
+
+        def tally(row):
+            if self._csv_bool(row["accepted"]):
+                counts["accepted"] += 1
+            else:
+                counts["rejected"] += 1
+
+        counts["total"] = self._merge_batch_csv(
+            output_files,
+            output_path,
+            row_hook=tally,
+        )
         return counts
 
     def _write_rows(self, output_path, rows):

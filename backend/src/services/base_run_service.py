@@ -1,3 +1,4 @@
+import csv
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -191,6 +192,32 @@ class BaseRunService:
             if event.get("file")
         ]
         return run_settings, state, output_files
+
+    def _merge_batch_csv(self, output_files, output_path, row_hook=None):
+        """Concatenate batch CSVs into output_path and return the rows written.
+
+        Uses ``self.OUTPUT_COLUMNS`` for the merged header and per-batch schema
+        check. When ``row_hook`` is provided, it is called with each written row
+        so subclasses can accumulate their own statistics.
+        """
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        rows_written = 0
+        with output_path.open("w", encoding="utf-8", newline="") as destination:
+            writer = csv.DictWriter(destination, fieldnames=self.OUTPUT_COLUMNS)
+            writer.writeheader()
+            for file_path in sorted(output_files):
+                if not file_path.exists():
+                    raise FileNotFoundError(f"Missing batch output file: {file_path}")
+                with file_path.open("r", encoding="utf-8", newline="") as source:
+                    reader = csv.DictReader(source)
+                    if reader.fieldnames != list(self.OUTPUT_COLUMNS):
+                        raise ValueError(f"Batch output schema mismatch: {file_path}")
+                    for row in reader:
+                        writer.writerow(row)
+                        rows_written += 1
+                        if row_hook is not None:
+                            row_hook(row)
+        return rows_written
 
     def _verify_and_cleanup(
         self,
