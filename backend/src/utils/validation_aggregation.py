@@ -4,7 +4,11 @@ from collections import Counter
 from pathlib import Path
 
 import pandas as pd
-from src.utils.nli_labels import canonical_label
+from src.utils.nli_labels import (
+    CANONICAL_LABEL_NAMES_IN_ORDER,
+    canonical_label,
+    require_canonical_label,
+)
 
 SOURCE_UID_COLUMN = "source_uid"
 PREDICTED_LABEL_COLUMN = "predicted_label"
@@ -28,10 +32,8 @@ def build_validation_vote_table(
         if uid_key not in expected_labels:
             raise ValueError(f"Missing expected_label for source_uid: {uid_key}")
         expected_label_raw = expected_labels[uid_key]
-        expected = canonical_label(expected_label_raw)
-        agree_count = sum(
-            1 for column in label_columns if canonical_label(row[column]) == expected
-        )
+        expected = require_canonical_label(expected_label_raw)
+        agree_count = sum(1 for column in label_columns if row[column] == expected)
         decision = _classify_decision(agree_count, min_agreement)
         vote_rows.append(
             {
@@ -63,9 +65,11 @@ def compute_fleiss_kappa(
         raise ValueError("Fleiss' Kappa requires at least 1 item.")
 
     item_labels = [
-        [canonical_label(row[column]) for column in label_columns]
+        [require_canonical_label(row[column]) for column in label_columns]
         for _, row in merged.iterrows()
     ]
+    if categories is None:
+        categories = list(CANONICAL_LABEL_NAMES_IN_ORDER)
     categories = _resolve_kappa_categories(item_labels, categories)
     kappa, per_category_proportion = _fleiss_kappa_from_counts(
         item_labels, categories, n_raters
@@ -499,6 +503,10 @@ def _read_model_label_column(model_name: str, path: str | Path) -> pd.DataFrame:
         missing = ", ".join(missing_columns)
         raise ValueError(f"Model label file is missing required columns: {missing}")
 
+    # Validate each label row-by-row to surface the offending value.
+    dataframe[PREDICTED_LABEL_COLUMN] = dataframe[PREDICTED_LABEL_COLUMN].apply(
+        require_canonical_label
+    )
     label_column = f"{_normalize_model_name(model_name)}_label"
     return dataframe[[SOURCE_UID_COLUMN, PREDICTED_LABEL_COLUMN]].rename(
         columns={PREDICTED_LABEL_COLUMN: label_column}

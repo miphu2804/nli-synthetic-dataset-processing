@@ -149,6 +149,38 @@ class ValidationRunServiceTest(unittest.TestCase):
             (self.pipeline_dir / "runs" / started.run_id / "outputs").exists()
         )
 
+    def test_submit_validation_result_rejects_invalid_label(self) -> None:
+        started = self.service.start_validation_run(
+            input_path=str(self.input_path),
+            output_dir=str(self.root / "validation-output"),
+            batch_size=3,
+        )
+        claim = self.service.claim_next_validation_batch(started.run_id, "judge-a")
+
+        with self.assertRaises((ValueError, Exception)):
+            self.service.submit_validation_result(
+                run_id=started.run_id,
+                agent_id="judge-a",
+                batch_id=claim.batch.batch_id,
+                verdicts=[
+                    {
+                        "source_uid": 1,
+                        "predicted_label": "garbage",
+                        "reason": "Invalid label.",
+                    },
+                    {
+                        "source_uid": 2,
+                        "predicted_label": "entailment",
+                        "reason": "ok",
+                    },
+                    {
+                        "source_uid": 3,
+                        "predicted_label": "neutral",
+                        "reason": "ok",
+                    },
+                ],
+            )
+
     def test_submit_validation_result_rejects_rows_outside_claim(self) -> None:
         started = self.service.start_validation_run(
             input_path=str(self.input_path),

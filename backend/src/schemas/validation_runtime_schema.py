@@ -1,7 +1,8 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from src.schemas.generation_runtime_schema import RunProgressSnapshot
+from src.utils.nli_labels import require_canonical_label
 
 
 class MaskedValidationRow(BaseModel):
@@ -18,6 +19,11 @@ class ValidatorVerdict(BaseModel):
         min_length=1,
         description="Explanation for why the validator assigned predicted_label.",
     )
+
+    @field_validator("predicted_label", mode="before")
+    @classmethod
+    def _normalize_label(cls, value: object) -> str:
+        return require_canonical_label(value)  # type: ignore[arg-type]
 
 
 class ValidationRunManifest(BaseModel):

@@ -105,6 +105,51 @@ class ValidationProviderTest(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_submit_validation_result_rejects_invalid_label_through_mcp(self) -> None:
+        async def scenario() -> None:
+            started = await self.mcp.call_tool(
+                "start_validation_run",
+                {
+                    "input_path": str(self.input_path),
+                    "output_dir": str(self.root / "validation-output"),
+                    "from_sample": 1,
+                    "to_sample": 2,
+                    "batch_size": 2,
+                },
+            )
+            run_id = started.structured_content["run_id"]
+            claimed = await self.mcp.call_tool(
+                "claim_next_validation_batch",
+                {"run_id": run_id, "agent_id": "judge-a"},
+            )
+            batch_id = claimed.structured_content["batch"]["batch_id"]
+
+            import fastmcp
+
+            with self.assertRaises((fastmcp.exceptions.ToolError, Exception)):
+                await self.mcp.call_tool(
+                    "submit_validation_result",
+                    {
+                        "run_id": run_id,
+                        "agent_id": "judge-a",
+                        "batch_id": batch_id,
+                        "verdicts": [
+                            {
+                                "source_uid": 1,
+                                "predicted_label": "garbage",
+                                "reason": "Invalid.",
+                            },
+                            {
+                                "source_uid": 2,
+                                "predicted_label": "neutral",
+                                "reason": "ok",
+                            },
+                        ],
+                    },
+                )
+
+        asyncio.run(scenario())
+
 
 if __name__ == "__main__":
     unittest.main()

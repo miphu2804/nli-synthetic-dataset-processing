@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
+from src.utils.nli_labels import require_canonical_label
 from src.utils.validation_aggregation import (
     apply_paraphrases,
     attach_masked_text,
@@ -14,6 +15,72 @@ from src.utils.validation_aggregation import (
     compute_hypothesis_label_pmi,
     flag_pmi_artifacts,
 )
+
+
+class RequireCanonicalLabelTest(unittest.TestCase):
+    def test_accepts_numeric_forms(self) -> None:
+        self.assertEqual(require_canonical_label(0), "entailment")
+        self.assertEqual(require_canonical_label("1"), "neutral")
+        self.assertEqual(require_canonical_label(2), "contradiction")
+
+    def test_accepts_canonical_names(self) -> None:
+        self.assertEqual(require_canonical_label("entailment"), "entailment")
+        self.assertEqual(require_canonical_label("neutral"), "neutral")
+        self.assertEqual(require_canonical_label("contradiction"), "contradiction")
+
+    def test_rejects_unknown_label(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
+            require_canonical_label("garbage")
+
+    def test_rejects_non_entailment(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
+            require_canonical_label("non-entailment")
+
+    def test_rejects_empty_string(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
+            require_canonical_label("")
+
+
+class InvalidLabelAggregationTest(unittest.TestCase):
+    def test_vote_table_rejects_invalid_model_label(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            p1 = root / "model1.csv"
+            p2 = root / "model2.csv"
+            pd.DataFrame([{"source_uid": "r1", "predicted_label": "garbage"}]).to_csv(
+                p1, index=False
+            )
+            pd.DataFrame(
+                [{"source_uid": "r1", "predicted_label": "entailment"}]
+            ).to_csv(p2, index=False)
+            with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
+                build_validation_vote_table({"m1": p1, "m2": p2}, {"r1": "entailment"})
+
+    def test_vote_table_rejects_invalid_expected_label(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            p1 = root / "m1.csv"
+            p2 = root / "m2.csv"
+            for p in (p1, p2):
+                pd.DataFrame(
+                    [{"source_uid": "r1", "predicted_label": "entailment"}]
+                ).to_csv(p, index=False)
+            with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
+                build_validation_vote_table({"m1": p1, "m2": p2}, {"r1": "garbage"})
+
+    def test_kappa_rejects_invalid_label(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            p1 = root / "m1.csv"
+            p2 = root / "m2.csv"
+            pd.DataFrame([{"source_uid": "r1", "predicted_label": "garbage"}]).to_csv(
+                p1, index=False
+            )
+            pd.DataFrame(
+                [{"source_uid": "r1", "predicted_label": "entailment"}]
+            ).to_csv(p2, index=False)
+            with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
+                compute_fleiss_kappa({"m1": p1, "m2": p2})
 
 
 class FlagPmiArtifactsTest(unittest.TestCase):
@@ -88,7 +155,7 @@ class ValidationAggregationTest(unittest.TestCase):
             list(vote_table["source_uid"]),
             ["row-1", "row-2", "row-3"],
         )
-        self.assertEqual(vote_table.loc[0, "gpt4o_label"], 1)
+        self.assertEqual(vote_table.loc[0, "gpt4o_label"], "neutral")
 
         self.assertEqual(vote_table.loc[0, "expected_label"], 1)
         self.assertEqual(vote_table.loc[0, "agree_count"], 3)
