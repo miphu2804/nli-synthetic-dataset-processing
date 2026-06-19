@@ -4,6 +4,7 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from fastmcp.tools import tool
 from pydantic import Field
+from src.providers.base import ToolProvider
 from src.services.dataset_reader_service import DatasetReaderService
 from src.services.dataset_writer_service import DatasetWriterService
 from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
@@ -11,7 +12,7 @@ from src.services.generation_run_service import GenerationRunService
 from src.services.progress_tracking_service import ProgressTrackingService
 
 
-class GenerationToolProvider:
+class GenerationToolProvider(ToolProvider):
     def __init__(self, generation_run_service: GenerationRunService) -> None:
         self._generation_run_service = generation_run_service
 
@@ -57,7 +58,7 @@ class GenerationToolProvider:
             Field(description="Progress writer identifier. Use main for normal runs."),
         ] = "main",
     ) -> dict[str, Any]:
-        row_offset, row_limit = self._sample_range_to_offset_limit(
+        row_offset, row_limit = self.sample_range_to_offset_limit(
             from_sample=from_sample,
             to_sample=to_sample,
         )
@@ -69,17 +70,6 @@ class GenerationToolProvider:
             batch_size=batch_size,
             agent_id=agent_id,
         ).model_dump(mode="json")
-
-    @staticmethod
-    def _sample_range_to_offset_limit(
-        from_sample: int,
-        to_sample: int | None,
-    ) -> tuple[int, int | None]:
-        if to_sample is not None and to_sample < from_sample:
-            raise ValueError("to_sample must be greater than or equal to from_sample.")
-        row_offset = from_sample - 1
-        row_limit = None if to_sample is None else to_sample - from_sample + 1
-        return row_offset, row_limit
 
     @tool(
         name="claim_next_batch",
@@ -197,12 +187,5 @@ def register_generation_tools(
         progress_tracking_service=ProgressTrackingService(pipeline_dir=pipeline_dir),
     )
     provider = GenerationToolProvider(generation_run_service)
-    mcp.add_tool(provider.start_generation_run)
-    mcp.add_tool(provider.claim_next_batch)
-    mcp.add_tool(provider.submit_batch_result)
-    mcp.add_tool(provider.get_run_progress)
-    mcp.add_tool(provider.finalize_generation_run)
-    mcp.add_tool(provider.verify_progress_log)
-    mcp.add_tool(provider.release_batch_claim)
-    mcp.add_tool(provider.list_generation_runs)
+    provider.register(mcp)
     return provider

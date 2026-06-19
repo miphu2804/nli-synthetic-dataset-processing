@@ -1,3 +1,25 @@
+### [2026-06-19 22:10] — [MCPProvider] Self-registering ToolProvider (unify tool registration)
+
+**Đã làm:**
+- Tạo base `ToolProvider`: `register(mcp)` tự quét method gắn `@tool` (marker `__fastmcp__`) và gọi `mcp.add_tool` — bỏ toàn bộ list `add_tool` thủ công.
+- Đưa `sample_range_to_offset_limit` (1-based → 0-based, có guard `to_sample >= from_sample`) lên base làm bản dùng chung.
+- Migrate cả 3 provider (generation, validation, dispatch_planning) sang kế thừa `ToolProvider`; xoá 2 bản copy `_sample_range_to_offset_limit` (validation trước đó thiếu guard).
+- Thay 18 dòng `mcp.add_tool(...)` rải rác bằng `provider.register(mcp)` ở mỗi `register_*_tools`. `main.py` không đổi.
+- Verify độc lập: `126 passed`; smoke `list_tools()` = 32 tool (đúng baseline), đủ 18/18 tool; isort/black sạch.
+
+**Files thay đổi:**
+- `backend/src/providers/base.py` — created
+- `backend/src/providers/generation_provider.py`, `validation_provider.py`, `dispatch_planning_provider.py` — modified
+
+**Blockers:** None
+
+**Còn lại:** Trục 2 (composition root cho service) — đã quyết KHÔNG làm vì service stateless (YAGNI). Plan kế: refactor tách `validation_aggregation.py` (653 dòng, 5 trách nhiệm).
+
+**Flow explained:**
+Service = business logic; Provider = hợp đồng MCP (tên/mô tả/schema tham số) + dịch biên 1-based→0-based + `.model_dump`. Phần phân mảnh thật là "đăng ký": mỗi tool phải vừa viết method `@tool` vừa nhớ thêm `mcp.add_tool` — quên là tool biến mất im lặng. `ToolProvider.register` quét `__fastmcp__` (đã verify FastMCP 3.3.1 giữ marker khi bind method) nên thêm tool mới chỉ cần 1 method. Phần forward (`self._service.x().model_dump`) giống hình dạng giữa gen/val nhưng gọi service khác → cố ý không gom.
+
+---
+
 ### [2026-06-19 21:42] — [PromptRefinement] Add subagent orchestration templates
 
 **Đã làm:**
