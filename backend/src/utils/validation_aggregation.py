@@ -25,12 +25,29 @@ def build_validation_vote_table(
     keep/review/discard decision (see _classify_decision). Raises if a row has no expected_label.
     """
     vote_table, label_columns = _merge_model_labels(model_label_paths)
+
+    verdict_uids = set(vote_table[SOURCE_UID_COLUMN].astype(str))
+    expected_uids = set(str(k) for k in expected_labels)
+    missing = sorted(expected_uids - verdict_uids)
+    extra = sorted(verdict_uids - expected_uids)
+    if missing or extra:
+        parts = []
+        if missing:
+            parts.append(
+                f"{len(missing)} expected UID(s) not covered by verdicts: "
+                f"{', '.join(missing[:5])}"
+            )
+        if extra:
+            parts.append(
+                f"{len(extra)} verdict UID(s) not in expected labels: "
+                f"{', '.join(extra[:5])}"
+            )
+        raise ValueError("; ".join(parts))
+
     vote_rows = []
     for _, row in vote_table.iterrows():
         source_uid = row[SOURCE_UID_COLUMN]
         uid_key = str(source_uid)
-        if uid_key not in expected_labels:
-            raise ValueError(f"Missing expected_label for source_uid: {uid_key}")
         expected_label_raw = expected_labels[uid_key]
         expected = require_canonical_label(expected_label_raw)
         agree_count = sum(1 for column in label_columns if row[column] == expected)
@@ -415,10 +432,13 @@ def _merge_model_labels(
     """Read each model's predicted-label column, validate they share the same source_uids, and inner-join them.
 
     Returns (merged_dataframe, label_columns) where label_columns are the per-model '*_label' columns.
-    Raises ValueError if no model files are given.
+    Raises ValueError if no model files are given, model names collide, or UID sets differ.
     """
     if not model_label_paths:
         raise ValueError("model_label_paths must include at least one model file.")
+    normalized_names = [_normalize_model_name(name) for name in model_label_paths]
+    if len(set(normalized_names)) != len(normalized_names):
+        raise ValueError("Model names collide after normalization.")
     label_tables = [
         _read_model_label_column(model_name, path)
         for model_name, path in model_label_paths.items()
@@ -493,7 +513,11 @@ def _flag_rows_with_artifacts(
 
 
 def _read_model_label_column(model_name: str, path: str | Path) -> pd.DataFrame:
-    """Read a model's label file and return a [source_uid, {model}_label] frame; raise if required columns are missing."""
+    """Read a model's label file and return a [source_uid, {model}_label] frame.
+
+    Raises if required columns are missing, any source_uid is null or duplicate, any
+    reason is blank, or any predicted_label is outside the three-class domain.
+    """
     dataframe = _read_table(path)
     required_columns = [SOURCE_UID_COLUMN, PREDICTED_LABEL_COLUMN]
     missing_columns = [
@@ -503,7 +527,22 @@ def _read_model_label_column(model_name: str, path: str | Path) -> pd.DataFrame:
         missing = ", ".join(missing_columns)
         raise ValueError(f"Model label file is missing required columns: {missing}")
 
-    # Validate each label row-by-row to surface the offending value.
+    if dataframe[SOURCE_UID_COLUMN].isnull().any():
+        raise ValueError(f"Model '{model_name}' contains null source_uid values.")
+
+    uid_strs = dataframe[SOURCE_UID_COLUMN].astype(str)
+    duplicates = sorted(uid_strs[uid_strs.duplicated()].unique())
+    if duplicates:
+        preview = ", ".join(duplicates[:5])
+        raise ValueError(
+            f"Model '{model_name}' contains duplicate source_uid: {preview}"
+        )
+
+    if "reason" in dataframe.columns:
+        blank_mask = dataframe["reason"].astype(str).str.strip() == ""
+        if blank_mask.any():
+            raise ValueError(f"Model '{model_name}' contains rows with a blank reason.")
+
     dataframe[PREDICTED_LABEL_COLUMN] = dataframe[PREDICTED_LABEL_COLUMN].apply(
         require_canonical_label
     )

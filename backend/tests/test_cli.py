@@ -125,7 +125,7 @@ class ValidationAggregationCliTest(unittest.TestCase):
                 },
                 {
                     "source_uid": "row-2",
-                    "predicted_label": "non-entailment",
+                    "predicted_label": "contradiction",
                     "reason": "Not supported.",
                 },
             ]
@@ -139,7 +139,7 @@ class ValidationAggregationCliTest(unittest.TestCase):
                 },
                 {
                     "source_uid": "row-2",
-                    "predicted_label": "non-entailment",
+                    "predicted_label": "contradiction",
                     "reason": "Not supported.",
                 },
             ]

@@ -83,6 +83,124 @@ class InvalidLabelAggregationTest(unittest.TestCase):
                 compute_fleiss_kappa({"m1": p1, "m2": p2})
 
 
+class UidCoverageTest(unittest.TestCase):
+    """Regression tests for duplicate/missing UID detection in verdict frames."""
+
+    @staticmethod
+    def _write(root: Path, model_rows: dict[str, list[dict]]) -> dict[str, Path]:
+        paths = {}
+        for name, rows in model_rows.items():
+            path = root / f"{name}.csv"
+            pd.DataFrame(rows).to_csv(path, index=False)
+            paths[name] = path
+        return paths
+
+    def test_vote_table_rejects_duplicate_uid_in_model_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._write(
+                root,
+                {
+                    "m1": [
+                        {"source_uid": "r1", "predicted_label": "entailment"},
+                        {"source_uid": "r1", "predicted_label": "neutral"},
+                    ],
+                    "m2": [
+                        {"source_uid": "r1", "predicted_label": "entailment"},
+                    ],
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "duplicate source_uid"):
+                build_validation_vote_table(paths, {"r1": "entailment"})
+
+    def test_vote_table_rejects_null_uid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._write(
+                root,
+                {
+                    "m1": [{"source_uid": None, "predicted_label": "entailment"}],
+                    "m2": [{"source_uid": None, "predicted_label": "entailment"}],
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "null source_uid"):
+                build_validation_vote_table(paths, {})
+
+    def test_vote_table_rejects_blank_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._write(
+                root,
+                {
+                    "m1": [
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": "   ",
+                        }
+                    ],
+                    "m2": [
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        }
+                    ],
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "blank reason"):
+                build_validation_vote_table(paths, {"r1": "entailment"})
+
+    def test_vote_table_rejects_common_uid_omission(self) -> None:
+        """All models omit the same UID that is in expected_labels."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._write(
+                root,
+                {
+                    "m1": [{"source_uid": "r1", "predicted_label": "entailment"}],
+                    "m2": [{"source_uid": "r1", "predicted_label": "entailment"}],
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "not covered"):
+                build_validation_vote_table(
+                    paths, {"r1": "entailment", "r2": "neutral"}
+                )
+
+    def test_vote_table_rejects_extra_uid_not_in_expected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._write(
+                root,
+                {
+                    "m1": [
+                        {"source_uid": "r1", "predicted_label": "entailment"},
+                        {"source_uid": "r99", "predicted_label": "neutral"},
+                    ],
+                    "m2": [
+                        {"source_uid": "r1", "predicted_label": "entailment"},
+                        {"source_uid": "r99", "predicted_label": "neutral"},
+                    ],
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "not in expected labels"):
+                build_validation_vote_table(paths, {"r1": "entailment"})
+
+    def test_model_name_collision_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            p1 = root / "gpt-4o.csv"
+            p2 = root / "gpt 4o.csv"
+            for p in (p1, p2):
+                pd.DataFrame(
+                    [{"source_uid": "r1", "predicted_label": "entailment"}]
+                ).to_csv(p, index=False)
+            with self.assertRaisesRegex(ValueError, "collide"):
+                build_validation_vote_table(
+                    {"gpt-4o": p1, "gpt 4o": p2}, {"r1": "entailment"}
+                )
+
+
 class FlagPmiArtifactsTest(unittest.TestCase):
     def _dataset(self) -> pd.DataFrame:
         # "alpha" leaks entailment, "beta" leaks neutral, "shared" is balanced.

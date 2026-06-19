@@ -268,6 +268,15 @@ def load_expected_labels(
     for col in (uid_column, label_column):
         if col not in df.columns:
             raise ValueError(f"Expected-label dataset is missing column: {col}")
+    if df[uid_column].isnull().any():
+        raise ValueError(f"Expected-label dataset contains null {uid_column} values.")
+    uid_strs = df[uid_column].astype(str)
+    duplicates = sorted(uid_strs[uid_strs.duplicated()].unique())
+    if duplicates:
+        raise ValueError(
+            f"Expected-label dataset contains duplicate {uid_column}: "
+            f"{', '.join(duplicates[:5])}"
+        )
     return {str(uid): label for uid, label in zip(df[uid_column], df[label_column])}
 
 
