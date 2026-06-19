@@ -1,4 +1,6 @@
 import argparse
+import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -286,21 +288,27 @@ def run_aggregation(
     output_dir: Path,
     expected_labels: dict,
 ) -> dict:
+    # Phase 1: validate and build all outputs in memory before touching the filesystem.
     model_label_paths = {
         candidate.model_name: candidate.path for candidate in valid_candidates
     }
     vote_table = build_validation_vote_table(model_label_paths, expected_labels)
-    votes_output = output_dir / "validation_votes.csv"
-    vote_table.to_csv(votes_output, index=False)
-
     masked_df = read_dataset(masked_dataset_path)
     retained_df = build_retained_dataset(masked_df, vote_table)
-    validated_output = output_dir / "validated_dataset.csv"
-    retained_df.to_csv(validated_output, index=False)
-
     review_df = build_review_dataset(masked_df, vote_table)
+
+    # Phase 2: write to a staging area, then atomically replace final files.
+    votes_output = output_dir / "validation_votes.csv"
+    validated_output = output_dir / "validated_dataset.csv"
     review_output = output_dir / "review_dataset.csv"
-    review_df.to_csv(review_output, index=False)
+    with tempfile.TemporaryDirectory(dir=output_dir) as staging_dir:
+        staging = Path(staging_dir)
+        vote_table.to_csv(staging / "validation_votes.csv", index=False)
+        retained_df.to_csv(staging / "validated_dataset.csv", index=False)
+        review_df.to_csv(staging / "review_dataset.csv", index=False)
+        shutil.move(str(staging / "validation_votes.csv"), votes_output)
+        shutil.move(str(staging / "validated_dataset.csv"), validated_output)
+        shutil.move(str(staging / "review_dataset.csv"), review_output)
 
     decision_counts = vote_table["decision"].value_counts().to_dict()
     return {

@@ -356,6 +356,116 @@ class ValidationAggregationCliTest(unittest.TestCase):
         self.assertEqual(exit_code, 2)
 
 
+class AggregationOutputSafetyTest(unittest.TestCase):
+    """Validation failures must not create or overwrite final aggregate outputs."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.verdicts_dir = self.root / "verdicts"
+        self.verdicts_dir.mkdir()
+        self.output_dir = self.root / "output"
+        self.output_dir.mkdir()
+        self.masked_path = self.root / "masked.csv"
+        self.expected_path = self.root / "expected.csv"
+
+        pd.DataFrame(
+            [
+                {"source_uid": "row-1", "premise": "p1", "hypothesis": "h1"},
+                {"source_uid": "row-2", "premise": "p2", "hypothesis": "h2"},
+            ]
+        ).to_csv(self.masked_path, index=False)
+        pd.DataFrame(
+            [
+                {"source_uid": "row-1", "label": 0},
+                {"source_uid": "row-2", "label": 0},
+            ]
+        ).to_csv(self.expected_path, index=False)
+
+        for name in ("gpt4o", "deepseek", "llama"):
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": "row-1",
+                        "predicted_label": "entailment",
+                        "reason": "ok",
+                    },
+                    {
+                        "source_uid": "row-2",
+                        "predicted_label": "contradiction",
+                        "reason": "ok",
+                    },
+                ]
+            ).to_csv(self.verdicts_dir / f"{name}.csv", index=False)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_validation_failure_leaves_no_output_files(self) -> None:
+        # Use an invalid masked dataset (empty) to trigger a failure.
+        bad_masked = self.root / "bad_masked.csv"
+        pd.DataFrame([{"wrong_col": 1}]).to_csv(bad_masked, index=False)
+
+        exit_code = main(
+            [
+                "aggregate",
+                "--verdicts-dir",
+                str(self.verdicts_dir),
+                "--masked-input",
+                str(bad_masked),
+                "--expected-input",
+                str(self.expected_path),
+                "--label-column",
+                "label",
+                "--output-dir",
+                str(self.output_dir),
+                "--yes",
+                "--quiet",
+            ]
+        )
+        self.assertEqual(exit_code, 2)
+        self.assertFalse((self.output_dir / "validation_votes.csv").exists())
+        self.assertFalse((self.output_dir / "validated_dataset.csv").exists())
+        self.assertFalse((self.output_dir / "review_dataset.csv").exists())
+
+    def test_validation_failure_does_not_overwrite_existing_outputs(self) -> None:
+        sentinel_content = "source_uid,label\nold-row,entailment\n"
+        for fname in (
+            "validation_votes.csv",
+            "validated_dataset.csv",
+            "review_dataset.csv",
+        ):
+            (self.output_dir / fname).write_text(sentinel_content)
+
+        bad_masked = self.root / "bad_masked.csv"
+        pd.DataFrame([{"wrong_col": 1}]).to_csv(bad_masked, index=False)
+
+        exit_code = main(
+            [
+                "aggregate",
+                "--verdicts-dir",
+                str(self.verdicts_dir),
+                "--masked-input",
+                str(bad_masked),
+                "--expected-input",
+                str(self.expected_path),
+                "--label-column",
+                "label",
+                "--output-dir",
+                str(self.output_dir),
+                "--yes",
+                "--quiet",
+            ]
+        )
+        self.assertEqual(exit_code, 2)
+        for fname in (
+            "validation_votes.csv",
+            "validated_dataset.csv",
+            "review_dataset.csv",
+        ):
+            self.assertEqual((self.output_dir / fname).read_text(), sentinel_content)
+
+
 class ValidationPmiCommandTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
