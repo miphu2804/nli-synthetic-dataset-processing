@@ -13,7 +13,6 @@ generation.
 Inputs:
 - calibration_source: <FIXED_SOURCE_DATASET_OR_SLICE>
 - output_root: outputs/prompt-refinement
-- tracking_uri: http://127.0.0.1:5000
 - experiment_name: nli-prompt-calibration
 - validator_models: <THREE_REAL_INDEPENDENT_MODEL_PATHS>
 
