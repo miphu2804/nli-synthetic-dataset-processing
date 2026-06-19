@@ -1,3 +1,37 @@
+### [2026-06-19 00:00] — [ValidationIntegrity] Harden validation pipeline integrity
+
+**Đã làm:**
+- **Task 1 — Strict label domain:** Added `require_canonical_label()` to `nli_labels.py`; applied at schema boundary (`ValidatorVerdict.predicted_label` field validator), in `_read_model_label_column`, and in `compute_fleiss_kappa`. Fixed categories (`entailment/neutral/contradiction`) are now passed into κ instead of deriving from observed data.
+- **Task 2 — Exact UID coverage:** `_read_model_label_column` now rejects null UIDs, duplicate UIDs, and blank reasons per verdict file. `build_validation_vote_table` checks that verdict UID set == expected UID set. `_merge_model_labels` detects normalized model-name collisions. `load_expected_labels` rejects null/duplicate UIDs.
+- **Task 3 — Three-validator rule:** CLI `aggregate` and `kappa` commands now enforce exactly 3 valid verdict files. `build_validation_vote_table` validates `1 <= min_agreement <= model_count`. Updated all test fixtures from 2 to 3 verdict files.
+- **Task 4 — Paraphrase contract:** `apply_paraphrases` now takes `flagged_rows` as required argument; validates `flagged UID set == paraphrase UID set ⊆ dataset UID set`; validates non-empty, changed rewrites that no longer contain listed artifact tokens. CLI `apply-paraphrase` adds `--flagged-rows` (required), changes output from `processed_dataset.csv` to `paraphrased_dataset.csv`, and emits `paraphrase_revalidation_masked.csv`.
+- **Task 5 — Staged writes:** `run_aggregation` now builds all DataFrames before touching the filesystem, then stages writes to a temp dir under `output_dir` and atomically replaces final files. Validation failures leave existing outputs untouched.
+- **Task 6 — Docs:** Updated `docs/en/flow/validator.md` and `docs/vi/flow/validator.md` with strict contracts, exactly-3 rule, paraphrase inputs/outputs, revalidation queue, and no-MCP note.
+
+**Files thay đổi:**
+- `backend/src/utils/nli_labels.py` — added `require_canonical_label`, `CANONICAL_LABEL_NAMES`, `CANONICAL_LABEL_NAMES_IN_ORDER`
+- `backend/src/schemas/validation_runtime_schema.py` — field validator on `predicted_label`
+- `backend/src/utils/validation_aggregation.py` — strict label validation, UID coverage checks, model-name collision detection, agreement bounds, new `apply_paraphrases` signature
+- `backend/src/cli.py` — three-file enforcement, `--flagged-rows`, `paraphrased_dataset.csv`, revalidation queue, staged writes
+- `backend/tests/test_validation_aggregation.py` — 30+ new regression tests
+- `backend/tests/test_cli.py` — new tests for output safety, three-file rule, paraphrase contract; fixtures updated to 3 verdict files
+- `backend/tests/test_validation_run_service.py` — invalid-label rejection test
+- `backend/tests/test_validation_provider.py` — invalid-label rejection test via MCP
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — updated
+
+**Blockers:** None
+
+**Còn lại:**
+1. Add thin MCP wrappers over the hardened deterministic functions.
+2. Run semantic revalidation of `paraphrase_revalidation_masked.csv`.
+3. Promote only revalidated rewrites into a final processed dataset.
+4. Implement deterministic premise-grouped 8:1:1 split.
+
+**Flow explained:**
+Deterministic CLI stages (aggregate, kappa, pmi, apply-paraphrase) are now integrity-hardened: labels are restricted to the three-class domain before any computation; UID coverage is exact and unique across expected, masked, and all verdict files; the pipeline requires exactly 3 validator models (`2 of 3` retention); paraphrases are bound to the exact PMI-flagged set and verified for quality; aggregate outputs are staged before being written so validation failures never corrupt existing files. MCP tooling for these stages is deferred to a future task.
+
+---
+
 ### [2026-06-18 00:01] — Rewrite paper explanation as paper-only note
 
 **What was done:**
