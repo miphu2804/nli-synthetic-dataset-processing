@@ -4,15 +4,22 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from fastmcp.tools import tool
 from pydantic import Field
+from src.providers.base import ToolProvider
 from src.services.dataset_reader_service import DatasetReaderService
 from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
 from src.services.progress_tracking_service import ProgressTrackingService
+from src.services.prompt_refinement_service import PromptRefinementService
 from src.services.validation_run_service import ValidationRunService
 
 
-class ValidationToolProvider:
-    def __init__(self, validation_run_service: ValidationRunService) -> None:
+class ValidationToolProvider(ToolProvider):
+    def __init__(
+        self,
+        validation_run_service: ValidationRunService,
+        prompt_refinement_service: PromptRefinementService,
+    ) -> None:
         self._validation_run_service = validation_run_service
+        self._prompt_refinement_service = prompt_refinement_service
 
     @tool(
         name="start_validation_run",
@@ -61,7 +68,7 @@ class ValidationToolProvider:
             Field(description="Progress writer identifier. Use main for normal runs."),
         ] = "main",
     ) -> dict[str, Any]:
-        row_offset, row_limit = self._sample_range_to_offset_limit(
+        row_offset, row_limit = self.sample_range_to_offset_limit(
             from_sample=from_sample,
             to_sample=to_sample,
         )
@@ -73,17 +80,6 @@ class ValidationToolProvider:
             batch_size=batch_size,
             agent_id=agent_id,
         ).model_dump(mode="json")
-
-    @staticmethod
-    def _sample_range_to_offset_limit(
-        from_sample: int,
-        to_sample: int | None,
-    ) -> tuple[int, int | None]:
-        if to_sample is not None and to_sample < from_sample:
-            raise ValueError("to_sample must be greater than or equal to from_sample.")
-        row_offset = from_sample - 1
-        row_limit = None if to_sample is None else to_sample - from_sample + 1
-        return row_offset, row_limit
 
     @tool(
         name="claim_next_validation_batch",
@@ -190,6 +186,67 @@ class ValidationToolProvider:
             mode="json"
         )
 
+    @tool(
+        name="evaluate_prompt_refinement_round",
+        description=(
+            "Compute Fleiss kappa from exactly three independent verdict files, "
+            "version the current generator and validator prompts, and log the "
+            "calibration round to an explicitly configured MLflow server."
+        ),
+    )
+    def evaluate_prompt_refinement_round(
+        self,
+        verdicts_dir: Annotated[
+            str,
+            Field(
+                description=(
+                    "Directory containing exactly three CSV or Parquet verdict files."
+                )
+            ),
+        ],
+        calibration_input: Annotated[
+            str,
+            Field(
+                description=(
+                    "Fixed calibration CSV or Parquet used by all three validators."
+                )
+            ),
+        ],
+        round_number: Annotated[
+            int,
+            Field(ge=1, description="One-based refinement round number."),
+        ],
+        change_summary: Annotated[
+            str,
+            Field(description="Short description of prompt changes in this round."),
+        ],
+        confirm_lock: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Set true only to lock a prompt bundle whose kappa is at least 0.85."
+                )
+            ),
+        ] = False,
+        tracking_uri: Annotated[
+            str,
+            Field(description="MLflow tracking and prompt registry URI."),
+        ] = "http://127.0.0.1:5000",
+        experiment_name: Annotated[
+            str,
+            Field(description="MLflow experiment used for prompt calibration rounds."),
+        ] = "nli-prompt-calibration",
+    ) -> dict[str, Any]:
+        return self._prompt_refinement_service.evaluate_round(
+            verdicts_dir=verdicts_dir,
+            calibration_input=calibration_input,
+            round_number=round_number,
+            change_summary=change_summary,
+            confirm_lock=confirm_lock,
+            tracking_uri=tracking_uri,
+            experiment_name=experiment_name,
+        ).model_dump(mode="json")
+
 
 def register_validation_tools(
     mcp: FastMCP,
@@ -201,13 +258,9 @@ def register_validation_tools(
             pipeline_dir=pipeline_dir or Path(".pipeline/validation")
         ),
     )
-    provider = ValidationToolProvider(validation_run_service)
-    mcp.add_tool(provider.start_validation_run)
-    mcp.add_tool(provider.claim_next_validation_batch)
-    mcp.add_tool(provider.submit_validation_result)
-    mcp.add_tool(provider.get_validation_progress)
-    mcp.add_tool(provider.release_validation_batch_claim)
-    mcp.add_tool(provider.finalize_validation_run)
-    mcp.add_tool(provider.verify_validation_progress_log)
-    mcp.add_tool(provider.list_validation_runs)
+    provider = ValidationToolProvider(
+        validation_run_service=validation_run_service,
+        prompt_refinement_service=PromptRefinementService(),
+    )
+    provider.register(mcp)
     return provider

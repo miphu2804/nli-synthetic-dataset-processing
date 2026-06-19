@@ -3,6 +3,7 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from fastmcp.tools import tool
 from pydantic import Field
+from src.providers.base import ToolProvider
 from src.services import DispatchPlanningService
 from src.services.dispatch_planning_service import (
     DEFAULT_GENERATION_BATCH_SIZE,
@@ -10,7 +11,7 @@ from src.services.dispatch_planning_service import (
 )
 
 
-class DispatchPlanningToolProvider:
+class DispatchPlanningToolProvider(ToolProvider):
     def __init__(self, dispatch_planning_service: DispatchPlanningService) -> None:
         self._dispatch_planning_service = dispatch_planning_service
 
@@ -51,5 +52,5 @@ def register_dispatch_planning_tools(
     mcp: FastMCP,
 ) -> DispatchPlanningToolProvider:
     provider = DispatchPlanningToolProvider(DispatchPlanningService())
-    mcp.add_tool(provider.calculate_dispatch_plan)
+    provider.register(mcp)
     return provider

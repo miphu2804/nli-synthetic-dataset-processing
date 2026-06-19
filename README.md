@@ -82,6 +82,26 @@ MCP endpoint:
 http://localhost:8000/mcp/
 ```
 
+### Optional prompt refinement with MLflow
+
+Start MLflow only when calibrating prompts:
+
+```bash
+cd backend
+mkdir -p .mlflow/artifacts
+uv run mlflow server \
+  --backend-store-uri "sqlite:///$PWD/.mlflow/mlflow.db" \
+  --default-artifact-root "file://$PWD/.mlflow/artifacts" \
+  --host 127.0.0.1 \
+  --port 5000
+```
+
+Open `http://127.0.0.1:5000`, then ask the agent to read
+`skill://prompt_refinement`. The agent collects exactly three independent
+verdict files and calls `evaluate_prompt_refinement_round`. Kappa below `0.85`
+means refine; kappa at least `0.85` is eligible to lock and still requires
+`confirm_lock=true`.
+
 ## Resources (MCP server: `nli-tools`)
 
 | Resource | Purpose |
@@ -93,6 +113,7 @@ http://localhost:8000/mcp/
 | `skill://execution` | Runtime ownership boundaries |
 | `skill://aggregator` | Finalize behavior |
 | `skill://validator` | Masked validation scoring rubric and verdict contract |
+| `skill://prompt_refinement` | Optional three-model prompt calibration with MLflow |
 
 ## Phase Guides
 
@@ -104,4 +125,4 @@ http://localhost:8000/mcp/
 | Progress tracking | [docs/en/flow/progress-tracking.md](docs/en/flow/progress-tracking.md) | `Runtime state and cleanup` |
 | Generator template | [docs/en/template/generator.md](docs/en/template/generator.md) | `Harness prompt` |
 | Validator template | [docs/en/template/validator.md](docs/en/template/validator.md) | `Harness prompt` |
-
+| Prompt refinement template | [docs/en/template/prompt-refinement.md](docs/en/template/prompt-refinement.md) | `Main-agent/subagent orchestration prompt` |

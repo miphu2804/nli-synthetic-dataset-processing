@@ -15,6 +15,7 @@ dependencies = [
     "uvicorn>=0.35.0",
     "rich>=15.0.0",
     "datasets>=4.8.5",
+    "mlflow>=3.14.0",
 ]
 
 [tool.uv]
