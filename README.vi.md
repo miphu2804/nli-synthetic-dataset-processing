@@ -62,4 +62,5 @@ Tài liệu chi tiết:
 
 - [Generator flow](docs/vi/flow/generator.md)
 - [Validator flow](docs/vi/flow/validator.md)
+- [Prompt refinement template](docs/vi/template/prompt-refinement.md)
 - [Project overview](docs/vi/project-overview.md)

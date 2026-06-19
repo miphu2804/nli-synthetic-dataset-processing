@@ -81,7 +81,8 @@ Run this before the generation phase only when prompt calibration is needed:
 ```text
 load prompt_refinement
   -> generate one fixed calibration sample
-  -> collect exactly three independent validator verdict files
+  -> main agent dispatches exactly three independent validator subagents
+  -> main agent validates and persists one verdict file per model
   -> evaluate_prompt_refinement_round
   -> refine while kappa < 0.85
   -> explicitly confirm an eligible prompt bundle before locking it

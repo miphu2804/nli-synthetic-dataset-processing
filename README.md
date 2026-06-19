@@ -125,3 +125,4 @@ means refine; kappa at least `0.85` is eligible to lock and still requires
 | Progress tracking | [docs/en/flow/progress-tracking.md](docs/en/flow/progress-tracking.md) | `Runtime state and cleanup` |
 | Generator template | [docs/en/template/generator.md](docs/en/template/generator.md) | `Harness prompt` |
 | Validator template | [docs/en/template/validator.md](docs/en/template/validator.md) | `Harness prompt` |
+| Prompt refinement template | [docs/en/template/prompt-refinement.md](docs/en/template/prompt-refinement.md) | `Main-agent/subagent orchestration prompt` |

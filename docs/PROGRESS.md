@@ -1,3 +1,30 @@
+### [2026-06-19 21:42] — [PromptRefinement] Add subagent orchestration templates
+
+**Đã làm:**
+- Added English and Vietnamese copy-paste templates for Codex to orchestrate exactly three isolated validator subagents.
+- Defined main-agent ownership of MCP calls, prompt edits, verdict persistence, MLflow evaluation, and explicit locking.
+- Defined subagent isolation: masked rows only, no expected labels, no cross-agent verdict sharing, no MCP or file mutation, and one real model path per subagent.
+- Added retry/abort rules, prompt-freeze guards, round output paths, MLflow artifact retrieval, and regenerated-calibration hash caveats.
+- Updated the refinement skill, instructor, validator flow docs, and README links.
+- Verified `126 passed`, clean isort/black hooks, and `git diff --check`.
+
+**Files thay đổi:**
+- `backend/skills/prompt_refinement.md`, `backend/skills/instructor.md`
+- `backend/tests/test_skill_service.py`
+- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md`
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md`
+- `README.md`, `README.vi.md`
+
+**Blockers:** None
+
+**Còn lại:**
+- The Codex harness still needs three genuinely independent model execution paths; three subagents using one underlying model are not valid three-model agreement.
+
+**Flow explained:**
+The Codex main agent freezes the calibration source UID set, generates or reuses the round input, dispatches three isolated model subagents in parallel, validates and writes one verdict file per model, then alone calls `evaluate_prompt_refinement_round`. Subagents never see expected labels, other verdicts, MCP state, or prompt files. Prompt files remain frozen from dispatch through evaluation; only the main agent may edit them after a `refine_prompt` result or confirm an unchanged eligible bundle.
+
+---
+
 ### [2026-06-19 21:24] — [PromptRefinement] Add MLflow prompt calibration flow
 
 **Đã làm:**
@@ -228,28 +255,3 @@ Layer 2 (`aggregate`): 3 verdict files → vote table (agree_count = #model kh�
 
 **Flow explained:**
 PMI Step 7 giờ trung thành Eq. 2: với mỗi example lấy `set(token)` của hypothesis, đếm `token_doc`, `label_doc`, `joint_doc` theo example, `N`=số example; `PMI(w,y)=log( joint·N / (token_doc·label_doc) )`. Cột `token_count/label_count/joint_count` trong output giờ mang nghĩa **đếm theo example**. Luồng vận hành không đổi (`mask → aggregate → pmi → apply-paraphrase`), chỉ default `--label-column` của `pmi` đổi sang `label` để chạy thẳng trên `validated_dataset.csv`.
-
----
-
-### [2026-06-17 00:00] — Refactor: chẻ method dài + docstring (behavior-preserving)
-
-**What was done:**
-- Conservative, behavior-preserving refactor: chẻ các method dài thành private helper nhỏ trong cùng class/module (KHÔNG dedup 2 service, KHÔNG tách cli.py, KHÔNG gộp providers — đã loại theo scope chốt với user).
-- Thêm docstring đơn giản (1–2 câu, có nêu side-effect) cho MỌI method/function trong 4 file bị chạm.
-- Baseline 76 passed → sau refactor vẫn 76 passed; pre-commit (isort+black) sạch. Public API/signature giữ nguyên.
-- Lưu ý môi trường: định delegate cho sub-agent `claude-ds` nhưng bị chặn (auto-mode classifier + DeepSeek 401 trong headless) → main agent (Opus) tự thực hiện.
-
-**Files changed:**
-- `backend/src/services/generation_run_service.py` — tách `_validate_run_args`, `_resolve_target_slice`, `_get_owned_claim`, `_source_label_map`, `_write_batch_outputs`, `_log_row_events` từ `start_generation_run`/`submit_batch_result`; `release_batch_claim` dùng lại `_get_owned_claim`.
-- `backend/src/services/validation_run_service.py` — tách cùng pattern: `_validate_run_args`, `_resolve_target_slice`, `_get_owned_claim`, `_log_validation_events`.
-- `backend/src/services/progress_tracking_service.py` — tách `_scan_events` (+ dataclass `_VerificationScan`) khỏi `verify_progress_log`.
-- `backend/src/utils/validation_aggregation.py` — `_merge_model_labels` dùng chung cho `build_validation_vote_table` + `compute_fleiss_kappa`; tách `_classify_decision`, `_resolve_kappa_categories`, `_fleiss_kappa_from_counts`, `_count_token_label_cooccurrence`, `_flag_rows_with_artifacts`.
-
-**Blockers:**
-- `claude-ds` delegation không khả dụng từ môi trường headless (classifier chặn `--dangerously-skip-permissions`; DeepSeek 401 do credential không resolve trong sandbox). Không ảnh hưởng kết quả — đã tự làm trực tiếp.
-
-**Remaining issues:**
-- Các follow-up ngoài scope (chưa làm): dedup `generation_run_service` ↔ `validation_run_service` qua base class; tách `cli.py` + gộp resolver/summary-table lặp; gộp 2 providers; tối ưu O(n·m) trong `flag_pmi_artifacts`.
-
-**Flow explained:**
-Refactor thuần, không đổi luồng runtime. Mỗi method dài giờ đọc như một bản tóm tắt các bước, chi tiết nằm trong helper private có tên rõ nghĩa + docstring. `_merge_model_labels` là điểm xoá lặp thật sự duy nhất (khối đọc+validate+merge model label trước đây trùng giữa vote-table và kappa). `verify_progress_log` tách "scan 1 lượt events" (`_scan_events` → `_VerificationScan`) khỏi "phán xét verdict". Tất cả helper đều là private (prefix `_`), test cũ không cần sửa (76 pass giữ nguyên).

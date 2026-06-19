@@ -27,8 +27,15 @@ fixed labeled calibration dataset
 
 MLflow được operator chạy riêng; backend không tự khởi động MLflow. Mỗi round
 ghi dataset hash, hai prompt version, Fleiss' kappa, verdict files,
-disagreements, và bundle decision. Phải giữ nguyên calibration dataset giữa các
-round để so sánh kappa hợp lệ. Đọc `skill://prompt_refinement` để chạy đúng flow.
+disagreements, và bundle decision. Giữ cố định source UID set giữa các round.
+Nếu generator prompt đổi, regenerate đúng UID set đó và ghi round hash mới; nếu
+chỉ validator prompt đổi, reuse generated calibration file. Đọc
+`skill://prompt_refinement` để chạy đúng flow.
+
+Codex main agent sở hữu MCP calls, prompt edits, và file persistence. Main agent
+dispatch ba validator subagent cô lập; mỗi subagent chỉ nhận masked rows và trả
+verdict mà không đọc expected label hoặc output của model khác.
+Prompt file phải giữ nguyên từ lúc dispatch đến khi MCP evaluation hoàn tất.
 
 PMI không phải trigger sửa prompt. PMI thuộc Lớp 3 sau generation và consensus
 validation.

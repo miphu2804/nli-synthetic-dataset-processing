@@ -28,9 +28,16 @@ fixed labeled calibration dataset
 
 Start MLflow separately; the backend never starts it automatically. Each round
 records the calibration dataset hash, both prompt versions, Fleiss' kappa,
-verdict files, disagreements, and the bundle decision. Use the same calibration
-dataset across rounds so kappa remains comparable. Read
-`skill://prompt_refinement` for the agent procedure.
+verdict files, disagreements, and the bundle decision. Freeze the same source
+UID set across rounds. If the generator prompt changes, regenerate that UID set
+and record the new round hash; if only the validator prompt changes, reuse the
+same generated calibration file. Read `skill://prompt_refinement` for the agent
+procedure.
+
+The Codex main agent owns MCP calls, prompt edits, and file persistence. It
+dispatches three isolated validator subagents; each receives masked rows only
+and returns verdicts without reading expected labels or other models' outputs.
+Prompt files stay unchanged from subagent dispatch through MCP evaluation.
 
 PMI is not a prompt-refinement trigger. It belongs to Layer 3 after generation
 and consensus validation.
