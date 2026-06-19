@@ -57,6 +57,7 @@ release_validation_batch_claim
 verify_validation_progress_log
 finalize_validation_run
 list_validation_runs
+evaluate_prompt_refinement_round
 ```
 
 ## Resource Map
@@ -71,6 +72,23 @@ Load only the resources needed by the current phase:
 | `skill://delegation` | When processing at least 100 assigned rows with subagents. |
 | `skill://aggregator` | Before finalizing a completed local run. |
 | `skill://validator` | Before validating generated rows with masked labels. |
+| `skill://prompt_refinement` | Before large-scale generation when prompts need three-model calibration and MLflow versioning. |
+
+## Optional Prompt Refinement
+
+Run this before the generation phase only when prompt calibration is needed:
+
+```text
+load prompt_refinement
+  -> generate one fixed calibration sample
+  -> collect exactly three independent validator verdict files
+  -> evaluate_prompt_refinement_round
+  -> refine while kappa < 0.85
+  -> explicitly confirm an eligible prompt bundle before locking it
+```
+
+MLflow is started separately by the operator. The backend does not start it
+automatically.
 
 ## Generation Phase
 

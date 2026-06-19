@@ -1,17 +1,37 @@
 # Validator Flow
 
-Validator phase kiểm tra generated Vietnamese NLI rows theo sơ đồ 3 lớp
+Validator phase kiểm tra generated Vietnamese NLI rows theo sơ đồ 3 class
 (`0=entailment`, `1=neutral`, `2=contradiction`) với expected label bị mask khỏi
-validator. Có ba lớp: một **per-run** blind check do một model tạo ra (tính
-`accepted` deterministic), một **cross-model consensus** gộp **đúng ba** file
-verdict per-run thành `decision` keep/review/discard, và một pass
-**artifact-flagging** deterministic tìm các token làm lộ label. Trusted runtime
-validate và normalize chặt chẽ cả hai phía (`src/utils/nli_labels.py:
-require_canonical_label`) — chỉ chấp nhận `0/1/2` và các canonical name
-`entailment`/`neutral`/`contradiction`; bất kỳ giá trị nào khác đều raise lỗi
+validator. **Lớp 0** tùy chọn calibrate generator và validator prompt trước
+large-scale generation. Corpus sau đó đi qua bốn lớp: blind validation per-run,
+cross-model consensus, artifact flagging, và apply paraphrase kèm semantic
+revalidation. Trusted runtime validate và normalize chặt chẽ cả hai phía
+(`src/utils/nli_labels.py: require_canonical_label`) — chỉ chấp nhận `0/1/2` và
+các canonical name `entailment`/`neutral`/`contradiction`; giá trị khác đều raise
 trước khi ghi output.
 
 ## State Machine
+
+Lớp 0 — prompt refinement tùy chọn trước large-scale generation:
+
+```text
+fixed labeled calibration dataset
+  -> generate bằng generator skill hiện tại
+  -> đúng ba validator độc lập chấm cùng các row
+  -> evaluate_prompt_refinement_round
+  -> kappa < 0.85: xem disagreement_rows.csv và sửa prompt
+  -> kappa >= 0.85: eligible_to_lock
+  -> confirm_lock=true: lock prompt bundle
+  -> bắt đầu large-scale generation
+```
+
+MLflow được operator chạy riêng; backend không tự khởi động MLflow. Mỗi round
+ghi dataset hash, hai prompt version, Fleiss' kappa, verdict files,
+disagreements, và bundle decision. Phải giữ nguyên calibration dataset giữa các
+round để so sánh kappa hợp lệ. Đọc `skill://prompt_refinement` để chạy đúng flow.
+
+PMI không phải trigger sửa prompt. PMI thuộc Lớp 3 sau generation và consensus
+validation.
 
 Lớp 1 — per-run blind check (một validator model). Đây là main run loop:
 
@@ -205,6 +225,6 @@ source_uid,<model>_label...,expected_label,agree_count,decision
 - `accepted` (per-run, một model) và `decision` (cross-model consensus) là hai lớp
   khác nhau: `accepted` = một model này có khớp `expected_label` không; `decision`
   = có ≥ 2 trong 3 model khớp `expected_label` không.
-- Chưa có MCP tool nào cho các CLI stage deterministic (aggregate, kappa, pmi,
-  apply-paraphrase). Operator chạy thủ công sau khi thu thập verdict files từ cả
-  ba model.
+- Kappa cho prompt calibration đã có qua
+  `evaluate_prompt_refinement_round` và được log vào MLflow. Các CLI stage
+  deterministic `aggregate`, `pmi`, và `apply-paraphrase` vẫn do operator chạy.

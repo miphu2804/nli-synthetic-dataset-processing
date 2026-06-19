@@ -7,12 +7,18 @@ from pydantic import Field
 from src.services.dataset_reader_service import DatasetReaderService
 from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
 from src.services.progress_tracking_service import ProgressTrackingService
+from src.services.prompt_refinement_service import PromptRefinementService
 from src.services.validation_run_service import ValidationRunService
 
 
 class ValidationToolProvider:
-    def __init__(self, validation_run_service: ValidationRunService) -> None:
+    def __init__(
+        self,
+        validation_run_service: ValidationRunService,
+        prompt_refinement_service: PromptRefinementService,
+    ) -> None:
         self._validation_run_service = validation_run_service
+        self._prompt_refinement_service = prompt_refinement_service
 
     @tool(
         name="start_validation_run",
@@ -190,6 +196,67 @@ class ValidationToolProvider:
             mode="json"
         )
 
+    @tool(
+        name="evaluate_prompt_refinement_round",
+        description=(
+            "Compute Fleiss kappa from exactly three independent verdict files, "
+            "version the current generator and validator prompts, and log the "
+            "calibration round to an explicitly configured MLflow server."
+        ),
+    )
+    def evaluate_prompt_refinement_round(
+        self,
+        verdicts_dir: Annotated[
+            str,
+            Field(
+                description=(
+                    "Directory containing exactly three CSV or Parquet verdict files."
+                )
+            ),
+        ],
+        calibration_input: Annotated[
+            str,
+            Field(
+                description=(
+                    "Fixed calibration CSV or Parquet used by all three validators."
+                )
+            ),
+        ],
+        round_number: Annotated[
+            int,
+            Field(ge=1, description="One-based refinement round number."),
+        ],
+        change_summary: Annotated[
+            str,
+            Field(description="Short description of prompt changes in this round."),
+        ],
+        confirm_lock: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Set true only to lock a prompt bundle whose kappa is at least 0.85."
+                )
+            ),
+        ] = False,
+        tracking_uri: Annotated[
+            str,
+            Field(description="MLflow tracking and prompt registry URI."),
+        ] = "http://127.0.0.1:5000",
+        experiment_name: Annotated[
+            str,
+            Field(description="MLflow experiment used for prompt calibration rounds."),
+        ] = "nli-prompt-calibration",
+    ) -> dict[str, Any]:
+        return self._prompt_refinement_service.evaluate_round(
+            verdicts_dir=verdicts_dir,
+            calibration_input=calibration_input,
+            round_number=round_number,
+            change_summary=change_summary,
+            confirm_lock=confirm_lock,
+            tracking_uri=tracking_uri,
+            experiment_name=experiment_name,
+        ).model_dump(mode="json")
+
 
 def register_validation_tools(
     mcp: FastMCP,
@@ -201,7 +268,10 @@ def register_validation_tools(
             pipeline_dir=pipeline_dir or Path(".pipeline/validation")
         ),
     )
-    provider = ValidationToolProvider(validation_run_service)
+    provider = ValidationToolProvider(
+        validation_run_service=validation_run_service,
+        prompt_refinement_service=PromptRefinementService(),
+    )
     mcp.add_tool(provider.start_validation_run)
     mcp.add_tool(provider.claim_next_validation_batch)
     mcp.add_tool(provider.submit_validation_result)
@@ -210,4 +280,5 @@ def register_validation_tools(
     mcp.add_tool(provider.finalize_validation_run)
     mcp.add_tool(provider.verify_validation_progress_log)
     mcp.add_tool(provider.list_validation_runs)
+    mcp.add_tool(provider.evaluate_prompt_refinement_round)
     return provider

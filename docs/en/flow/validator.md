@@ -2,16 +2,38 @@
 
 The validator phase checks generated Vietnamese NLI rows under a 3-class scheme
 (`0=entailment`, `1=neutral`, `2=contradiction`) with the expected label masked
-from the validator. There are three layers: a **per-run** blind check that one
-model produces (deterministic `accepted`), a **cross-model consensus** that
-combines **exactly three** per-run verdict files into a keep/review/discard
-`decision`, and a deterministic **artifact-flagging** pass that finds
-label-leaking tokens. The trusted runtime normalizes and strictly validates both
-sides (`src/utils/nli_labels.py: require_canonical_label`) so only `0/1/2` and
-the canonical names `entailment`/`neutral`/`contradiction` are accepted; any
-other value raises before writing output.
+from the validator. An optional **Layer 0** calibrates the generator and
+validator prompts before large-scale generation. The generated corpus then
+passes through four layers: per-run blind validation, cross-model consensus,
+artifact flagging, and paraphrase application plus semantic revalidation. The
+trusted runtime normalizes and strictly validates both sides
+(`src/utils/nli_labels.py: require_canonical_label`) so only `0/1/2` and the
+canonical names `entailment`/`neutral`/`contradiction` are accepted; any other
+value raises before writing output.
 
 ## State Machine
+
+Layer 0 — optional prompt refinement before large-scale generation:
+
+```text
+fixed labeled calibration dataset
+  -> generate with the current generator skill
+  -> exactly three independent validators judge the same rows
+  -> evaluate_prompt_refinement_round
+  -> kappa < 0.85: inspect disagreement_rows.csv and refine prompts
+  -> kappa >= 0.85: eligible_to_lock
+  -> confirm_lock=true: lock the prompt bundle
+  -> start large-scale generation
+```
+
+Start MLflow separately; the backend never starts it automatically. Each round
+records the calibration dataset hash, both prompt versions, Fleiss' kappa,
+verdict files, disagreements, and the bundle decision. Use the same calibration
+dataset across rounds so kappa remains comparable. Read
+`skill://prompt_refinement` for the agent procedure.
+
+PMI is not a prompt-refinement trigger. It belongs to Layer 3 after generation
+and consensus validation.
 
 Layer 1 — per-run blind check (one validator model). This is the main run loop:
 
@@ -206,6 +228,6 @@ source_uid,<model>_label...,expected_label,agree_count,decision
 - `accepted` (per-run, single model) and `decision` (cross-model consensus) are
   different layers: `accepted` = does this one model match `expected_label`;
   `decision` = do ≥ 2 of 3 models match `expected_label`.
-- No MCP tool exists yet for the deterministic CLI stages (aggregate, kappa,
-  pmi, apply-paraphrase). These are run by an operator after gathering verdict
-  files from all three models.
+- Prompt-calibration kappa is available through
+  `evaluate_prompt_refinement_round` and logged to MLflow. The deterministic
+  CLI stages `aggregate`, `pmi`, and `apply-paraphrase` remain operator-run.

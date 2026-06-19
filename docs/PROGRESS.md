@@ -1,3 +1,30 @@
+### [2026-06-19 21:24] — [PromptRefinement] Add MLflow prompt calibration flow
+
+**Đã làm:**
+- Added an optional pre-generation refinement loop using one fixed calibration dataset and exactly three independent validator verdict files.
+- Reused `compute_fleiss_kappa()` and exposed `evaluate_prompt_refinement_round` through the validation MCP provider.
+- Registered generator and validator prompt snapshots in MLflow, logged kappa/label metrics and artifacts, assigned `candidate` aliases every round, and required explicit confirmation before assigning `locked`.
+- Added `skill://prompt_refinement`, updated the instructor, and synchronized English/Vietnamese README, flow, and validator template docs.
+- Verified a temporary SQLite MLflow store, MCP tool registration, `125 passed`, and clean isort/black pre-commit hooks.
+
+**Files thay đổi:**
+- `backend/src/services/prompt_refinement_service.py`, `backend/src/providers/validation_provider.py`, `backend/src/schemas/validation_runtime_schema.py`
+- `backend/tests/test_prompt_refinement_service.py`, `backend/tests/test_validation_provider.py`, `backend/tests/test_skill_service.py`
+- `backend/skills/prompt_refinement.md`, `backend/skills/instructor.md`
+- `backend/pyproject.toml`, `backend/uv.lock`, `.gitignore`
+- `README.md`, `README.vi.md`, `docs/en/flow/validator.md`, `docs/vi/flow/validator.md`
+- `docs/en/template/validator.md`, `docs/vi/template/validator.md`
+
+**Blockers:** None
+
+**Còn lại:**
+- The active agent harness must provide three real independent model execution paths; backend code intentionally does not call models or rewrite prompts automatically.
+
+**Flow explained:**
+Run MLflow separately only when calibration is needed. The agent reads `skill://prompt_refinement`, generates one fixed calibration sample, collects exactly three blind verdict files, then calls the MCP tool. Kappa below `0.85` returns `refine_prompt`; kappa at least `0.85` returns `eligible_to_lock`; only `confirm_lock=true` assigns the locked prompt aliases. PMI stays outside this loop and runs after large-scale generation and consensus validation.
+
+---
+
 ### [2026-06-19 19:00] — [ValidationIntegrity] Harden validation pipeline integrity
 
 **Đã làm:**
@@ -226,30 +253,3 @@ PMI Step 7 giờ trung thành Eq. 2: với mỗi example lấy `set(token)` củ
 
 **Flow explained:**
 Refactor thuần, không đổi luồng runtime. Mỗi method dài giờ đọc như một bản tóm tắt các bước, chi tiết nằm trong helper private có tên rõ nghĩa + docstring. `_merge_model_labels` là điểm xoá lặp thật sự duy nhất (khối đọc+validate+merge model label trước đây trùng giữa vote-table và kappa). `verify_progress_log` tách "scan 1 lượt events" (`_scan_events` → `_VerificationScan`) khỏi "phán xét verdict". Tất cả helper đều là private (prefix `_`), test cũ không cần sửa (76 pass giữ nguyên).
-
----
-
-### [2026-06-16 00:30] — Validation stage closure: apply-paraphrase → processed_dataset.csv
-
-**What was done:**
-- Verified the user's intended flows against the actual arXiv full text (Sections 4.1.4/4.1.7/4.1.8/6.3, Tables 5/11/14): validation ≥2/1/0 ✅; calibrate 6×50 @ κ≥0.85 ✅ (PMI does NOT belong in the calibration loop — it is Step 7); split 8:1:1 premise-grouped, no overlap ✅ (train 34,121 / dev 4,160 / test 3,731); XLM-R is a baseline, best = Qwen2.5 few-shot 90.72%/90.64%.
-- Added §6 (split) and §7 (evaluation) to `paper_explanation.md` with verified numbers.
-- Closed the validation stage so it returns a final processed dataset: new deterministic `apply-paraphrase` subcommand on `validation-cli` that overwrites PMI-flagged hypotheses with harness-supplied paraphrases and emits `processed_dataset.csv`. Split/train are intentionally out of scope (user trains themselves).
-- Suite green (76 passed), lint clean. Diff scoped to 4 code files + docs.
-
-**Files changed:**
-- `backend/src/utils/validation_aggregation.py` — added `apply_paraphrases(dataset, paraphrases, ...) -> (df, replaced)`
-- `backend/src/cli.py` — `apply-paraphrase` command (handler + parser + dispatch)
-- `backend/tests/test_validation_aggregation.py`, `backend/tests/test_cli.py` — unit + CLI tests (overwrite-only-flagged, unknown-uid, duplicate-uid)
-- `docs/paper_explanation.md` — added §6 split + §7 evaluation
-- `docs/vi/flow/validator.md`, `docs/en/flow/validator.md` — added Layer 4 (apply-paraphrase) + validated_dataset.csv output
-
-**Blockers:**
-- None.
-
-**Remaining issues:**
-- Paraphrase *generation* (rewriting flagged VN hypotheses) is the harness/LLM step, not code — `apply-paraphrase` only applies the rewrites back.
-- Doc gap #5 (per-model κ-calibrated validator prompts) still open. Split (§6) + eval (§7) intentionally not built — user trains externally.
-
-**Flow explained:**
-Full deterministic validation stage on `validation-cli`: `mask` → (harness runs N models) → `aggregate` (≥2/N consensus → validation_votes.csv + validated_dataset.csv + pmi_consensus.csv) → `pmi` (flag label-leaking tokens → pmi_flagged_rows.csv) → harness paraphrases flagged hypotheses → `apply-paraphrase --input validated_dataset.csv --paraphrases <rewrites.csv>` → **processed_dataset.csv** (final deliverable, schema source_uid,premise,hypothesis,label). `apply_paraphrases` validates every paraphrase uid exists in the dataset (rejects unknown/duplicate uids), overwrites only the flagged hypotheses, preserves row order and all other columns. `kappa` remains available for prompt calibration. The processed dataset is what the user feeds into their own 8:1:1 premise-grouped split + training.

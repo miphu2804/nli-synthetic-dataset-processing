@@ -47,7 +47,8 @@ fixed calibration sample
   -> save source_uid,predicted_label,reason per model
   -> call evaluate_prompt_refinement_round
   -> kappa < 0.85: inspect disagreements, edit responsible skill, repeat
-  -> kappa >= 0.85: lock the prompt bundle, continue to large-scale generation
+  -> kappa >= 0.85: prompt bundle is eligible to lock
+  -> agent may continue refinement or explicitly confirm the lock
 ```
 
 PMI and paraphrasing are not part of this loop.
@@ -69,7 +70,7 @@ The skill:
   instructions cause disagreement;
 - may edit both only when evidence supports both changes;
 - calls the MCP evaluation tool after every round;
-- stops when kappa is at least `0.85`;
+- treats kappa of at least `0.85` as eligible to lock, not an automatic stop;
 - reports changed prompt files and the MLflow run/prompt versions.
 
 The skill must not claim that it can produce three model verdicts unless the
@@ -87,6 +88,7 @@ verdicts_dir: directory containing exactly three valid verdict CSV/parquet files
 calibration_input: fixed labeled calibration dataset used for this round
 round_number: positive integer
 change_summary: concise description of changes tested in this round
+confirm_lock: set true only when the agent/operator chooses to lock an eligible round
 tracking_uri: MLflow tracking server, default http://127.0.0.1:5000
 experiment_name: default nli-prompt-calibration
 ```
@@ -106,7 +108,7 @@ Output:
 {
   "kappa": 0.87,
   "threshold": 0.85,
-  "decision": "lock_prompt",
+  "decision": "eligible_to_lock",
   "n_items": 50,
   "n_raters": 3,
   "models": ["gpt4o", "deepseek", "llama"],
@@ -123,6 +125,7 @@ Allowed decisions:
 
 ```text
 refine_prompt
+eligible_to_lock
 lock_prompt
 ```
 
@@ -138,7 +141,7 @@ Create a small service responsible for:
 5. creating one MLflow experiment run per round;
 6. logging parameters, metrics, tags, and artifacts;
 7. assigning `candidate` aliases each round and `locked` aliases only when
-   `kappa >= 0.85`;
+   `kappa >= 0.85` and `confirm_lock=true`;
 8. returning a structured result to the MCP provider.
 
 No automatic model calls and no automatic prompt rewriting belong in this
@@ -207,8 +210,11 @@ bundle source of truth.
   valid.
 - Kappa below threshold: log the round with `refine_prompt`; do not assign
   `locked`.
-- Partial MLflow write: return an error with the created run ID when available;
-  never report the bundle as locked.
+- Kappa at or above threshold without explicit confirmation: log
+  `eligible_to_lock`; keep only the `candidate` aliases.
+- `confirm_lock=true` below threshold: reject before changing aliases.
+- Partial MLflow write after run creation: mark that run failed, raise the
+  MLflow error, and never report the bundle as locked.
 
 ## Repository Changes
 
@@ -240,8 +246,8 @@ Modify:
 
 ## Verification
 
-- Unit tests mock MLflow; tests must not require a running server.
-- Integration smoke test uses a temporary local SQLite MLflow store.
+- Service tests use a temporary local SQLite MLflow store and do not require a
+  running server.
 - Existing backend suite remains green.
 - `uv run pre-commit run --all-files` passes.
 - MCP tool list contains `evaluate_prompt_refinement_round`.

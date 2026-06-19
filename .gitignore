@@ -12,6 +12,7 @@ wheels/
 # Local runtime artifacts
 .pipeline/
 backend/.pipeline/
+backend/.mlflow/
 .cocoindex_code/
 outputs/
 data/batches/

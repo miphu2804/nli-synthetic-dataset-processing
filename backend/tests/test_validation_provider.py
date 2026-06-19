@@ -46,6 +46,21 @@ class ValidationProviderTest(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_prompt_refinement_tool_exposes_explicit_mlflow_parameters(self) -> None:
+        async def scenario() -> None:
+            tool = await self.mcp.get_tool("evaluate_prompt_refinement_round")
+            properties = tool.parameters["properties"]
+
+            self.assertIn("verdicts_dir", properties)
+            self.assertIn("calibration_input", properties)
+            self.assertIn("round_number", properties)
+            self.assertIn("change_summary", properties)
+            self.assertIn("confirm_lock", properties)
+            self.assertIn("tracking_uri", properties)
+            self.assertIn("experiment_name", properties)
+
+        asyncio.run(scenario())
+
     def test_validation_tool_round_trip_uses_masked_rows(self) -> None:
         async def scenario() -> None:
             started = await self.mcp.call_tool(
