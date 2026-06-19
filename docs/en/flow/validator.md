@@ -4,11 +4,12 @@ The validator phase checks generated Vietnamese NLI rows under a 3-class scheme
 (`0=entailment`, `1=neutral`, `2=contradiction`) with the expected label masked
 from the validator. There are three layers: a **per-run** blind check that one
 model produces (deterministic `accepted`), a **cross-model consensus** that
-combines several per-run verdict files into a keep/review/discard `decision`, and
-a deterministic **artifact-flagging** pass that finds label-leaking tokens. The
-trusted runtime canonicalizes both sides (`src/utils/nli_labels.py:
-canonical_label`) so a numeric expected label and a string predicted label
-compare correctly.
+combines **exactly three** per-run verdict files into a keep/review/discard
+`decision`, and a deterministic **artifact-flagging** pass that finds
+label-leaking tokens. The trusted runtime normalizes and strictly validates both
+sides (`src/utils/nli_labels.py: require_canonical_label`) so only `0/1/2` and
+the canonical names `entailment`/`neutral`/`contradiction` are accepted; any
+other value raises before writing output.
 
 ## State Machine
 
@@ -37,13 +38,14 @@ Layer 1 — per-run blind check (one validator model). This is the main run loop
                               ▼
 ┌──────────────────────────────────────────────────────────┐
 │ validator predicts 3-class label                         │
-│ entailment | neutral | contradiction                     │
-│ + reason (Vietnamese)                                    │
+│ entailment | neutral | contradiction  (or 0 | 1 | 2)    │
+│ + reason (Vietnamese, must be non-blank)                 │
 └──────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────┐
 │ submit_validation_result            [deterministic]      │
+│ predicted_label validated at schema boundary;            │
 │ runtime joins hidden expected_label, then computes       │
 │ accepted = canonical(pred) == canonical(expected)        │
 └──────────────────────────────────────────────────────────┘
@@ -64,13 +66,25 @@ Layer 1 — per-run blind check (one validator model). This is the main run loop
 └──────────────────────────────────────────────────────────┘
 ```
 
-Layer 2 — cross-model consensus (offline, deterministic CLI). Run Layer 1 once
-per model to get N verdict files, then aggregate:
+Layer 2 — cross-model consensus (offline, deterministic CLI). Run Layer 1
+**exactly three times** (one model per run) to get exactly three verdict files,
+then aggregate. The pipeline implements the paper's `2 of 3` retention rule; the
+CLI enforces exactly three files and rejects more or fewer.
+
+**Input contracts:**
+- Exactly three verdict files (gpt4o.csv, deepseek.csv, llama.csv or similar).
+- Each file: `source_uid, predicted_label, reason` — no null UIDs, no duplicate
+  UIDs, no blank reasons, labels in the three-class domain only.
+- All three files must share the exact same `source_uid` set.
+- The expected-label dataset must share the exact same `source_uid` set.
+- The masked dataset must share the exact same `source_uid` set.
+- Any mismatch raises before writing output (outputs are staged, then atomically
+  replaced — a validation failure never truncates existing files).
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
-│ run Layer 1 once per model →  verdict files              │
-│ gpt4o.csv · deepseek.csv · llama.csv · …                 │
+│ run Layer 1 exactly once per model → verdict files       │
+│ gpt4o.csv · deepseek.csv · llama.csv                     │
 │ (source_uid, predicted_label, reason)                    │
 └──────────────────────────────────────────────────────────┘
                               │
@@ -78,26 +92,29 @@ per model to get N verdict files, then aggregate:
 ┌──────────────────────────────────────────────────────────┐
 │ python -m src.cli aggregate                              │
 │   --verdicts-dir  --masked-input  --expected-input       │
-│ agree_count = #models canonical(pred)==canonical(exp)    │
+│ agree_count = #models where canonical(pred)==canonical(exp)│
 └──────────────────────────────────────────────────────────┘
                               │
      ┌────────────┼────────────┐
      ▼            ▼            ▼
 ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
 │ KEEP             │   │ REVIEW           │   │ DISCARD          │
-│ agree ≥ 2        │   │ agree == 1       │   │ agree == 0       │
+│ agree ≥ 2 of 3   │   │ agree == 1       │   │ agree == 0       │
 └──────────────────┘   └──────────────────┘   └──────────────────┘
 
 ALL rows    → validation_votes.csv    (every row + its keep/review/discard decision)
-KEEP only   → validated_dataset.csv    (source_uid,premise,hypothesis,label)
-REVIEW only → review_dataset.csv       (source_uid,premise,hypothesis + per-model
-                                        labels, expected_label, agree_count)
+KEEP only   → validated_dataset.csv   (source_uid,premise,hypothesis,label)
+REVIEW only → review_dataset.csv      (source_uid,premise,hypothesis + per-model
+                                       labels, expected_label, agree_count)
 ```
 
 `review_dataset.csv` is the manual-review queue (agree == 1). It keeps the full
 vote context so a human can see the disagreement; `expected_label` is preserved
-(not renamed to `label`) because these rows are unverified. PMI is a separate
-step (Layer 3 below), not an aggregate output.
+(not renamed to `label`) because these rows are unverified and must not be
+published as-is. `accepted` (a per-model flag in Layer 1) and `decision`
+(cross-model consensus) are different layers.
+
+No MCP tool exists yet for this CLI stage. It is run manually by an operator.
 
 Layer 3 — artifact flagging (deterministic, corpus-level). Run on the
 validated/kept rows:
@@ -113,28 +130,43 @@ validated/kept rows:
                               ▼
 ┌──────────────────────────────────────────────────────────┐
 │ pmi_artifact_tokens.csv   → (token, label, pmi, …)       │
-│ pmi_flagged_rows.csv      → hypotheses whose token       │
-│                             leaks its own label          │
-│                             → paraphrase these           │
+│ pmi_flagged_rows.csv      → rows whose hypothesis leaks  │
+│                             its own label via a token    │
+│                             → these must be paraphrased  │
 └──────────────────────────────────────────────────────────┘
 ```
 
 Layer 4 — apply paraphrase (deterministic). The harness paraphrases the
-hypotheses in `pmi_flagged_rows.csv` (the LLM step, outside the code), emits a
-`source_uid,hypothesis` file of rewrites, then applies them back to close the
-stage:
+hypotheses in `pmi_flagged_rows.csv` (the LLM step, outside this code), emits a
+`source_uid,hypothesis` file of rewrites, then applies them back:
+
+**Input contracts:**
+- `--flagged-rows pmi_flagged_rows.csv` is required; do not infer flagged rows
+  from the paraphrase file.
+- The flagged UID set must equal the paraphrase UID set exactly.
+- Every rewrite must be non-empty, changed from the original, and must no longer
+  contain any token listed in that row's `artifact_tokens` column.
+
+**Outputs:**
+- `paraphrased_dataset.csv` — candidate dataset with rewrites applied.
+  **Not final.** Semantic labels for changed rows must be revalidated before
+  this file is published.
+- `paraphrase_revalidation_masked.csv` — revalidation queue containing only
+  the changed rows: `source_uid, premise, hypothesis, masked_label=[MASK]`.
+  Feed this file into Layer 1 of a new validation run before promoting the
+  paraphrased dataset.
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
 │ python -m src.cli apply-paraphrase                       │
 │   --input validated_dataset.csv                          │
+│   --flagged-rows pmi_flagged_rows.csv                    │
 │   --paraphrases <paraphrased.csv>                        │
-│ Overwrites flagged hypotheses, leaves the rest unchanged │
 └──────────────────────────────────────────────────────────┘
                               │
                               ▼
-   processed_dataset.csv  (source_uid,premise,hypothesis,label)
-   → final deliverable of the validation stage, ready to split/train
+   paraphrased_dataset.csv          (candidate — awaits revalidation)
+   paraphrase_revalidation_masked.csv (next-stage input for Layer 1)
 ```
 
 ## Claimed Row Schema
@@ -148,6 +180,10 @@ source_uid,premise,hypothesis,masked_label
 ```csv
 source_uid,predicted_label,reason
 ```
+
+`predicted_label` must be one of `entailment`, `neutral`, `contradiction`, `0`,
+`1`, or `2`. Any other value is rejected at schema validation before the batch is
+written.
 
 ## Per-run Final Output Schema
 
@@ -166,7 +202,10 @@ source_uid,<model>_label...,expected_label,agree_count,decision
 - Use only `premise`, `hypothesis`, and the rubric; never infer the hidden label
   from row order, metadata, batch id, or prior outputs.
 - Return one of the 3 canonical names (`entailment`|`neutral`|`contradiction`);
-  the runtime maps to numeric ids. `reason` is Vietnamese.
+  the runtime maps to numeric ids. `reason` is Vietnamese and must be non-blank.
 - `accepted` (per-run, single model) and `decision` (cross-model consensus) are
   different layers: `accepted` = does this one model match `expected_label`;
-  `decision` = do >= 2 of N models match `expected_label`.
+  `decision` = do ≥ 2 of 3 models match `expected_label`.
+- No MCP tool exists yet for the deterministic CLI stages (aggregate, kappa,
+  pmi, apply-paraphrase). These are run by an operator after gathering verdict
+  files from all three models.
