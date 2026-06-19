@@ -495,6 +495,10 @@ class ApplyParaphraseCommandTest(unittest.TestCase):
                 },
             ]
         ).to_csv(self.input_path, index=False)
+        self.flagged_rows_path = self.root / "flagged_rows.csv"
+        pd.DataFrame([{"source_uid": "row-2", "artifact_tokens": ""}]).to_csv(
+            self.flagged_rows_path, index=False
+        )
         self.paraphrases_path = self.root / "paraphrases.csv"
         pd.DataFrame([{"source_uid": "row-2", "hypothesis": "h2-rewritten"}]).to_csv(
             self.paraphrases_path, index=False
@@ -503,25 +507,38 @@ class ApplyParaphraseCommandTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_main_apply_paraphrase_writes_processed_dataset(self) -> None:
+    def test_main_apply_paraphrase_writes_paraphrased_dataset_and_revalidation(
+        self,
+    ) -> None:
         exit_code = main(
             [
                 "apply-paraphrase",
                 "--input",
                 str(self.input_path),
+                "--flagged-rows",
+                str(self.flagged_rows_path),
                 "--paraphrases",
                 str(self.paraphrases_path),
                 "--quiet",
             ]
         )
         self.assertEqual(exit_code, 0)
-        output_path = self.root / "processed_dataset.csv"
+        output_path = self.root / "paraphrased_dataset.csv"
         self.assertTrue(output_path.exists())
         processed = pd.read_csv(output_path)
         self.assertEqual(list(processed["hypothesis"]), ["h1", "h2-rewritten"])
+        revalidation_path = self.root / "paraphrase_revalidation_masked.csv"
+        self.assertTrue(revalidation_path.exists())
+        revalidation = pd.read_csv(revalidation_path)
+        self.assertEqual(list(revalidation["source_uid"]), ["row-2"])
+        self.assertEqual(list(revalidation["masked_label"]), ["[MASK]"])
 
     def test_main_apply_paraphrase_fails_on_unknown_uid(self) -> None:
-        pd.DataFrame([{"source_uid": "row-9", "hypothesis": "x"}]).to_csv(
+        flagged_path = self.root / "flagged_unknown.csv"
+        pd.DataFrame([{"source_uid": "row-9", "artifact_tokens": "x"}]).to_csv(
+            flagged_path, index=False
+        )
+        pd.DataFrame([{"source_uid": "row-9", "hypothesis": "x-new"}]).to_csv(
             self.paraphrases_path, index=False
         )
         exit_code = main(
@@ -529,6 +546,8 @@ class ApplyParaphraseCommandTest(unittest.TestCase):
                 "apply-paraphrase",
                 "--input",
                 str(self.input_path),
+                "--flagged-rows",
+                str(flagged_path),
                 "--paraphrases",
                 str(self.paraphrases_path),
                 "--quiet",

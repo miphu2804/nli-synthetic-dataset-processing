@@ -566,24 +566,38 @@ def _run_kappa_command(args: argparse.Namespace, console: Console) -> int:
 # --------------------------------------------------------------------------- #
 def run_apply_paraphrase(
     input_path: Path,
+    flagged_rows_path: Path,
     paraphrases_path: Path,
     output_path: Path,
+    revalidation_path: Path,
     uid_column: str,
     text_column: str,
 ) -> dict:
     dataset = read_dataset(input_path)
+    flagged_rows = read_dataset(flagged_rows_path)
     paraphrases = read_dataset(paraphrases_path)
-    processed, replaced = apply_paraphrases(
+    paraphrased, replaced = apply_paraphrases(
         dataset,
+        flagged_rows,
         paraphrases,
         uid_column=uid_column,
         text_column=text_column,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    processed.to_csv(output_path, index=False)
+    paraphrased.to_csv(output_path, index=False)
+
+    # Emit revalidation queue for changed rows.
+    changed_uids = set(str(uid) for uid in paraphrases[uid_column])
+    revalidation = paraphrased[paraphrased[uid_column].astype(str).isin(changed_uids)][
+        [uid_column, "premise", text_column]
+    ].copy()
+    revalidation["masked_label"] = "[MASK]"
+    revalidation.to_csv(revalidation_path, index=False)
+
     return {
         "output_path": output_path,
-        "total_rows": len(processed),
+        "revalidation_path": revalidation_path,
+        "total_rows": len(paraphrased),
         "replaced_rows": replaced,
     }
 
@@ -593,6 +607,10 @@ def _run_apply_paraphrase_command(args: argparse.Namespace, console: Console) ->
     if not input_path.exists():
         console.print(f"[red]Validated dataset not found:[/red] {input_path}")
         return 2
+    flagged_rows_path = Path(args.flagged_rows).expanduser()
+    if not flagged_rows_path.exists():
+        console.print(f"[red]Flagged rows file not found:[/red] {flagged_rows_path}")
+        return 2
     paraphrases_path = Path(args.paraphrases).expanduser()
     if not paraphrases_path.exists():
         console.print(f"[red]Paraphrases file not found:[/red] {paraphrases_path}")
@@ -601,18 +619,23 @@ def _run_apply_paraphrase_command(args: argparse.Namespace, console: Console) ->
     output_path = (
         Path(args.output).expanduser()
         if args.output
-        else input_path.with_name("processed_dataset.csv")
+        else input_path.with_name("paraphrased_dataset.csv")
     )
+    revalidation_path = output_path.with_name("paraphrase_revalidation_masked.csv")
 
-    console.print(f"[bold]Input:[/bold]       {input_path}")
-    console.print(f"[bold]Paraphrases:[/bold] {paraphrases_path}")
-    console.print(f"[bold]Output:[/bold]      {output_path}")
+    console.print(f"[bold]Input:[/bold]        {input_path}")
+    console.print(f"[bold]Flagged rows:[/bold] {flagged_rows_path}")
+    console.print(f"[bold]Paraphrases:[/bold]  {paraphrases_path}")
+    console.print(f"[bold]Output:[/bold]       {output_path}")
+    console.print(f"[bold]Revalidation:[/bold] {revalidation_path}")
 
     try:
         result = run_apply_paraphrase(
             input_path=input_path,
+            flagged_rows_path=flagged_rows_path,
             paraphrases_path=paraphrases_path,
             output_path=output_path,
+            revalidation_path=revalidation_path,
             uid_column=args.uid_column,
             text_column=args.text_column,
         )
@@ -625,7 +648,8 @@ def _run_apply_paraphrase_command(args: argparse.Namespace, console: Console) ->
     summary.add_column("Value", justify="right")
     summary.add_row("Total rows", str(result["total_rows"]))
     summary.add_row("Replaced rows", str(result["replaced_rows"]))
-    summary.add_row("Processed dataset output", str(result["output_path"]))
+    summary.add_row("Paraphrased dataset output", str(result["output_path"]))
+    summary.add_row("Revalidation queue", str(result["revalidation_path"]))
     console.print(summary)
     return 0
 
@@ -823,13 +847,18 @@ def _add_kappa_parser(subparsers: argparse._SubParsersAction) -> None:
 def _add_apply_paraphrase_parser(subparsers: argparse._SubParsersAction) -> None:
     apply = subparsers.add_parser(
         "apply-paraphrase",
-        help="Overwrite flagged hypotheses with paraphrased rewrites into the "
-        "final processed dataset.",
+        help="Overwrite PMI-flagged hypotheses with paraphrased rewrites. "
+        "Emits paraphrased_dataset.csv and paraphrase_revalidation_masked.csv.",
     )
     apply.add_argument(
         "--input",
         required=True,
         help="Validated dataset (e.g. validated_dataset.csv) to update.",
+    )
+    apply.add_argument(
+        "--flagged-rows",
+        required=True,
+        help="CSV/parquet of PMI-flagged rows (e.g. pmi_flagged_rows.csv).",
     )
     apply.add_argument(
         "--paraphrases",
@@ -838,7 +867,7 @@ def _add_apply_paraphrase_parser(subparsers: argparse._SubParsersAction) -> None
     )
     apply.add_argument(
         "--output",
-        help="Output path. Defaults to processed_dataset.csv next to --input.",
+        help="Output path. Defaults to paraphrased_dataset.csv next to --input.",
     )
     apply.add_argument(
         "--uid-column",

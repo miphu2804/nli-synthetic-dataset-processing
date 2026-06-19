@@ -264,43 +264,92 @@ def build_review_dataset(
 
 def apply_paraphrases(
     dataset: pd.DataFrame,
+    flagged_rows: pd.DataFrame,
     paraphrases: pd.DataFrame,
     uid_column: str = "source_uid",
     text_column: str = "hypothesis",
+    artifact_tokens_column: str = "artifact_tokens",
 ) -> tuple[pd.DataFrame, int]:
-    """Overwrite flagged hypotheses with their paraphrased rewrites.
+    """Overwrite hypotheses for exactly the PMI-flagged rows with their paraphrased rewrites.
 
-    ``dataset`` is the retained/validated dataset; ``paraphrases`` carries the
-    rewritten ``text_column`` keyed by ``uid_column`` (produced by the harness
-    after PMI flagging). Returns (processed_dataset, replaced_count). Every
-    paraphrase uid must exist in the dataset; unknown or duplicate uids raise.
+    Requires flagged_rows UID set == paraphrases UID set ⊆ dataset UID set.
+    Each rewrite must be non-empty, changed, and must not contain any token listed
+    in that row's artifact_tokens_column. Returns (paraphrased_dataset, replaced_count).
     Row order and columns of ``dataset`` are preserved.
     """
     for frame_name, frame in (("dataset", dataset), ("paraphrases", paraphrases)):
-        missing_columns = [
-            column
-            for column in (uid_column, text_column)
-            if column not in frame.columns
-        ]
-        if missing_columns:
-            missing = ", ".join(missing_columns)
-            raise ValueError(f"{frame_name} is missing required columns: {missing}")
+        missing = [c for c in (uid_column, text_column) if c not in frame.columns]
+        if missing:
+            raise ValueError(
+                f"{frame_name} is missing required columns: {', '.join(missing)}"
+            )
+    if uid_column not in flagged_rows.columns:
+        raise ValueError(f"flagged_rows is missing required columns: {uid_column}")
 
-    paraphrase_uids = [str(uid) for uid in paraphrases[uid_column]]
-    if len(set(paraphrase_uids)) != len(paraphrase_uids):
+    flagged_uids = set(str(uid) for uid in flagged_rows[uid_column])
+    paraphrase_uids_list = [str(uid) for uid in paraphrases[uid_column]]
+    paraphrase_uids = set(paraphrase_uids_list)
+
+    if len(paraphrase_uids) != len(paraphrase_uids_list):
         raise ValueError("paraphrases contains duplicate source_uid values.")
 
-    dataset_uids = {str(uid) for uid in dataset[uid_column]}
-    unknown = sorted(uid for uid in paraphrase_uids if uid not in dataset_uids)
-    if unknown:
+    missing_from_paraphrases = sorted(flagged_uids - paraphrase_uids)
+    if missing_from_paraphrases:
         raise ValueError(
-            f"paraphrases reference unknown source_uid: {', '.join(unknown)}"
+            f"Flagged UID(s) not in paraphrases: "
+            f"{', '.join(missing_from_paraphrases[:5])}"
+        )
+    extra_in_paraphrases = sorted(paraphrase_uids - flagged_uids)
+    if extra_in_paraphrases:
+        raise ValueError(
+            f"Paraphrase UID(s) not in flagged rows: "
+            f"{', '.join(extra_in_paraphrases[:5])}"
         )
 
-    replacements = {
-        str(uid): text
-        for uid, text in zip(paraphrases[uid_column], paraphrases[text_column])
+    dataset_uids = {str(uid) for uid in dataset[uid_column]}
+    unknown = sorted(flagged_uids - dataset_uids)
+    if unknown:
+        raise ValueError(
+            f"Flagged UID(s) not found in dataset: {', '.join(unknown[:5])}"
+        )
+
+    # Build original text lookup and artifact-tokens lookup.
+    original_texts = {
+        str(uid): text for uid, text in zip(dataset[uid_column], dataset[text_column])
     }
+    artifact_lookup: dict[str, set[str]] = {}
+    if artifact_tokens_column in flagged_rows.columns:
+        for uid, tokens_str in zip(
+            flagged_rows[uid_column], flagged_rows[artifact_tokens_column]
+        ):
+            tokens = set(_tokenize(str(tokens_str))) if tokens_str else set()
+            artifact_lookup[str(uid)] = tokens
+
+    replacements: dict[str, str] = {}
+    for uid, new_text in zip(paraphrases[uid_column], paraphrases[text_column]):
+        uid_str = str(uid)
+        original = original_texts[uid_str]
+        new = str(new_text).strip()
+        if not new:
+            raise ValueError(f"Paraphrase for {uid_str!r} is empty.")
+        if new == original:
+            raise ValueError(
+                f"Paraphrase for {uid_str!r} is unchanged from the original."
+            )
+        artifact_tokens = artifact_lookup.get(uid_str, set())
+        if artifact_tokens:
+            rewrite_tokens = set(_tokenize(new))
+            still_present = sorted(artifact_tokens & rewrite_tokens)
+            if still_present:
+                raise ValueError(
+                    f"Paraphrase for {uid_str!r} still contains artifact "
+                    f"token(s): {', '.join(still_present)}"
+                )
+        replacements[uid_str] = new
+
+    if not replacements:
+        return dataset.reset_index(drop=True), 0
+
     processed = dataset.copy()
     processed[text_column] = [
         replacements.get(str(uid), original)

@@ -478,6 +478,83 @@ class ValidationAggregationTest(unittest.TestCase):
                 pd.DataFrame([{"source_uid": "row-1"}]),
             )
 
+    def test_apply_paraphrases_rejects_uid_not_in_flagged(self) -> None:
+        dataset = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "hypothesis": "h1", "label": "entailment"},
+                {"source_uid": "row-2", "hypothesis": "h2", "label": "neutral"},
+            ]
+        )
+        flagged = pd.DataFrame([{"source_uid": "row-1", "artifact_tokens": "x"}])
+        paraphrases = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "hypothesis": "h1-new"},
+                {"source_uid": "row-2", "hypothesis": "h2-new"},
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "not in flagged"):
+            apply_paraphrases(dataset, flagged, paraphrases)
+
+    def test_apply_paraphrases_rejects_flagged_uid_missing_from_paraphrases(
+        self,
+    ) -> None:
+        dataset = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "hypothesis": "h1", "label": "entailment"},
+                {"source_uid": "row-2", "hypothesis": "h2", "label": "neutral"},
+            ]
+        )
+        flagged = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "artifact_tokens": "x"},
+                {"source_uid": "row-2", "artifact_tokens": "y"},
+            ]
+        )
+        paraphrases = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1-new"}])
+        with self.assertRaisesRegex(ValueError, "not in paraphrases"):
+            apply_paraphrases(dataset, flagged, paraphrases)
+
+    def test_apply_paraphrases_rejects_empty_rewrite(self) -> None:
+        dataset = pd.DataFrame(
+            [{"source_uid": "row-1", "hypothesis": "h1", "label": "entailment"}]
+        )
+        flagged = pd.DataFrame([{"source_uid": "row-1", "artifact_tokens": "x"}])
+        paraphrases = pd.DataFrame([{"source_uid": "row-1", "hypothesis": ""}])
+        with self.assertRaisesRegex(ValueError, "empty"):
+            apply_paraphrases(dataset, flagged, paraphrases)
+
+    def test_apply_paraphrases_rejects_unchanged_rewrite(self) -> None:
+        dataset = pd.DataFrame(
+            [{"source_uid": "row-1", "hypothesis": "h1", "label": "entailment"}]
+        )
+        flagged = pd.DataFrame([{"source_uid": "row-1", "artifact_tokens": "x"}])
+        paraphrases = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1"}])
+        with self.assertRaisesRegex(ValueError, "unchanged"):
+            apply_paraphrases(dataset, flagged, paraphrases)
+
+    def test_apply_paraphrases_rejects_rewrite_containing_artifact_token(self) -> None:
+        dataset = pd.DataFrame(
+            [{"source_uid": "row-1", "hypothesis": "foo bar", "label": "entailment"}]
+        )
+        flagged = pd.DataFrame([{"source_uid": "row-1", "artifact_tokens": "foo"}])
+        paraphrases = pd.DataFrame(
+            [{"source_uid": "row-1", "hypothesis": "new foo baz"}]
+        )
+        with self.assertRaisesRegex(ValueError, "artifact"):
+            apply_paraphrases(dataset, flagged, paraphrases)
+
+    def test_apply_paraphrases_zero_flagged_with_empty_paraphrases_succeeds(
+        self,
+    ) -> None:
+        dataset = pd.DataFrame(
+            [{"source_uid": "row-1", "hypothesis": "h1", "label": "entailment"}]
+        )
+        flagged = pd.DataFrame(columns=["source_uid", "artifact_tokens"]).astype(str)
+        paraphrases = pd.DataFrame(columns=["source_uid", "hypothesis"])
+        result, replaced = apply_paraphrases(dataset, flagged, paraphrases)
+        self.assertEqual(replaced, 0)
+        self.assertEqual(list(result["hypothesis"]), ["h1"])
+
     def test_apply_paraphrases_overwrites_only_flagged_rows(self) -> None:
         dataset = pd.DataFrame(
             [
@@ -501,13 +578,14 @@ class ValidationAggregationTest(unittest.TestCase):
                 },
             ]
         )
+        flagged = pd.DataFrame([{"source_uid": "row-2", "artifact_tokens": ""}])
         paraphrases = pd.DataFrame(
             [
                 {"source_uid": "row-2", "hypothesis": "h2-rewritten"},
             ]
         )
 
-        processed, replaced = apply_paraphrases(dataset, paraphrases)
+        processed, replaced = apply_paraphrases(dataset, flagged, paraphrases)
 
         self.assertEqual(replaced, 1)
         self.assertEqual(list(processed.columns), list(dataset.columns))
@@ -516,20 +594,22 @@ class ValidationAggregationTest(unittest.TestCase):
 
     def test_apply_paraphrases_rejects_unknown_uid(self) -> None:
         dataset = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1"}])
-        paraphrases = pd.DataFrame([{"source_uid": "row-9", "hypothesis": "x"}])
-        with self.assertRaisesRegex(ValueError, "unknown source_uid"):
-            apply_paraphrases(dataset, paraphrases)
+        flagged = pd.DataFrame([{"source_uid": "row-9", "artifact_tokens": "x"}])
+        paraphrases = pd.DataFrame([{"source_uid": "row-9", "hypothesis": "x-new"}])
+        with self.assertRaisesRegex(ValueError, "not found in dataset"):
+            apply_paraphrases(dataset, flagged, paraphrases)
 
     def test_apply_paraphrases_rejects_duplicate_uid(self) -> None:
         dataset = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1"}])
+        flagged = pd.DataFrame([{"source_uid": "row-1", "artifact_tokens": "x"}])
         paraphrases = pd.DataFrame(
             [
-                {"source_uid": "row-1", "hypothesis": "a"},
-                {"source_uid": "row-1", "hypothesis": "b"},
+                {"source_uid": "row-1", "hypothesis": "a-new"},
+                {"source_uid": "row-1", "hypothesis": "b-new"},
             ]
         )
         with self.assertRaisesRegex(ValueError, "duplicate source_uid"):
-            apply_paraphrases(dataset, paraphrases)
+            apply_paraphrases(dataset, flagged, paraphrases)
 
     @staticmethod
     def _write_model_label_files(root: Path) -> dict[str, Path]:
