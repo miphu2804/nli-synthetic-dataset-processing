@@ -1,34 +1,30 @@
-### [2026-06-19 00:00] — [ValidationIntegrity] Harden validation pipeline integrity
+### [2026-06-19 19:00] — [ValidationIntegrity] Harden validation pipeline integrity
 
 **Đã làm:**
-- **Task 1 — Strict label domain:** Added `require_canonical_label()` to `nli_labels.py`; applied at schema boundary (`ValidatorVerdict.predicted_label` field validator), in `_read_model_label_column`, and in `compute_fleiss_kappa`. Fixed categories (`entailment/neutral/contradiction`) are now passed into κ instead of deriving from observed data.
-- **Task 2 — Exact UID coverage:** `_read_model_label_column` now rejects null UIDs, duplicate UIDs, and blank reasons per verdict file. `build_validation_vote_table` checks that verdict UID set == expected UID set. `_merge_model_labels` detects normalized model-name collisions. `load_expected_labels` rejects null/duplicate UIDs.
-- **Task 3 — Three-validator rule:** CLI `aggregate` and `kappa` commands now enforce exactly 3 valid verdict files. `build_validation_vote_table` validates `1 <= min_agreement <= model_count`. Updated all test fixtures from 2 to 3 verdict files.
-- **Task 4 — Paraphrase contract:** `apply_paraphrases` now takes `flagged_rows` as required argument; validates `flagged UID set == paraphrase UID set ⊆ dataset UID set`; validates non-empty, changed rewrites that no longer contain listed artifact tokens. CLI `apply-paraphrase` adds `--flagged-rows` (required), changes output from `processed_dataset.csv` to `paraphrased_dataset.csv`, and emits `paraphrase_revalidation_masked.csv`.
-- **Task 5 — Staged writes:** `run_aggregation` now builds all DataFrames before touching the filesystem, then stages writes to a temp dir under `output_dir` and atomically replaces final files. Validation failures leave existing outputs untouched.
-- **Task 6 — Docs:** Updated `docs/en/flow/validator.md` and `docs/vi/flow/validator.md` with strict contracts, exactly-3 rule, paraphrase inputs/outputs, revalidation queue, and no-MCP note.
+- Enforced the three-class label domain at runtime and offline aggregation boundaries; invalid source or predicted labels now fail before output is written.
+- Required exactly three validator files, exact unique UID coverage across expected, masked, and verdict datasets, non-empty reasons, and collision-free normalized model names.
+- Bound paraphrases to the exact PMI-flagged UID set; rejected missing/duplicate/null flag data, unchanged rewrites, and rewrites that retain listed artifact tokens.
+- Renamed the post-rewrite candidate to `paraphrased_dataset.csv` and added `paraphrase_revalidation_masked.csv`; changed rows are not considered final until semantic revalidation.
+- Built aggregate outputs fully before staging and replacing final CSV files, so validation/serialization failures do not truncate existing outputs.
+- Updated English and Vietnamese validator flow docs. MCP wrappers and premise-grouped split remain intentionally deferred.
+- Verified `118 passed` with `uv run pytest -q`; isort and black hooks pass; the four original repros now reject invalid input.
 
 **Files thay đổi:**
-- `backend/src/utils/nli_labels.py` — added `require_canonical_label`, `CANONICAL_LABEL_NAMES`, `CANONICAL_LABEL_NAMES_IN_ORDER`
-- `backend/src/schemas/validation_runtime_schema.py` — field validator on `predicted_label`
-- `backend/src/utils/validation_aggregation.py` — strict label validation, UID coverage checks, model-name collision detection, agreement bounds, new `apply_paraphrases` signature
-- `backend/src/cli.py` — three-file enforcement, `--flagged-rows`, `paraphrased_dataset.csv`, revalidation queue, staged writes
-- `backend/tests/test_validation_aggregation.py` — 30+ new regression tests
-- `backend/tests/test_cli.py` — new tests for output safety, three-file rule, paraphrase contract; fixtures updated to 3 verdict files
-- `backend/tests/test_validation_run_service.py` — invalid-label rejection test
-- `backend/tests/test_validation_provider.py` — invalid-label rejection test via MCP
-- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — updated
+- `backend/src/utils/nli_labels.py`, `backend/src/schemas/validation_runtime_schema.py`
+- `backend/src/utils/validation_aggregation.py`, `backend/src/services/validation_run_service.py`, `backend/src/cli.py`
+- `backend/tests/test_validation_aggregation.py`, `backend/tests/test_cli.py`
+- `backend/tests/test_validation_run_service.py`, `backend/tests/test_validation_provider.py`
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md`
 
 **Blockers:** None
 
 **Còn lại:**
-1. Add thin MCP wrappers over the hardened deterministic functions.
-2. Run semantic revalidation of `paraphrase_revalidation_masked.csv`.
-3. Promote only revalidated rewrites into a final processed dataset.
-4. Implement deterministic premise-grouped 8:1:1 split.
+- Add thin MCP wrappers over the hardened deterministic functions.
+- Operationalize semantic revalidation and promotion of paraphrased rows.
+- Implement deterministic premise-grouped 8:1:1 split.
 
 **Flow explained:**
-Deterministic CLI stages (aggregate, kappa, pmi, apply-paraphrase) are now integrity-hardened: labels are restricted to the three-class domain before any computation; UID coverage is exact and unique across expected, masked, and all verdict files; the pipeline requires exactly 3 validator models (`2 of 3` retention); paraphrases are bound to the exact PMI-flagged set and verified for quality; aggregate outputs are staged before being written so validation failures never corrupt existing files. MCP tooling for these stages is deferred to a future task.
+Agent/LLM work remains semantic: produce verdicts or paraphrases. Python owns deterministic validation, aggregation, κ, PMI, and file application. The post-paraphrase dataset is a candidate plus an explicit masked revalidation queue, not a final training artifact.
 
 ---
 
@@ -257,29 +253,3 @@ Refactor thuần, không đổi luồng runtime. Mỗi method dài giờ đọc 
 
 **Flow explained:**
 Full deterministic validation stage on `validation-cli`: `mask` → (harness runs N models) → `aggregate` (≥2/N consensus → validation_votes.csv + validated_dataset.csv + pmi_consensus.csv) → `pmi` (flag label-leaking tokens → pmi_flagged_rows.csv) → harness paraphrases flagged hypotheses → `apply-paraphrase --input validated_dataset.csv --paraphrases <rewrites.csv>` → **processed_dataset.csv** (final deliverable, schema source_uid,premise,hypothesis,label). `apply_paraphrases` validates every paraphrase uid exists in the dataset (rejects unknown/duplicate uids), overwrites only the flagged hypotheses, preserves row order and all other columns. `kappa` remains available for prompt calibration. The processed dataset is what the user feeds into their own 8:1:1 premise-grouped split + training.
-
----
-
-### [2026-06-16 00:00] — Validation stage: aggregate now emits the retained dataset
-
-**What was done:**
-- Re-read the validator code against `docs/paper_explanation.md` and found the doc's §3 gaps #4 (≥2/N consensus), #6 (discard/review buckets) and #7 (PMI on the kept set) are **already implemented** in the unified `validation-cli` (`aggregate`/`pmi`/`kappa`) — the doc is stale on those.
-- Identified the one genuine code gap: `aggregate` computed the kept rows in-memory (`analysis_df`) only to feed PMI, then **discarded** them — it never wrote the actual deliverable of the paper's Step 6 (the retained dataset).
-- Added a deterministic helper `build_retained_dataset(masked_dataset, vote_table)` and wired `aggregate` to write `validated_dataset.csv` (kept rows only, schema `source_uid,premise,hypothesis,label`, where `label` = the consensus/expected_label of each kept row).
-- Added unit + CLI tests; full suite green (71 passed). Reverted 13 unrelated files that a `pre-commit --all-files` run had reformatted (kept the change surgical to the 4 in-scope files).
-
-**Files changed:**
-- `backend/src/utils/validation_aggregation.py` — added `build_retained_dataset`
-- `backend/src/cli.py` — `run_aggregation` writes `validated_dataset.csv`, returns `validated_output`/`retained_rows`; summary table gained "Retained rows" + "Validated dataset output"
-- `backend/tests/test_validation_aggregation.py` — unit tests for `build_retained_dataset`
-- `backend/tests/test_cli.py` — assert `validated_dataset.csv` columns/kept-only/label/count
-
-**Blockers:**
-- None.
-
-**Remaining issues:**
-- Doc gap #5 (per-model, κ-calibrated 3-class Vietnamese validator prompts) is still open by design — out of this task's scope.
-- `docs/paper_explanation.md` §3/§5 are stale (mark #4/#6/#7 as Open/Partial though they are built). Not updated this task (user scoped to code only).
-
-**Flow explained:**
-Validation has two paths. (1) MCP run path: `start_validation_run` → masked `claim_next_validation_batch` → `submit_validation_result` → `finalize_validation_run` → `validation_results.csv` (single-model `accepted`, compared via `canonical_label` 3-class). (2) Deterministic unified CLI (`validation-cli`): `mask` produces the blind dataset → harness runs N models → `aggregate` builds the ≥2/N consensus vote table (keep/discard/review), runs PMI on the kept set, and **now also writes `validated_dataset.csv`** (the retained, publishable rows) → `pmi` flags label-leaking artifact tokens → `kappa` reports Fleiss' κ for prompt calibration. For a kept row, ≥2 models agreed with the original `expected_label`, so the consensus label is exactly `expected_label`; `build_retained_dataset` filters `decision=="keep"`, joins masked premise/hypothesis via `attach_masked_text`, and renames `expected_label`→`label` to match the project output schema. The new helper is pure/deterministic; rewriting flagged hypotheses (PMI Step 7) remains a separate manual step.

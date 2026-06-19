@@ -157,7 +157,7 @@ class ValidationRunServiceTest(unittest.TestCase):
         )
         claim = self.service.claim_next_validation_batch(started.run_id, "judge-a")
 
-        with self.assertRaises((ValueError, Exception)):
+        with self.assertRaises(ValueError):
             self.service.submit_validation_result(
                 run_id=started.run_id,
                 agent_id="judge-a",
@@ -180,6 +180,50 @@ class ValidationRunServiceTest(unittest.TestCase):
                     },
                 ],
             )
+
+    def test_submit_validation_result_raises_on_invalid_source_label(self) -> None:
+        """Strict validation on hidden expected label must raise before writing output."""
+        bad_input = self.root / "bad_labels.csv"
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": 1,
+                    "premise": "p1",
+                    "hypothesis": "h1",
+                    "label": "garbage",
+                },
+                {"source_uid": 2, "premise": "p2", "hypothesis": "h2", "label": 0},
+            ]
+        ).to_csv(bad_input, index=False)
+        started = self.service.start_validation_run(
+            input_path=str(bad_input),
+            output_dir=str(self.root / "validation-output-bad"),
+            batch_size=2,
+        )
+        claim = self.service.claim_next_validation_batch(started.run_id, "judge-a")
+        output_path = (
+            self.root
+            / "data"
+            / "batches"
+            / started.run_id
+            / f"{claim.batch.batch_id}.csv"
+        )
+
+        with self.assertRaises(ValueError):
+            self.service.submit_validation_result(
+                run_id=started.run_id,
+                agent_id="judge-a",
+                batch_id=claim.batch.batch_id,
+                verdicts=[
+                    {"source_uid": 1, "predicted_label": "entailment", "reason": "ok"},
+                    {"source_uid": 2, "predicted_label": "neutral", "reason": "ok"},
+                ],
+            )
+
+        self.assertFalse(
+            output_path.exists(),
+            "output must not be written when source label is invalid",
+        )
 
     def test_submit_validation_result_rejects_rows_outside_claim(self) -> None:
         started = self.service.start_validation_run(

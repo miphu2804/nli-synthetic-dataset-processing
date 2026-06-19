@@ -335,6 +335,26 @@ class ValidationAggregationCliTest(unittest.TestCase):
         )
         self.assertEqual(exit_code, 2)
 
+    def test_run_aggregation_raises_on_masked_uid_mismatch(self) -> None:
+        """masked_dataset must cover ALL rows including discarded ones."""
+        paths = discover_verdict_files(self.verdicts_dir)
+        valid_candidates = [c for c in build_verdict_candidates(paths) if c.is_valid]
+        self.output_dir.mkdir()
+
+        # Write a masked dataset that is missing row-2 (a discard row).
+        incomplete_masked = self.root / "incomplete_masked.csv"
+        pd.DataFrame(
+            [{"source_uid": "row-1", "premise": "p1", "hypothesis": "khi nop thue"}]
+        ).to_csv(incomplete_masked, index=False)
+
+        with self.assertRaises(ValueError):
+            run_aggregation(
+                valid_candidates=valid_candidates,
+                masked_dataset_path=incomplete_masked,
+                output_dir=self.output_dir,
+                expected_labels=self.expected_labels,
+            )
+
     def test_main_fails_with_missing_masked_input(self) -> None:
         exit_code = main(
             [
@@ -606,7 +626,7 @@ class ApplyParaphraseCommandTest(unittest.TestCase):
             ]
         ).to_csv(self.input_path, index=False)
         self.flagged_rows_path = self.root / "flagged_rows.csv"
-        pd.DataFrame([{"source_uid": "row-2", "artifact_tokens": ""}]).to_csv(
+        pd.DataFrame([{"source_uid": "row-2", "artifact_tokens": "cue"}]).to_csv(
             self.flagged_rows_path, index=False
         )
         self.paraphrases_path = self.root / "paraphrases.csv"

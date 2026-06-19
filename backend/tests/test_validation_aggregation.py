@@ -47,11 +47,11 @@ class InvalidLabelAggregationTest(unittest.TestCase):
             root = Path(tmp)
             p1 = root / "model1.csv"
             p2 = root / "model2.csv"
-            pd.DataFrame([{"source_uid": "r1", "predicted_label": "garbage"}]).to_csv(
-                p1, index=False
-            )
             pd.DataFrame(
-                [{"source_uid": "r1", "predicted_label": "entailment"}]
+                [{"source_uid": "r1", "predicted_label": "garbage", "reason": "ok"}]
+            ).to_csv(p1, index=False)
+            pd.DataFrame(
+                [{"source_uid": "r1", "predicted_label": "entailment", "reason": "ok"}]
             ).to_csv(p2, index=False)
             with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
                 build_validation_vote_table({"m1": p1, "m2": p2}, {"r1": "entailment"})
@@ -63,7 +63,13 @@ class InvalidLabelAggregationTest(unittest.TestCase):
             p2 = root / "m2.csv"
             for p in (p1, p2):
                 pd.DataFrame(
-                    [{"source_uid": "r1", "predicted_label": "entailment"}]
+                    [
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        }
+                    ]
                 ).to_csv(p, index=False)
             with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
                 build_validation_vote_table({"m1": p1, "m2": p2}, {"r1": "garbage"})
@@ -73,11 +79,11 @@ class InvalidLabelAggregationTest(unittest.TestCase):
             root = Path(tmp)
             p1 = root / "m1.csv"
             p2 = root / "m2.csv"
-            pd.DataFrame([{"source_uid": "r1", "predicted_label": "garbage"}]).to_csv(
-                p1, index=False
-            )
             pd.DataFrame(
-                [{"source_uid": "r1", "predicted_label": "entailment"}]
+                [{"source_uid": "r1", "predicted_label": "garbage", "reason": "ok"}]
+            ).to_csv(p1, index=False)
+            pd.DataFrame(
+                [{"source_uid": "r1", "predicted_label": "entailment", "reason": "ok"}]
             ).to_csv(p2, index=False)
             with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
                 compute_fleiss_kappa({"m1": p1, "m2": p2})
@@ -89,7 +95,13 @@ class AgreementPolicyTest(unittest.TestCase):
             root = Path(tmp)
             for name in ("m1", "m2", "m3"):
                 pd.DataFrame(
-                    [{"source_uid": "r1", "predicted_label": "entailment"}]
+                    [
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        }
+                    ]
                 ).to_csv(root / f"{name}.csv", index=False)
             paths = {name: root / f"{name}.csv" for name in ("m1", "m2", "m3")}
             with self.assertRaisesRegex(ValueError, "min_agreement"):
@@ -102,7 +114,13 @@ class AgreementPolicyTest(unittest.TestCase):
             root = Path(tmp)
             for name in ("m1", "m2", "m3"):
                 pd.DataFrame(
-                    [{"source_uid": "r1", "predicted_label": "entailment"}]
+                    [
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        }
+                    ]
                 ).to_csv(root / f"{name}.csv", index=False)
             paths = {name: root / f"{name}.csv" for name in ("m1", "m2", "m3")}
             with self.assertRaisesRegex(ValueError, "min_agreement"):
@@ -130,11 +148,23 @@ class UidCoverageTest(unittest.TestCase):
                 root,
                 {
                     "m1": [
-                        {"source_uid": "r1", "predicted_label": "entailment"},
-                        {"source_uid": "r1", "predicted_label": "neutral"},
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        },
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "neutral",
+                            "reason": "ok",
+                        },
                     ],
                     "m2": [
-                        {"source_uid": "r1", "predicted_label": "entailment"},
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        },
                     ],
                 },
             )
@@ -147,8 +177,20 @@ class UidCoverageTest(unittest.TestCase):
             paths = self._write(
                 root,
                 {
-                    "m1": [{"source_uid": None, "predicted_label": "entailment"}],
-                    "m2": [{"source_uid": None, "predicted_label": "entailment"}],
+                    "m1": [
+                        {
+                            "source_uid": None,
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        }
+                    ],
+                    "m2": [
+                        {
+                            "source_uid": None,
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        }
+                    ],
                 },
             )
             with self.assertRaisesRegex(ValueError, "null source_uid"):
@@ -179,6 +221,31 @@ class UidCoverageTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "blank reason"):
                 build_validation_vote_table(paths, {"r1": "entailment"})
 
+    def test_vote_table_rejects_null_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._write(
+                root,
+                {
+                    "m1": [
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": None,
+                        }
+                    ],
+                    "m2": [
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        }
+                    ],
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "blank reason"):
+                build_validation_vote_table(paths, {"r1": "entailment"})
+
     def test_vote_table_rejects_common_uid_omission(self) -> None:
         """All models omit the same UID that is in expected_labels."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -186,8 +253,20 @@ class UidCoverageTest(unittest.TestCase):
             paths = self._write(
                 root,
                 {
-                    "m1": [{"source_uid": "r1", "predicted_label": "entailment"}],
-                    "m2": [{"source_uid": "r1", "predicted_label": "entailment"}],
+                    "m1": [
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        }
+                    ],
+                    "m2": [
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        }
+                    ],
                 },
             )
             with self.assertRaisesRegex(ValueError, "not covered"):
@@ -202,16 +281,45 @@ class UidCoverageTest(unittest.TestCase):
                 root,
                 {
                     "m1": [
-                        {"source_uid": "r1", "predicted_label": "entailment"},
-                        {"source_uid": "r99", "predicted_label": "neutral"},
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        },
+                        {
+                            "source_uid": "r99",
+                            "predicted_label": "neutral",
+                            "reason": "ok",
+                        },
                     ],
                     "m2": [
-                        {"source_uid": "r1", "predicted_label": "entailment"},
-                        {"source_uid": "r99", "predicted_label": "neutral"},
+                        {
+                            "source_uid": "r1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        },
+                        {
+                            "source_uid": "r99",
+                            "predicted_label": "neutral",
+                            "reason": "ok",
+                        },
                     ],
                 },
             )
             with self.assertRaisesRegex(ValueError, "not in expected labels"):
+                build_validation_vote_table(paths, {"r1": "entailment"})
+
+    def test_vote_table_rejects_missing_reason_column(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._write(
+                root,
+                {
+                    "m1": [{"source_uid": "r1", "predicted_label": "entailment"}],
+                    "m2": [{"source_uid": "r1", "predicted_label": "entailment"}],
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "missing required columns"):
                 build_validation_vote_table(paths, {"r1": "entailment"})
 
     def test_model_name_collision_raises(self) -> None:
@@ -320,12 +428,12 @@ class ValidationAggregationTest(unittest.TestCase):
             root = Path(temp_dir)
             first = root / "gpt4o.csv"
             second = root / "deepseek.csv"
-            pd.DataFrame([{"source_uid": "row-1", "predicted_label": 1}]).to_csv(
-                first, index=False
-            )
-            pd.DataFrame([{"source_uid": "row-2", "predicted_label": 1}]).to_csv(
-                second, index=False
-            )
+            pd.DataFrame(
+                [{"source_uid": "row-1", "predicted_label": 1, "reason": "ok"}]
+            ).to_csv(first, index=False)
+            pd.DataFrame(
+                [{"source_uid": "row-2", "predicted_label": 1, "reason": "ok"}]
+            ).to_csv(second, index=False)
 
             with self.assertRaisesRegex(ValueError, "same source_uid set"):
                 build_validation_vote_table(
@@ -478,6 +586,44 @@ class ValidationAggregationTest(unittest.TestCase):
                 pd.DataFrame([{"source_uid": "row-1"}]),
             )
 
+    def test_apply_paraphrases_rejects_null_uid_in_flagged_rows(self) -> None:
+        dataset = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1"}])
+        flagged = pd.DataFrame([{"source_uid": None, "artifact_tokens": "x"}])
+        paraphrases = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1-new"}])
+        with self.assertRaisesRegex(ValueError, "null source_uid"):
+            apply_paraphrases(dataset, flagged, paraphrases)
+
+    def test_apply_paraphrases_rejects_duplicate_uid_in_flagged_rows(self) -> None:
+        dataset = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "hypothesis": "h1"},
+                {"source_uid": "row-2", "hypothesis": "h2"},
+            ]
+        )
+        flagged = pd.DataFrame(
+            [
+                {"source_uid": "row-1", "artifact_tokens": "x"},
+                {"source_uid": "row-1", "artifact_tokens": "y"},
+            ]
+        )
+        paraphrases = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1-new"}])
+        with self.assertRaisesRegex(ValueError, "duplicate source_uid"):
+            apply_paraphrases(dataset, flagged, paraphrases)
+
+    def test_apply_paraphrases_rejects_missing_artifact_tokens_column(self) -> None:
+        dataset = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1"}])
+        flagged = pd.DataFrame([{"source_uid": "row-1"}])
+        paraphrases = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1-new"}])
+        with self.assertRaisesRegex(ValueError, "artifact_tokens"):
+            apply_paraphrases(dataset, flagged, paraphrases)
+
+    def test_apply_paraphrases_rejects_null_artifact_tokens(self) -> None:
+        dataset = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1"}])
+        flagged = pd.DataFrame([{"source_uid": "row-1", "artifact_tokens": None}])
+        paraphrases = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1-new"}])
+        with self.assertRaisesRegex(ValueError, "null artifact_tokens"):
+            apply_paraphrases(dataset, flagged, paraphrases)
+
     def test_apply_paraphrases_rejects_uid_not_in_flagged(self) -> None:
         dataset = pd.DataFrame(
             [
@@ -578,7 +724,7 @@ class ValidationAggregationTest(unittest.TestCase):
                 },
             ]
         )
-        flagged = pd.DataFrame([{"source_uid": "row-2", "artifact_tokens": ""}])
+        flagged = pd.DataFrame([{"source_uid": "row-2", "artifact_tokens": "cue"}])
         paraphrases = pd.DataFrame(
             [
                 {"source_uid": "row-2", "hypothesis": "h2-rewritten"},
@@ -615,19 +761,19 @@ class ValidationAggregationTest(unittest.TestCase):
     def _write_model_label_files(root: Path) -> dict[str, Path]:
         model_rows = {
             "gpt4o": [
-                {"source_uid": "row-1", "predicted_label": 1},
-                {"source_uid": "row-2", "predicted_label": 0},
-                {"source_uid": "row-3", "predicted_label": 0},
+                {"source_uid": "row-1", "predicted_label": 1, "reason": "ok"},
+                {"source_uid": "row-2", "predicted_label": 0, "reason": "ok"},
+                {"source_uid": "row-3", "predicted_label": 0, "reason": "ok"},
             ],
             "deepseek": [
-                {"source_uid": "row-1", "predicted_label": 1},
-                {"source_uid": "row-2", "predicted_label": 0},
-                {"source_uid": "row-3", "predicted_label": 1},
+                {"source_uid": "row-1", "predicted_label": 1, "reason": "ok"},
+                {"source_uid": "row-2", "predicted_label": 0, "reason": "ok"},
+                {"source_uid": "row-3", "predicted_label": 1, "reason": "ok"},
             ],
             "llama": [
-                {"source_uid": "row-1", "predicted_label": 1},
-                {"source_uid": "row-2", "predicted_label": 1},
-                {"source_uid": "row-3", "predicted_label": 2},
+                {"source_uid": "row-1", "predicted_label": 1, "reason": "ok"},
+                {"source_uid": "row-2", "predicted_label": 1, "reason": "ok"},
+                {"source_uid": "row-3", "predicted_label": 2, "reason": "ok"},
             ],
         }
         paths = {}
@@ -656,19 +802,39 @@ class ComputeFleissKappaTest(unittest.TestCase):
                 root,
                 {
                     "gpt4o": [
-                        {"source_uid": "row-1", "predicted_label": "entailment"},
-                        {"source_uid": "row-2", "predicted_label": "neutral"},
-                        {"source_uid": "row-3", "predicted_label": "contradiction"},
+                        {
+                            "source_uid": "row-1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        },
+                        {
+                            "source_uid": "row-2",
+                            "predicted_label": "neutral",
+                            "reason": "ok",
+                        },
+                        {
+                            "source_uid": "row-3",
+                            "predicted_label": "contradiction",
+                            "reason": "ok",
+                        },
                     ],
                     "deepseek": [
-                        {"source_uid": "row-1", "predicted_label": 0},
-                        {"source_uid": "row-2", "predicted_label": 1},
-                        {"source_uid": "row-3", "predicted_label": 2},
+                        {"source_uid": "row-1", "predicted_label": 0, "reason": "ok"},
+                        {"source_uid": "row-2", "predicted_label": 1, "reason": "ok"},
+                        {"source_uid": "row-3", "predicted_label": 2, "reason": "ok"},
                     ],
                     "llama": [
-                        {"source_uid": "row-1", "predicted_label": "entailment"},
-                        {"source_uid": "row-2", "predicted_label": 1},
-                        {"source_uid": "row-3", "predicted_label": "contradiction"},
+                        {
+                            "source_uid": "row-1",
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        },
+                        {"source_uid": "row-2", "predicted_label": 1, "reason": "ok"},
+                        {
+                            "source_uid": "row-3",
+                            "predicted_label": "contradiction",
+                            "reason": "ok",
+                        },
                     ],
                 },
             )
@@ -684,22 +850,22 @@ class ComputeFleissKappaTest(unittest.TestCase):
                 root,
                 {
                     "gpt4o": [
-                        {"source_uid": "row-1", "predicted_label": 0},
-                        {"source_uid": "row-2", "predicted_label": 1},
-                        {"source_uid": "row-3", "predicted_label": 2},
-                        {"source_uid": "row-4", "predicted_label": 0},
+                        {"source_uid": "row-1", "predicted_label": 0, "reason": "ok"},
+                        {"source_uid": "row-2", "predicted_label": 1, "reason": "ok"},
+                        {"source_uid": "row-3", "predicted_label": 2, "reason": "ok"},
+                        {"source_uid": "row-4", "predicted_label": 0, "reason": "ok"},
                     ],
                     "deepseek": [
-                        {"source_uid": "row-1", "predicted_label": 0},
-                        {"source_uid": "row-2", "predicted_label": 1},
-                        {"source_uid": "row-3", "predicted_label": 1},
-                        {"source_uid": "row-4", "predicted_label": 0},
+                        {"source_uid": "row-1", "predicted_label": 0, "reason": "ok"},
+                        {"source_uid": "row-2", "predicted_label": 1, "reason": "ok"},
+                        {"source_uid": "row-3", "predicted_label": 1, "reason": "ok"},
+                        {"source_uid": "row-4", "predicted_label": 0, "reason": "ok"},
                     ],
                     "llama": [
-                        {"source_uid": "row-1", "predicted_label": 0},
-                        {"source_uid": "row-2", "predicted_label": 2},
-                        {"source_uid": "row-3", "predicted_label": 2},
-                        {"source_uid": "row-4", "predicted_label": 1},
+                        {"source_uid": "row-1", "predicted_label": 0, "reason": "ok"},
+                        {"source_uid": "row-2", "predicted_label": 2, "reason": "ok"},
+                        {"source_uid": "row-3", "predicted_label": 2, "reason": "ok"},
+                        {"source_uid": "row-4", "predicted_label": 1, "reason": "ok"},
                     ],
                 },
             )
@@ -716,7 +882,7 @@ class ComputeFleissKappaTest(unittest.TestCase):
                 root,
                 {
                     "gpt4o": [
-                        {"source_uid": "row-1", "predicted_label": 0},
+                        {"source_uid": "row-1", "predicted_label": 0, "reason": "ok"},
                     ],
                 },
             )

@@ -3,8 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import fastmcp
 import pandas as pd
 from fastmcp import FastMCP
+from pydantic import ValidationError
 from src.providers import register_validation_tools
 
 
@@ -124,9 +126,7 @@ class ValidationProviderTest(unittest.TestCase):
             )
             batch_id = claimed.structured_content["batch"]["batch_id"]
 
-            import fastmcp
-
-            with self.assertRaises((fastmcp.exceptions.ToolError, Exception)):
+            with self.assertRaises((fastmcp.exceptions.ToolError, ValidationError)):
                 await self.mcp.call_tool(
                     "submit_validation_result",
                     {

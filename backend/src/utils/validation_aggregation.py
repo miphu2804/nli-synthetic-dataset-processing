@@ -4,11 +4,7 @@ from collections import Counter
 from pathlib import Path
 
 import pandas as pd
-from src.utils.nli_labels import (
-    CANONICAL_LABEL_NAMES_IN_ORDER,
-    canonical_label,
-    require_canonical_label,
-)
+from src.utils.nli_labels import CANONICAL_LABEL_NAMES_IN_ORDER, require_canonical_label
 
 SOURCE_UID_COLUMN = "source_uid"
 PREDICTED_LABEL_COLUMN = "predicted_label"
@@ -283,10 +279,28 @@ def apply_paraphrases(
             raise ValueError(
                 f"{frame_name} is missing required columns: {', '.join(missing)}"
             )
-    if uid_column not in flagged_rows.columns:
-        raise ValueError(f"flagged_rows is missing required columns: {uid_column}")
+    missing_flagged_cols = [
+        c for c in (uid_column, artifact_tokens_column) if c not in flagged_rows.columns
+    ]
+    if missing_flagged_cols:
+        raise ValueError(
+            f"flagged_rows is missing required columns: {', '.join(missing_flagged_cols)}"
+        )
 
-    flagged_uids = set(str(uid) for uid in flagged_rows[uid_column])
+    if flagged_rows[uid_column].isnull().any():
+        raise ValueError("flagged_rows contains null source_uid values.")
+    if flagged_rows[artifact_tokens_column].isnull().any():
+        raise ValueError("flagged_rows contains null artifact_tokens values.")
+    flagged_uid_strs_list = [str(uid) for uid in flagged_rows[uid_column]]
+    flagged_uid_dups = [
+        uid for uid, count in Counter(flagged_uid_strs_list).items() if count > 1
+    ]
+    if flagged_uid_dups:
+        raise ValueError(
+            f"flagged_rows contains duplicate source_uid: {', '.join(sorted(flagged_uid_dups)[:5])}"
+        )
+
+    flagged_uids = set(flagged_uid_strs_list)
     paraphrase_uids_list = [str(uid) for uid in paraphrases[uid_column]]
     paraphrase_uids = set(paraphrase_uids_list)
 
@@ -318,12 +332,11 @@ def apply_paraphrases(
         str(uid): text for uid, text in zip(dataset[uid_column], dataset[text_column])
     }
     artifact_lookup: dict[str, set[str]] = {}
-    if artifact_tokens_column in flagged_rows.columns:
-        for uid, tokens_str in zip(
-            flagged_rows[uid_column], flagged_rows[artifact_tokens_column]
-        ):
-            tokens = set(_tokenize(str(tokens_str))) if tokens_str else set()
-            artifact_lookup[str(uid)] = tokens
+    for uid, tokens_str in zip(
+        flagged_rows[uid_column], flagged_rows[artifact_tokens_column]
+    ):
+        tokens = set(_tokenize(str(tokens_str))) if tokens_str else set()
+        artifact_lookup[str(uid)] = tokens
 
     replacements: dict[str, str] = {}
     for uid, new_text in zip(paraphrases[uid_column], paraphrases[text_column]):
@@ -574,7 +587,7 @@ def _read_model_label_column(model_name: str, path: str | Path) -> pd.DataFrame:
     reason is blank, or any predicted_label is outside the three-class domain.
     """
     dataframe = _read_table(path)
-    required_columns = [SOURCE_UID_COLUMN, PREDICTED_LABEL_COLUMN]
+    required_columns = [SOURCE_UID_COLUMN, PREDICTED_LABEL_COLUMN, "reason"]
     missing_columns = [
         column for column in required_columns if column not in dataframe.columns
     ]
@@ -593,10 +606,11 @@ def _read_model_label_column(model_name: str, path: str | Path) -> pd.DataFrame:
             f"Model '{model_name}' contains duplicate source_uid: {preview}"
         )
 
-    if "reason" in dataframe.columns:
-        blank_mask = dataframe["reason"].astype(str).str.strip() == ""
-        if blank_mask.any():
-            raise ValueError(f"Model '{model_name}' contains rows with a blank reason.")
+    blank_mask = dataframe["reason"].isnull() | (
+        dataframe["reason"].astype(str).str.strip() == ""
+    )
+    if blank_mask.any():
+        raise ValueError(f"Model '{model_name}' contains rows with a blank reason.")
 
     dataframe[PREDICTED_LABEL_COLUMN] = dataframe[PREDICTED_LABEL_COLUMN].apply(
         require_canonical_label

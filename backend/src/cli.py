@@ -294,6 +294,29 @@ def run_aggregation(
     }
     vote_table = build_validation_vote_table(model_label_paths, expected_labels)
     masked_df = read_dataset(masked_dataset_path)
+    if "source_uid" not in masked_df.columns:
+        raise ValueError("masked dataset is missing required column: source_uid")
+    if masked_df["source_uid"].isnull().any():
+        raise ValueError("masked dataset contains null source_uid values.")
+    masked_uid_strs = masked_df["source_uid"].astype(str)
+    dups = sorted(masked_uid_strs[masked_uid_strs.duplicated()].unique())
+    if dups:
+        raise ValueError(
+            f"masked dataset contains duplicate source_uid: {', '.join(dups[:5])}"
+        )
+    masked_uid_set = set(masked_uid_strs)
+    expected_uid_set = set(str(k) for k in expected_labels)
+    if masked_uid_set != expected_uid_set:
+        missing = sorted(expected_uid_set - masked_uid_set)
+        extra = sorted(masked_uid_set - expected_uid_set)
+        parts = []
+        if missing:
+            parts.append(f"masked dataset is missing UIDs: {', '.join(missing[:5])}")
+        if extra:
+            parts.append(
+                f"masked dataset has extra UIDs not in expected labels: {', '.join(extra[:5])}"
+            )
+        raise ValueError("; ".join(parts))
     retained_df = build_retained_dataset(masked_df, vote_table)
     review_df = build_review_dataset(masked_df, vote_table)
 
