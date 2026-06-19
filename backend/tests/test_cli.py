@@ -144,13 +144,30 @@ class ValidationAggregationCliTest(unittest.TestCase):
                 },
             ]
         ).to_csv(self.verdicts_dir / "deepseek.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": "row-1",
+                    "predicted_label": "entailment",
+                    "reason": "Supported.",
+                },
+                {
+                    "source_uid": "row-2",
+                    "predicted_label": "neutral",
+                    "reason": "Unclear.",
+                },
+            ]
+        ).to_csv(self.verdicts_dir / "llama.csv", index=False)
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
     def test_discover_verdict_files_finds_csv_files(self) -> None:
         found = discover_verdict_files(self.verdicts_dir)
-        self.assertEqual(sorted(p.name for p in found), ["deepseek.csv", "gpt4o.csv"])
+        self.assertEqual(
+            sorted(p.name for p in found),
+            ["deepseek.csv", "gpt4o.csv", "llama.csv"],
+        )
 
     def test_discover_verdict_files_returns_empty_for_missing_dir(self) -> None:
         self.assertEqual(discover_verdict_files(self.root / "nonexistent"), [])
@@ -163,14 +180,14 @@ class ValidationAggregationCliTest(unittest.TestCase):
         candidates = build_verdict_candidates(paths)
         valid_names = {c.model_name for c in candidates if c.is_valid}
         invalid_names = {c.model_name for c in candidates if not c.is_valid}
-        self.assertEqual(valid_names, {"gpt4o", "deepseek"})
+        self.assertEqual(valid_names, {"gpt4o", "deepseek", "llama"})
         self.assertEqual(invalid_names, {"bad"})
 
     def test_build_verdict_candidates_infers_model_name_from_stem(self) -> None:
         paths = discover_verdict_files(self.verdicts_dir)
         candidates = build_verdict_candidates(paths)
         self.assertEqual(
-            sorted(c.model_name for c in candidates), ["deepseek", "gpt4o"]
+            sorted(c.model_name for c in candidates), ["deepseek", "gpt4o", "llama"]
         )
 
     def test_run_aggregation_writes_votes_and_validated_dataset(self) -> None:
@@ -266,6 +283,44 @@ class ValidationAggregationCliTest(unittest.TestCase):
                 "aggregate",
                 "--verdicts-dir",
                 str(lone_dir),
+                "--masked-input",
+                str(self.masked_path),
+                "--expected-input",
+                str(self.expected_path),
+                "--label-column",
+                "label",
+                "--output-dir",
+                str(self.output_dir),
+                "--yes",
+                "--quiet",
+            ]
+        )
+        self.assertEqual(exit_code, 2)
+
+    def test_main_fails_with_only_two_valid_verdict_files(self) -> None:
+        two_dir = self.root / "two"
+        two_dir.mkdir()
+        for name in ("alpha", "beta"):
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": "row-1",
+                        "predicted_label": "entailment",
+                        "reason": "ok",
+                    },
+                    {
+                        "source_uid": "row-2",
+                        "predicted_label": "neutral",
+                        "reason": "ok",
+                    },
+                ]
+            ).to_csv(two_dir / f"{name}.csv", index=False)
+
+        exit_code = main(
+            [
+                "aggregate",
+                "--verdicts-dir",
+                str(two_dir),
                 "--masked-input",
                 str(self.masked_path),
                 "--expected-input",

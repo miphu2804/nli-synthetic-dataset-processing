@@ -26,6 +26,12 @@ def build_validation_vote_table(
     """
     vote_table, label_columns = _merge_model_labels(model_label_paths)
 
+    model_count = len(label_columns)
+    if not 1 <= min_agreement <= model_count:
+        raise ValueError(
+            f"min_agreement must be between 1 and {model_count} (got {min_agreement})."
+        )
+
     verdict_uids = set(vote_table[SOURCE_UID_COLUMN].astype(str))
     expected_uids = set(str(k) for k in expected_labels)
     missing = sorted(expected_uids - verdict_uids)

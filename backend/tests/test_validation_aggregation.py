@@ -83,6 +83,34 @@ class InvalidLabelAggregationTest(unittest.TestCase):
                 compute_fleiss_kappa({"m1": p1, "m2": p2})
 
 
+class AgreementPolicyTest(unittest.TestCase):
+    def test_min_agreement_less_than_one_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("m1", "m2", "m3"):
+                pd.DataFrame(
+                    [{"source_uid": "r1", "predicted_label": "entailment"}]
+                ).to_csv(root / f"{name}.csv", index=False)
+            paths = {name: root / f"{name}.csv" for name in ("m1", "m2", "m3")}
+            with self.assertRaisesRegex(ValueError, "min_agreement"):
+                build_validation_vote_table(
+                    paths, {"r1": "entailment"}, min_agreement=0
+                )
+
+    def test_min_agreement_greater_than_model_count_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("m1", "m2", "m3"):
+                pd.DataFrame(
+                    [{"source_uid": "r1", "predicted_label": "entailment"}]
+                ).to_csv(root / f"{name}.csv", index=False)
+            paths = {name: root / f"{name}.csv" for name in ("m1", "m2", "m3")}
+            with self.assertRaisesRegex(ValueError, "min_agreement"):
+                build_validation_vote_table(
+                    paths, {"r1": "entailment"}, min_agreement=4
+                )
+
+
 class UidCoverageTest(unittest.TestCase):
     """Regression tests for duplicate/missing UID detection in verdict frames."""
 

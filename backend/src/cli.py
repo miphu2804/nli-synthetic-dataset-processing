@@ -329,7 +329,7 @@ def _resolve_verdicts_dir(args: argparse.Namespace, console: Console) -> Path | 
 def _resolve_masked_input(args: argparse.Namespace, console: Console) -> Path | None:
     if args.masked_input:
         return Path(args.masked_input).expanduser()
-    raw = Prompt.ask("Path to masked validation dataset (for PMI text join)")
+    raw = Prompt.ask("Path to masked validation dataset")
     return Path(raw).expanduser()
 
 
@@ -354,9 +354,9 @@ def _run_aggregate_command(args: argparse.Namespace, console: Console) -> int:
     if candidates:
         render_verdict_candidates_table(console, candidates)
 
-    if len(valid_candidates) < 2:
+    if len(valid_candidates) != 3:
         console.print(
-            "[red]Need at least 2 valid verdict files "
+            f"[red]Need exactly 3 valid verdict files, found {len(valid_candidates)} "
             "(columns: source_uid, predicted_label, reason).[/red]"
         )
         return 2
@@ -508,8 +508,11 @@ KAPPA_THRESHOLD = 0.85
 def run_kappa(verdicts_dir: Path) -> dict:
     candidates = build_verdict_candidates(discover_verdict_files(verdicts_dir))
     valid_candidates = [c for c in candidates if c.is_valid]
-    if len(valid_candidates) < 2:
-        raise ValueError("Fleiss' Kappa requires at least 2 valid verdict files.")
+    if len(valid_candidates) != 3:
+        raise ValueError(
+            f"Fleiss' Kappa requires exactly 3 valid verdict files, "
+            f"found {len(valid_candidates)}."
+        )
     model_label_paths = {
         candidate.model_name: candidate.path for candidate in valid_candidates
     }
@@ -529,9 +532,9 @@ def _run_kappa_command(args: argparse.Namespace, console: Console) -> int:
     if candidates:
         render_verdict_candidates_table(console, candidates)
 
-    if len(valid_candidates) < 2:
+    if len(valid_candidates) != 3:
         console.print(
-            "[red]Need at least 2 valid verdict files "
+            f"[red]Need exactly 3 valid verdict files, found {len(valid_candidates)} "
             "(columns: source_uid, predicted_label, reason).[/red]"
         )
         return 2
@@ -708,7 +711,7 @@ def _add_mask_parser(subparsers: argparse._SubParsersAction) -> None:
 def _add_aggregate_parser(subparsers: argparse._SubParsersAction) -> None:
     aggregate = subparsers.add_parser(
         "aggregate",
-        help="Aggregate multi-model verdicts into consensus votes + consensus PMI.",
+        help="Aggregate three validator verdict files into keep/review/discard outputs.",
     )
     aggregate.add_argument(
         "--verdicts-dir",
@@ -716,7 +719,7 @@ def _add_aggregate_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     aggregate.add_argument(
         "--masked-input",
-        help="Path to masked validation dataset for PMI text join.",
+        help="Path to masked validation dataset.",
     )
     aggregate.add_argument(
         "--expected-input",
