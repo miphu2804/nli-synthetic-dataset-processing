@@ -1,3 +1,24 @@
+### [2026-06-19 22:30] — [Utils] Split validation_aggregation into a package
+
+**Đã làm:**
+- Tách `validation_aggregation.py` (653 dòng, 5 trách nhiệm) thành package cùng tên, giữ nguyên import path → không đụng call site (`cli.py`, `prompt_refinement_service.py`, tests).
+- Module theo capability: `model_labels.py` (nạp/merge nhãn — nền chia sẻ), `voting.py` (vote consensus), `agreement.py` (Fleiss' kappa), `dataset_builders.py` (keep/review), `pmi.py` (PMI artifact + paraphrase, self-contained).
+- `__init__.py` re-export 8 hàm public (`__all__`). Đồ thị import 1 chiều, không cycle.
+- Verify: tập 20 def top-level giống hệt bản cũ; body hàm verbatim (diff chỉ là dòng nối import do black); `126 passed`; smoke import 8 hàm ok; isort/black sạch.
+
+**Files thay đổi:**
+- `backend/src/utils/validation_aggregation.py` — deleted
+- `backend/src/utils/validation_aggregation/{__init__,model_labels,voting,agreement,dataset_builders,pmi}.py` — created
+
+**Blockers:** None
+
+**Còn lại:** None. `nli_labels.py` (30) + `validation_masking.py` (51) giữ nguyên (nhỏ, cohesive).
+
+**Flow explained:**
+Chỉ tổ chức lại, không đổi behavior. Dùng package + re-export thay vì sửa import ở 3 nơi → rủi ro thấp nhất, an toàn nhờ `test_validation_aggregation.py` + `test_cli.py`. Nhánh `refactor/validation-aggregation-split` tách từ `staging`.
+
+---
+
 ### [2026-06-19 22:10] — [MCPProvider] Self-registering ToolProvider (unify tool registration)
 
 **Đã làm:**
