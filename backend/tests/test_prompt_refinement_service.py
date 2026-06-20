@@ -589,6 +589,60 @@ class PromptRefinementServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already finalized"):
             self._eval_session(round_number=2, uids=["a", "b"], session_id="sess-fin")
 
+    def test_locked_marker_blocks_reuse_when_termination_fails(self) -> None:
+        from unittest.mock import patch
+
+        result = self._eval_session(
+            round_number=1, uids=["a", "b"], session_id="sess-mark"
+        )
+        original = MlflowClient.set_terminated
+
+        def fail_session(self_client, run_id, *args, **kwargs):
+            if run_id == result.mlflow_session_run_id:
+                raise MlflowException("transient")
+            return original(self_client, run_id, *args, **kwargs)
+
+        with patch.object(MlflowClient, "set_terminated", fail_session):
+            self.service.confirm_prompt_lock(
+                lock_run_id=result.mlflow_run_id,
+                tracking_uri=self.tracking_uri,
+            )
+
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        session_run = client.get_run(result.mlflow_session_run_id)
+        # Termination failed (still RUNNING) but the durable marker is set.
+        self.assertEqual(session_run.info.status, "RUNNING")
+        self.assertEqual(session_run.data.tags.get("session_locked"), "true")
+        with self.assertRaisesRegex(ValueError, "already finalized"):
+            self._eval_session(round_number=2, uids=["a", "b"], session_id="sess-mark")
+
+    def test_legacy_session_with_existing_rounds_rejected(self) -> None:
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        experiment_id = client.create_experiment(
+            "test-calibration", artifact_location=self.artifact_root
+        )
+        legacy = client.create_run(
+            experiment_id=experiment_id,
+            run_name="calibration-session-old",
+            tags={
+                "calibration_session_id": "old",
+                "run_type": "calibration_session",
+            },
+        )
+        # A pre-existing child round, with the parent left unanchored.
+        client.create_run(
+            experiment_id=experiment_id,
+            run_name="prompt-refinement-round-01",
+            tags={"mlflow.parentRunId": legacy.info.run_id},
+        )
+
+        with self.assertRaisesRegex(ValueError, "already has rounds"):
+            self._eval_session(round_number=1, uids=["a", "b"], session_id="old")
+
 
 if __name__ == "__main__":
     unittest.main()

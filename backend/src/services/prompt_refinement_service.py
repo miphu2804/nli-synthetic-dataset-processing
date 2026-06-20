@@ -236,10 +236,12 @@ class PromptRefinementService:
         client.set_prompt_alias("nli-validator", "locked", validator_version)
         client.set_tag(lock_run_id, "lock_confirmed", "true")
 
-        # Locking ends the calibration session: finalize the parent run so it no
-        # longer shows as an active session in the UI. Best-effort.
+        # Locking ends the calibration session. Persist a durable lock marker
+        # first (so reuse is rejected even if termination fails), then finalize
+        # the parent run so it no longer shows as active in the UI.
         session_run_id = run.data.tags.get("mlflow.parentRunId")
         if session_run_id:
+            client.set_tag(session_run_id, "session_locked", "true")
             try:
                 client.set_terminated(session_run_id, status="FINISHED")
             except Exception:
@@ -393,15 +395,29 @@ class PromptRefinementService:
         )
         if runs:
             existing = runs[0]
-            if existing.info.status != "RUNNING":
+            locked = existing.data.tags.get("session_locked") == "true"
+            if locked or existing.info.status != "RUNNING":
                 raise ValueError(
                     f"Session '{session_id}' is already finalized "
                     f"(status {existing.info.status}); use a new session_id."
                 )
             anchored = existing.data.tags.get("calibration_uid_set_sha256")
             if anchored is None:
-                # Back-fill the anchor for sessions created before anchoring
-                # existed, so subsequent rounds are still guarded.
+                # Legacy session created before anchoring existed. Only back-fill
+                # if it has no recorded rounds yet; otherwise its historical UID
+                # set is unverifiable and must not be assumed from this round.
+                children = client.search_runs(
+                    experiment_ids=[experiment_id],
+                    filter_string=(
+                        f"tags.mlflow.parentRunId = '{existing.info.run_id}'"
+                    ),
+                )
+                if children:
+                    raise ValueError(
+                        f"Session '{session_id}' predates UID-set anchoring and "
+                        "already has rounds; its calibration set cannot be "
+                        "verified. Use a new session_id."
+                    )
                 client.set_tag(
                     existing.info.run_id,
                     "calibration_uid_set_sha256",
