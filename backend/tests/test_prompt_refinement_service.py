@@ -178,7 +178,7 @@ class PromptRefinementServiceTest(unittest.TestCase):
         result = self._evaluate()
 
         self.assertEqual(result.decision, "refine_prompt")
-        with self.assertRaisesRegex(ValueError, "not eligible to lock"):
+        with self.assertRaisesRegex(ValueError, "eligible"):
             self.service.confirm_prompt_lock(
                 lock_run_id=result.mlflow_run_id,
                 tracking_uri=self.tracking_uri,
@@ -341,6 +341,82 @@ class PromptRefinementServiceTest(unittest.TestCase):
             "Locked and candidate should point to the same version; "
             "confirm_prompt_lock did not register a new version.",
         )
+
+    def test_mixed_numeric_and_named_labels_agree(self) -> None:
+        # Equivalent numeric/named labels must canonicalize to agreement so the
+        # disagreement count matches kappa.
+        for model, labels in {
+            "model-a": [0, 1],
+            "model-b": ["entailment", "neutral"],
+            "model-c": ["0", 1],
+        }.items():
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": f"row-{index}",
+                        "predicted_label": label,
+                        "reason": "Lý do hợp lệ.",
+                    }
+                    for index, label in enumerate(labels, start=1)
+                ]
+            ).to_csv(self.verdicts_dir / f"{model}.csv", index=False)
+
+        result = self._evaluate()
+
+        self.assertEqual(result.kappa, 1.0)
+        self.assertEqual(result.n_disagreements, 0)
+        self.assertEqual(result.decision, "eligible_to_lock")
+
+    def test_invalid_session_id_rejected_before_registration(self) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "session_id"):
+            self.service.evaluate_round(
+                verdicts_dir=self.verdicts_dir,
+                calibration_input=self.calibration_input,
+                round_number=1,
+                change_summary="Initial calibration.",
+                tracking_uri=self.tracking_uri,
+                experiment_name="test-calibration",
+                artifact_root=self.artifact_root,
+                session_id="team's session",
+            )
+
+        # No prompt versions should have been registered on early rejection.
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        self.assertIsNone(client.get_prompt("nli-generator"))
+
+    def test_confirm_lock_rejects_unfinished_run(self) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+        result = self._evaluate()
+
+        # Simulate a run that logged eligible metrics but ended up FAILED.
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        client.set_terminated(result.mlflow_run_id, status="FAILED")
+
+        with self.assertRaisesRegex(ValueError, "did not finish"):
+            self.service.confirm_prompt_lock(
+                lock_run_id=result.mlflow_run_id,
+                tracking_uri=self.tracking_uri,
+            )
+        with self.assertRaises(MlflowException):
+            client.get_prompt_version_by_alias("nli-generator", "locked")
 
 
 if __name__ == "__main__":

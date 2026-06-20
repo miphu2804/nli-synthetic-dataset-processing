@@ -1,4 +1,5 @@
 import hashlib
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -10,11 +11,13 @@ from src.schemas.validation_runtime_schema import (
     PromptLockConfirmationResponse,
     PromptRefinementRoundResponse,
 )
+from src.utils.nli_labels import require_canonical_label
 from src.utils.validation_aggregation import compute_fleiss_kappa
 
 KAPPA_THRESHOLD = 0.85
 DATASET_SUFFIXES = {".csv", ".parquet"}
 VERDICT_COLUMNS = {"source_uid", "predicted_label", "reason"}
+SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 class PromptRefinementService:
@@ -39,6 +42,10 @@ class PromptRefinementService:
             raise ValueError("round_number must be at least 1.")
         if not change_summary.strip():
             raise ValueError("change_summary must not be empty.")
+        if session_id is not None and not SESSION_ID_PATTERN.fullmatch(session_id):
+            raise ValueError(
+                "session_id may only contain letters, digits, '.', '_', or '-'."
+            )
 
         verdict_paths = self._discover_verdicts(Path(verdicts_dir))
         model_label_paths = {path.stem: path for path in verdict_paths}
@@ -190,6 +197,17 @@ class PromptRefinementService:
         run = client.get_run(lock_run_id)
         if run is None:
             raise ValueError(f"MLflow run not found: {lock_run_id}")
+
+        if run.info.status != "FINISHED":
+            raise ValueError(
+                f"Run {lock_run_id} did not finish successfully "
+                f"(status {run.info.status}); refusing to lock."
+            )
+        if run.data.tags.get("decision") != "eligible_to_lock":
+            raise ValueError(
+                f"Run {lock_run_id} is not an eligible_to_lock round "
+                f"(decision {run.data.tags.get('decision')!r})."
+            )
 
         kappa = run.data.metrics.get("fleiss_kappa")
         if kappa is None or float(kappa) < KAPPA_THRESHOLD:
@@ -435,7 +453,13 @@ class PromptRefinementService:
         for model, path in model_label_paths.items():
             dataframe = PromptRefinementService._read_table(path)[
                 ["source_uid", "predicted_label", "reason"]
-            ].rename(
+            ].copy()
+            # Canonicalize labels so equivalent numeric/named forms (e.g. 0 and
+            # "entailment") count as agreement, matching compute_fleiss_kappa.
+            dataframe["predicted_label"] = dataframe["predicted_label"].apply(
+                require_canonical_label
+            )
+            dataframe = dataframe.rename(
                 columns={
                     "predicted_label": f"{model}_label",
                     "reason": f"{model}_reason",
