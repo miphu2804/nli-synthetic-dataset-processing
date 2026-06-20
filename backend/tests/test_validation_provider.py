@@ -55,9 +55,9 @@ class ValidationProviderTest(unittest.TestCase):
             self.assertIn("calibration_input", properties)
             self.assertIn("round_number", properties)
             self.assertIn("change_summary", properties)
-            self.assertIn("confirm_lock", properties)
             self.assertIn("tracking_uri", properties)
             self.assertIn("experiment_name", properties)
+            self.assertNotIn("confirm_lock", properties)
 
         asyncio.run(scenario())
 

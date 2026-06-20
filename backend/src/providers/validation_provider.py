@@ -220,14 +220,6 @@ class ValidationToolProvider(ToolProvider):
             str,
             Field(description="Short description of prompt changes in this round."),
         ],
-        confirm_lock: Annotated[
-            bool,
-            Field(
-                description=(
-                    "Set true only to lock a prompt bundle whose kappa is at least 0.85."
-                )
-            ),
-        ] = False,
         tracking_uri: Annotated[
             str,
             Field(description="MLflow tracking and prompt registry URI."),
@@ -236,15 +228,50 @@ class ValidationToolProvider(ToolProvider):
             str,
             Field(description="MLflow experiment used for prompt calibration rounds."),
         ] = "nli-prompt-calibration",
+        session_id: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description=(
+                    "Optional id grouping rounds of one calibration session to view "
+                    "kappa trend on the parent calibration-session-* run."
+                ),
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         return self._prompt_refinement_service.evaluate_round(
             verdicts_dir=verdicts_dir,
             calibration_input=calibration_input,
             round_number=round_number,
             change_summary=change_summary,
-            confirm_lock=confirm_lock,
             tracking_uri=tracking_uri,
             experiment_name=experiment_name,
+            session_id=session_id,
+        ).model_dump(mode="json")
+
+    @tool(
+        name="confirm_prompt_lock",
+        description=(
+            "Lock the exact prompt bundle of a previously eligible refinement "
+            "round by its MLflow run id; does not register new prompt versions."
+        ),
+    )
+    def confirm_prompt_lock(
+        self,
+        lock_run_id: Annotated[
+            str,
+            Field(
+                description=("MLflow run id of an eligible_to_lock evaluation result.")
+            ),
+        ],
+        tracking_uri: Annotated[
+            str,
+            Field(description="MLflow tracking and prompt registry URI."),
+        ] = "http://127.0.0.1:5000",
+    ) -> dict[str, Any]:
+        return self._prompt_refinement_service.confirm_prompt_lock(
+            lock_run_id=lock_run_id,
+            tracking_uri=tracking_uri,
         ).model_dump(mode="json")
 
 

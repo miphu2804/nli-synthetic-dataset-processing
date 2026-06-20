@@ -6,7 +6,10 @@ from pathlib import Path
 import mlflow
 import pandas as pd
 from mlflow import MlflowClient
-from src.schemas.validation_runtime_schema import PromptRefinementRoundResponse
+from src.schemas.validation_runtime_schema import (
+    PromptLockConfirmationResponse,
+    PromptRefinementRoundResponse,
+)
 from src.utils.validation_aggregation import compute_fleiss_kappa
 
 KAPPA_THRESHOLD = 0.85
@@ -26,10 +29,10 @@ class PromptRefinementService:
         calibration_input: str | Path,
         round_number: int,
         change_summary: str,
-        confirm_lock: bool = False,
         tracking_uri: str = "http://127.0.0.1:5000",
         experiment_name: str = "nli-prompt-calibration",
         artifact_root: str | None = None,
+        session_id: str | None = None,
     ) -> PromptRefinementRoundResponse:
         """Compute kappa, version current skills, and log one MLflow round."""
         if round_number < 1:
@@ -46,12 +49,12 @@ class PromptRefinementService:
             verdict_paths[0],
         )
         kappa = float(kappa_result["kappa"])
-        if confirm_lock and kappa < KAPPA_THRESHOLD:
-            raise ValueError(
-                f"Cannot lock prompt bundle below kappa threshold {KAPPA_THRESHOLD}."
-            )
 
-        decision = self._decision(kappa, confirm_lock)
+        # Build disagreement DataFrame once to compute n_disagreements
+        disagreements = self._build_disagreement_rows(model_label_paths)
+        n_disagreements = len(disagreements)
+
+        decision = self._decision(kappa)
         generator_text = self._read_skill("generator.md")
         validator_text = self._read_skill("validator.md")
         bundle_id = f"round-{round_number:02d}-{dataset_hash[:8]}"
@@ -78,14 +81,24 @@ class PromptRefinementService:
             commit_message=change_summary,
             tags={"round": str(round_number), "bundle_id": bundle_id},
         )
+
+        # Resolve session run if session_id provided
+        session_run_id = None
+        round_tags = {
+            "decision": decision,
+            "change_summary": change_summary,
+            "bundle_id": bundle_id,
+        }
+        if session_id:
+            session_run_id = self._resolve_session_run(
+                client, experiment_id, session_id
+            )
+            round_tags["mlflow.parentRunId"] = session_run_id
+
         run = client.create_run(
             experiment_id=experiment_id,
             run_name=f"prompt-refinement-round-{round_number:02d}",
-            tags={
-                "decision": decision,
-                "change_summary": change_summary,
-                "bundle_id": bundle_id,
-            },
+            tags=round_tags,
         )
         run_id = run.info.run_id
         generator_version = int(generator_prompt.version)
@@ -103,22 +116,30 @@ class PromptRefinementService:
                 validator_prompt=validator_prompt,
                 bundle_id=bundle_id,
                 calibration_path=calibration_path,
+                disagreements=disagreements,
+                n_disagreements=n_disagreements,
             )
             client.set_prompt_alias("nli-generator", "candidate", generator_version)
             client.set_prompt_alias("nli-validator", "candidate", validator_version)
-            if confirm_lock:
-                client.set_prompt_alias("nli-generator", "locked", generator_version)
-                client.set_prompt_alias("nli-validator", "locked", validator_version)
+
+            # Log session metrics if session_id provided
+            if session_run_id:
+                client.log_metric(
+                    session_run_id, "fleiss_kappa", kappa, step=round_number
+                )
+                client.log_metric(
+                    session_run_id,
+                    "n_disagreements",
+                    n_disagreements,
+                    step=round_number,
+                )
+
             client.set_terminated(run_id, status="FINISHED")
         except Exception:
             client.set_terminated(run_id, status="FAILED")
             raise
 
-        run_url = (
-            f"{tracking_uri.rstrip('/')}/#/experiments/{experiment_id}/runs/{run_id}"
-            if tracking_uri.startswith(("http://", "https://"))
-            else None
-        )
+        run_url = self._build_run_url(tracking_uri, experiment_id, run_id)
         return PromptRefinementRoundResponse(
             kappa=kappa,
             threshold=KAPPA_THRESHOLD,
@@ -132,15 +153,112 @@ class PromptRefinementService:
             bundle_id=bundle_id,
             mlflow_run_id=run_id,
             mlflow_run_url=run_url,
+            n_disagreements=n_disagreements,
+            mlflow_session_run_id=session_run_id,
+        )
+
+    def confirm_prompt_lock(
+        self,
+        lock_run_id: str,
+        tracking_uri: str = "http://127.0.0.1:5000",
+    ) -> PromptLockConfirmationResponse:
+        """Lock the exact prompt bundle of a previously eligible refinement round.
+
+        Reads the eligible round by its MLflow run_id, verifies kappa is at
+        threshold, extracts the prompt versions that were registered in that
+        round, and sets the 'locked' alias to those exact versions (does not
+        register new versions).
+
+        Args:
+            lock_run_id: MLflow run ID of an eligible_to_lock round.
+            tracking_uri: MLflow tracking and prompt registry URI.
+
+        Returns:
+            PromptLockConfirmationResponse with locked bundle details.
+
+        Raises:
+            ValueError if run not found, kappa is below threshold, or required
+            params are missing.
+        """
+        mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_registry_uri(tracking_uri)
+        client = MlflowClient(
+            tracking_uri=tracking_uri,
+            registry_uri=tracking_uri,
+        )
+
+        run = client.get_run(lock_run_id)
+        if run is None:
+            raise ValueError(f"MLflow run not found: {lock_run_id}")
+
+        kappa = run.data.metrics.get("fleiss_kappa")
+        if kappa is None or float(kappa) < KAPPA_THRESHOLD:
+            raise ValueError(
+                f"Run {lock_run_id} is not eligible to lock "
+                f"(kappa {kappa} < {KAPPA_THRESHOLD})."
+            )
+
+        generator_uri = run.data.params.get("generator_prompt_uri")
+        validator_uri = run.data.params.get("validator_prompt_uri")
+        if not generator_uri or not validator_uri:
+            raise ValueError(
+                f"Run {lock_run_id} is missing required prompt URIs. "
+                "This does not appear to be a valid eligible round."
+            )
+
+        generator_version = self._parse_prompt_version(generator_uri)
+        validator_version = self._parse_prompt_version(validator_uri)
+
+        client.set_prompt_alias("nli-generator", "locked", generator_version)
+        client.set_prompt_alias("nli-validator", "locked", validator_version)
+        client.set_tag(lock_run_id, "lock_confirmed", "true")
+
+        bundle_id = run.data.tags.get("bundle_id", "")
+        calibration_dataset_sha256 = run.data.params.get(
+            "calibration_dataset_sha256", ""
+        )
+        run_url = self._build_run_url(tracking_uri, run.info.experiment_id, lock_run_id)
+
+        return PromptLockConfirmationResponse(
+            decision="lock_prompt",
+            bundle_id=bundle_id,
+            generator_prompt_version=generator_version,
+            validator_prompt_version=validator_version,
+            kappa=float(kappa),
+            threshold=KAPPA_THRESHOLD,
+            calibration_dataset_sha256=calibration_dataset_sha256,
+            mlflow_run_id=lock_run_id,
+            mlflow_run_url=run_url,
         )
 
     @staticmethod
-    def _decision(kappa: float, confirm_lock: bool) -> str:
-        if confirm_lock:
-            return "lock_prompt"
+    def _decision(kappa: float) -> str:
         if kappa >= KAPPA_THRESHOLD:
             return "eligible_to_lock"
         return "refine_prompt"
+
+    @staticmethod
+    def _parse_prompt_version(uri: str) -> int:
+        """Parse trailing int from prompts:/name/<version> URI."""
+        parts = uri.rstrip("/").split("/")
+        if not parts:
+            raise ValueError(f"Invalid prompt URI: {uri}")
+        try:
+            return int(parts[-1])
+        except ValueError:
+            raise ValueError(
+                f"Cannot parse prompt version from URI: {uri}. "
+                "Expected format: prompts:/name/<version>"
+            )
+
+    @staticmethod
+    def _build_run_url(
+        tracking_uri: str, experiment_id: str, run_id: str
+    ) -> str | None:
+        """Build MLflow run URL from tracking URI, experiment ID, and run ID."""
+        if tracking_uri.startswith(("http://", "https://")):
+            return f"{tracking_uri.rstrip('/')}/#/experiments/{experiment_id}/runs/{run_id}"
+        return None
 
     def _read_skill(self, name: str) -> str:
         path = self._skills_dir / name
@@ -215,6 +333,35 @@ class PromptRefinementService:
             artifact_location=artifact_root,
         )
 
+    @staticmethod
+    def _resolve_session_run(
+        client: MlflowClient,
+        experiment_id: str,
+        session_id: str,
+    ) -> str:
+        """Resolve or create a parent run for grouping refinement rounds by session.
+
+        Search for an existing run with tag calibration_session_id=session_id.
+        If found, return its run_id. Otherwise, create a new run with that tag.
+        The run is left in RUNNING state to accept metrics from subsequent rounds.
+        """
+        filter_string = f"tags.calibration_session_id = '{session_id}'"
+        runs = client.search_runs(
+            experiment_ids=[experiment_id], filter_string=filter_string
+        )
+        if runs:
+            return runs[0].info.run_id
+        # Create new session run
+        run = client.create_run(
+            experiment_id=experiment_id,
+            run_name=f"calibration-session-{session_id}",
+            tags={
+                "calibration_session_id": session_id,
+                "run_type": "calibration_session",
+            },
+        )
+        return run.info.run_id
+
     def _log_round(
         self,
         client: MlflowClient,
@@ -228,6 +375,8 @@ class PromptRefinementService:
         validator_prompt,
         bundle_id: str,
         calibration_path: Path,
+        disagreements: pd.DataFrame,
+        n_disagreements: int,
     ) -> None:
         generator_uri = f"prompts:/{generator_prompt.name}/{generator_prompt.version}"
         validator_uri = f"prompts:/{validator_prompt.name}/{validator_prompt.version}"
@@ -243,6 +392,7 @@ class PromptRefinementService:
         for key, value in params.items():
             client.log_param(run_id, key, value)
         client.log_metric(run_id, "fleiss_kappa", float(kappa_result["kappa"]))
+        client.log_metric(run_id, "n_disagreements", n_disagreements)
         for label, proportion in kappa_result["per_category_proportion"].items():
             client.log_metric(run_id, f"{label}_proportion", float(proportion))
         client.link_prompt_version_to_run(run_id, generator_prompt)
@@ -268,7 +418,6 @@ class PromptRefinementService:
 
         with tempfile.TemporaryDirectory() as temporary_dir:
             temporary_root = Path(temporary_dir)
-            disagreements = self._build_disagreement_rows(model_label_paths)
             disagreement_path = temporary_root / "disagreement_rows.csv"
             disagreements.to_csv(disagreement_path, index=False)
             client.log_artifact(run_id, str(disagreement_path))

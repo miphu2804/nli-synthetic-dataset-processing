@@ -22,9 +22,9 @@ class SkillServiceTest(unittest.TestCase):
         instructor = skill_service.get_skill("instructor")
 
         self.assertIn("evaluate_prompt_refinement_round", skill)
+        self.assertIn("confirm_prompt_lock", skill)
         self.assertIn("0.85", skill)
         self.assertIn("eligible_to_lock", skill)
-        self.assertIn("confirm_lock", skill)
         self.assertIn("exactly three", skill.lower())
         self.assertIn("skill://prompt_refinement", instructor)
 

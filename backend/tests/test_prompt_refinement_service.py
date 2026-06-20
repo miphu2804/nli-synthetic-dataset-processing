@@ -1,3 +1,4 @@
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -59,13 +60,12 @@ class PromptRefinementServiceTest(unittest.TestCase):
                 ]
             ).to_csv(self.verdicts_dir / f"{model}.csv", index=False)
 
-    def _evaluate(self, *, confirm_lock: bool = False):
+    def _evaluate(self):
         return self.service.evaluate_round(
             verdicts_dir=self.verdicts_dir,
             calibration_input=self.calibration_input,
             round_number=1,
             change_summary="Initial calibration.",
-            confirm_lock=confirm_lock,
             tracking_uri=self.tracking_uri,
             experiment_name="test-calibration",
             artifact_root=self.artifact_root,
@@ -98,6 +98,8 @@ class PromptRefinementServiceTest(unittest.TestCase):
         self.assertEqual(result.n_items, 2)
         self.assertEqual(result.n_raters, 3)
         self.assertEqual(result.models, ["model-a", "model-b", "model-c"])
+        self.assertEqual(result.n_disagreements, 0)
+        self.assertIsNone(result.mlflow_session_run_id)
 
         client = MlflowClient(
             tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
@@ -119,6 +121,7 @@ class PromptRefinementServiceTest(unittest.TestCase):
 
         run = client.get_run(result.mlflow_run_id)
         self.assertEqual(run.data.metrics["fleiss_kappa"], 1.0)
+        self.assertEqual(run.data.metrics["n_disagreements"], 0)
         self.assertEqual(run.data.tags["decision"], "eligible_to_lock")
         artifact_paths = {
             artifact.path for artifact in client.list_artifacts(result.mlflow_run_id)
@@ -136,9 +139,21 @@ class PromptRefinementServiceTest(unittest.TestCase):
             }
         )
 
-        result = self._evaluate(confirm_lock=True)
+        result = self._evaluate()
 
-        self.assertEqual(result.decision, "lock_prompt")
+        self.assertEqual(result.decision, "eligible_to_lock")
+        lock_result = self.service.confirm_prompt_lock(
+            lock_run_id=result.mlflow_run_id,
+            tracking_uri=self.tracking_uri,
+        )
+        self.assertEqual(lock_result.decision, "lock_prompt")
+        self.assertEqual(
+            lock_result.generator_prompt_version, result.generator_prompt_version
+        )
+        self.assertEqual(
+            lock_result.validator_prompt_version, result.validator_prompt_version
+        )
+
         client = MlflowClient(
             tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
         )
@@ -160,13 +175,20 @@ class PromptRefinementServiceTest(unittest.TestCase):
             }
         )
 
-        with self.assertRaisesRegex(ValueError, "below"):
-            self._evaluate(confirm_lock=True)
+        result = self._evaluate()
+
+        self.assertEqual(result.decision, "refine_prompt")
+        with self.assertRaisesRegex(ValueError, "not eligible to lock"):
+            self.service.confirm_prompt_lock(
+                lock_run_id=result.mlflow_run_id,
+                tracking_uri=self.tracking_uri,
+            )
 
         client = MlflowClient(
             tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
         )
-        self.assertIsNone(client.get_prompt("nli-generator"))
+        with self.assertRaises(MlflowException):
+            client.get_prompt_version_by_alias("nli-generator", "locked")
 
     def test_logs_low_agreement_round_for_refinement_without_locking(self) -> None:
         self._write_verdicts(
@@ -181,11 +203,144 @@ class PromptRefinementServiceTest(unittest.TestCase):
 
         self.assertEqual(result.decision, "refine_prompt")
         self.assertLess(result.kappa, result.threshold)
+        self.assertGreater(result.n_disagreements, 0)
         client = MlflowClient(
             tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
         )
+        run = client.get_run(result.mlflow_run_id)
+        self.assertGreater(run.data.metrics["n_disagreements"], 0)
         with self.assertRaises(MlflowException):
             client.get_prompt_version_by_alias("nli-generator", "locked")
+
+    def test_session_id_creates_parent_run_and_logs_step_metrics(self) -> None:
+        """Test that session_id groups multiple rounds and creates a parent run."""
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+        session_id = "test-session-001"
+
+        # Evaluate round 1 with session_id
+        result1 = self.service.evaluate_round(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=self.calibration_input,
+            round_number=1,
+            change_summary="Round 1 calibration.",
+            tracking_uri=self.tracking_uri,
+            experiment_name="test-calibration",
+            artifact_root=self.artifact_root,
+            session_id=session_id,
+        )
+
+        # Evaluate round 2 with same session_id (to simulate a second round)
+        # First, clear the verdict files and rewrite for round 2
+        shutil.rmtree(self.verdicts_dir)
+        self.verdicts_dir.mkdir()
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "contradiction"],
+                "model-b": ["entailment", "contradiction"],
+                "model-c": ["entailment", "contradiction"],
+            }
+        )
+        result2 = self.service.evaluate_round(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=self.calibration_input,
+            round_number=2,
+            change_summary="Round 2 calibration.",
+            tracking_uri=self.tracking_uri,
+            experiment_name="test-calibration",
+            artifact_root=self.artifact_root,
+            session_id=session_id,
+        )
+
+        # Verify session run was created and reused
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        self.assertIsNotNone(result1.mlflow_session_run_id)
+        self.assertIsNotNone(result2.mlflow_session_run_id)
+        self.assertEqual(result1.mlflow_session_run_id, result2.mlflow_session_run_id)
+
+        session_run_id = result1.mlflow_session_run_id
+        session_run = client.get_run(session_run_id)
+        self.assertEqual(
+            session_run.data.tags.get("calibration_session_id"), session_id
+        )
+        self.assertEqual(session_run.data.tags.get("run_type"), "calibration_session")
+
+        # Verify round runs have parent tag
+        round1_run = client.get_run(result1.mlflow_run_id)
+        round2_run = client.get_run(result2.mlflow_run_id)
+        self.assertEqual(round1_run.data.tags.get("mlflow.parentRunId"), session_run_id)
+        self.assertEqual(round2_run.data.tags.get("mlflow.parentRunId"), session_run_id)
+
+        # Verify session run has step metrics for both rounds
+        kappa_history = client.get_metric_history(session_run_id, "fleiss_kappa")
+        self.assertEqual(len(kappa_history), 2)
+        self.assertEqual(kappa_history[0].step, 1)
+        self.assertEqual(kappa_history[1].step, 2)
+
+        disagreement_history = client.get_metric_history(
+            session_run_id, "n_disagreements"
+        )
+        self.assertEqual(len(disagreement_history), 2)
+        self.assertEqual(disagreement_history[0].step, 1)
+        self.assertEqual(disagreement_history[1].step, 2)
+
+    def test_lock_references_evaluated_version_not_current_files(self) -> None:
+        """Regression test for lock-by-reference bug fix.
+
+        Ensure that confirm_prompt_lock locks to the prompt version that was
+        registered at evaluation time, not the current file contents.
+        """
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+
+        # Evaluate round (all agree, eligible to lock)
+        result = self._evaluate()
+        self.assertEqual(result.decision, "eligible_to_lock")
+        original_validator_version = result.validator_prompt_version
+
+        # Now modify validator.md file
+        (self.skills_dir / "validator.md").write_text(
+            "# Validator Modified\nNew instructions here.\n", encoding="utf-8"
+        )
+
+        # Confirm lock of the original eligible round
+        lock_result = self.service.confirm_prompt_lock(
+            lock_run_id=result.mlflow_run_id,
+            tracking_uri=self.tracking_uri,
+        )
+
+        # Assert locked alias points to the original version, not a new one
+        self.assertEqual(
+            lock_result.validator_prompt_version, original_validator_version
+        )
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        locked_validator = client.get_prompt_version_by_alias("nli-validator", "locked")
+        self.assertEqual(int(locked_validator.version), original_validator_version)
+
+        # Verify no new version was created (locked version == candidate version)
+        candidate_validator = client.get_prompt_version_by_alias(
+            "nli-validator", "candidate"
+        )
+        self.assertEqual(
+            int(candidate_validator.version),
+            original_validator_version,
+            "Locked and candidate should point to the same version; "
+            "confirm_prompt_lock did not register a new version.",
+        )
 
 
 if __name__ == "__main__":

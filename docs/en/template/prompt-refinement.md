@@ -38,7 +38,7 @@ Main agent responsibilities:
    backend/skills/generator.md, backend/skills/validator.md, or both.
 9. Repeat while decision=refine_prompt.
 10. When decision=eligible_to_lock, report the round and ask for confirmation.
-    Call again with confirm_lock=true only after confirmation.
+    Call confirm_prompt_lock(lock_run_id=<MLFLOW_RUN_ID>) only after confirmation.
 
 MCP evaluation call:
 evaluate_prompt_refinement_round(
@@ -46,9 +46,15 @@ evaluate_prompt_refinement_round(
   calibration_input="outputs/prompt-refinement/round-<NN>/calibration.csv",
   round_number=<NN>,
   change_summary="<PROMPT_CHANGES_TESTED_THIS_ROUND>",
-  confirm_lock=false,
   tracking_uri="http://127.0.0.1:5000",
-  experiment_name="nli-prompt-calibration"
+  experiment_name="nli-prompt-calibration",
+  session_id="<OPTIONAL_SESSION_ID_TO_GROUP_ROUNDS>"
+)
+
+Confirmation call (after eligible_to_lock):
+confirm_prompt_lock(
+  lock_run_id="<MLFLOW_RUN_ID_FROM_ELIGIBLE_ROUND>",
+  tracking_uri="http://127.0.0.1:5000"
 )
 
 Subagent contract:
@@ -71,8 +77,9 @@ Failure handling:
 
 Prompt integrity:
 - Do not edit prompt files between subagent dispatch and MCP evaluation.
-- After eligible_to_lock, keep prompts and verdict inputs unchanged until
-  confirm_lock=true is submitted.
+- After eligible_to_lock, you can safely edit prompts if you wish to continue
+  refining. The confirmed lock will always reference the exact versions that
+  were evaluated, not the current files.
 - If a generator edit changes calibration text, keep the same source_uid set,
   report the new hash, and do not describe the kappa delta as a strict same-item
   comparison.
@@ -84,6 +91,12 @@ Report after every round:
 - calibration dataset hash
 - generator and validator prompt versions
 - bundle ID, MLflow run ID, and run URL
+
+If you provided a `session_id`, MLflow will create a parent run
+`calibration-session-<SESSION_ID>` that aggregates kappa and disagreement
+trends across all rounds. You can inspect the parent run in MLflow UI to see
+the refinement progress as kappa improves and disagreements decrease across
+rounds.
 
 Do not use PMI in this loop. PMI runs after large-scale generation and consensus
 validation.

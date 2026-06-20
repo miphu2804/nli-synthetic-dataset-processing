@@ -38,7 +38,7 @@ Trách nhiệm của main agent:
    backend/skills/generator.md, backend/skills/validator.md, hoặc cả hai.
 9. Lặp khi decision=refine_prompt.
 10. Khi decision=eligible_to_lock, báo cáo round và xin xác nhận.
-    Chỉ gọi lại với confirm_lock=true sau khi được xác nhận.
+    Gọi confirm_prompt_lock(lock_run_id=<MLFLOW_RUN_ID>) sau khi được xác nhận.
 
 MCP evaluation call:
 evaluate_prompt_refinement_round(
@@ -46,9 +46,15 @@ evaluate_prompt_refinement_round(
   calibration_input="outputs/prompt-refinement/round-<NN>/calibration.csv",
   round_number=<NN>,
   change_summary="<PROMPT_CHANGES_TESTED_THIS_ROUND>",
-  confirm_lock=false,
   tracking_uri="http://127.0.0.1:5000",
-  experiment_name="nli-prompt-calibration"
+  experiment_name="nli-prompt-calibration",
+  session_id="<OPTIONAL_SESSION_ID_TO_GROUP_ROUNDS>"
+)
+
+Confirmation call (sau eligible_to_lock):
+confirm_prompt_lock(
+  lock_run_id="<MLFLOW_RUN_ID_FROM_ELIGIBLE_ROUND>",
+  tracking_uri="http://127.0.0.1:5000"
 )
 
 Contract của subagent:
@@ -70,8 +76,8 @@ Xử lý lỗi:
 
 Giữ prompt nhất quán:
 - Không sửa prompt file giữa lúc dispatch subagent và MCP evaluation.
-- Sau eligible_to_lock, giữ nguyên prompt và verdict input đến khi gửi
-  confirm_lock=true.
+- Sau eligible_to_lock, bạn có thể an toàn sửa prompt nếu muốn tiếp tục refine.
+  Confirmed lock sẽ luôn tham chiếu đúng version được evaluated, không phải file hiện tại.
 - Nếu sửa generator làm calibration text đổi, vẫn giữ cùng source_uid set, báo
   hash mới, và không mô tả kappa delta như so sánh strict trên cùng item.
 
@@ -82,6 +88,10 @@ Báo cáo sau mỗi round:
 - calibration dataset hash
 - generator và validator prompt version
 - bundle ID, MLflow run ID, và run URL
+
+Nếu bạn cung cấp `session_id`, MLflow sẽ tạo parent run `calibration-session-<SESSION_ID>`
+gom các kappa và disagreement trend qua mọi round. Bạn có thể xem parent run trên MLflow UI
+để theo dõi tiến độ refinement khi kappa cải thiện và disagreement giảm qua các round.
 
 Không dùng PMI trong loop này. PMI chạy sau large-scale generation và consensus
 validation.

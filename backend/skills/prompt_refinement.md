@@ -53,22 +53,24 @@ successful model's verdict file.
    in a dedicated round directory.
 4. The main agent calls `evaluate_prompt_refinement_round` with the verdict
    directory, generated labeled calibration file path, round number, change
-   summary, and MLflow tracking URI.
+   summary, MLflow tracking URI, and optionally `session_id` to group all rounds
+   of one calibration session together.
 5. Follow the returned decision:
 
 | Decision | Action |
 |----------|--------|
 | `refine_prompt` | Inspect `disagreement_rows.csv`, edit the responsible skill, then repeat on the same calibration dataset. |
 | `eligible_to_lock` | Report the candidate versions. Continue refining or explicitly confirm the lock. |
-| `lock_prompt` | Report the locked bundle and proceed to large-scale generation. |
 
 Fleiss' kappa below `0.85` means refine. Kappa at least `0.85` is eligible to
-lock; it does not lock automatically. To lock, call the tool again for that
-eligible round with `confirm_lock=true`.
+lock; it does not lock automatically. To lock an eligible round, call
+`confirm_prompt_lock(lock_run_id=<mlflow_run_id>)` where mlflow_run_id is the
+run ID of the eligible round you wish to lock.
 
-Do not edit prompt files between subagent dispatch and MCP evaluation. After an
-`eligible_to_lock` result, keep the prompt files and verdict inputs unchanged
-until confirmation.
+Locking uses the exact prompt versions from the evaluated round, not the
+current files. This means you can safely edit prompt files after an
+`eligible_to_lock` result; the confirmed lock will still reference the correct
+versions that were kappa-verified.
 
 When a generator change regenerates calibration text, treat the result as a new
 round with the same source UID set but different item content. Report the new
@@ -86,9 +88,22 @@ hash and do not present the kappa delta as a strict same-item comparison.
 Do not use PMI as a prompt-refinement trigger. PMI belongs to post-generation
 artifact analysis and paraphrasing.
 
+## Session ID and Trend Tracking
+
+Pass `session_id` (a string identifying the calibration session) to
+`evaluate_prompt_refinement_round` to create a parent run that aggregates all
+rounds for that session. Each round becomes a child run, and kappa and
+disagreement count are logged as step metrics on the parent run. This enables
+MLflow to display a trend line showing kappa and disagreement improvement across
+refinement rounds. Without `session_id`, each round is logged as a standalone
+run (backward compatible).
+
 ## Report
 
 Return the changed prompt files, kappa, decision, calibration dataset hash,
 generator and validator prompt versions, model identifiers, bundle ID, MLflow
 run ID, and run URL. Retrieve `disagreement_rows.csv` from that run's MLflow
-Artifacts tab when refinement is required.
+Artifacts tab when refinement is required. If `session_id` was provided, view
+the trend on the parent `calibration-session-*` run in MLflow UI: inspect
+`fleiss_kappa` and `n_disagreements` metrics over steps to see refinement
+progress.

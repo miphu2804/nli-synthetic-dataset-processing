@@ -122,7 +122,7 @@ class ValidationProgressVerificationResponse(BaseModel):
 class PromptRefinementRoundResponse(BaseModel):
     kappa: float
     threshold: float
-    decision: Literal["refine_prompt", "eligible_to_lock", "lock_prompt"]
+    decision: Literal["refine_prompt", "eligible_to_lock"]
     n_items: int
     n_raters: int
     models: list[str]
@@ -130,5 +130,19 @@ class PromptRefinementRoundResponse(BaseModel):
     validator_prompt_version: int
     calibration_dataset_sha256: str
     bundle_id: str
+    mlflow_run_id: str
+    mlflow_run_url: str | None = None
+    n_disagreements: int
+    mlflow_session_run_id: str | None = None
+
+
+class PromptLockConfirmationResponse(BaseModel):
+    decision: Literal["lock_prompt"]
+    bundle_id: str
+    generator_prompt_version: int
+    validator_prompt_version: int
+    kappa: float
+    threshold: float
+    calibration_dataset_sha256: str
     mlflow_run_id: str
     mlflow_run_url: str | None = None
