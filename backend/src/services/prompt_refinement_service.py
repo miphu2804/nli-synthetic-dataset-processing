@@ -393,8 +393,21 @@ class PromptRefinementService:
         )
         if runs:
             existing = runs[0]
+            if existing.info.status != "RUNNING":
+                raise ValueError(
+                    f"Session '{session_id}' is already finalized "
+                    f"(status {existing.info.status}); use a new session_id."
+                )
             anchored = existing.data.tags.get("calibration_uid_set_sha256")
-            if anchored is not None and anchored != uid_set_hash:
+            if anchored is None:
+                # Back-fill the anchor for sessions created before anchoring
+                # existed, so subsequent rounds are still guarded.
+                client.set_tag(
+                    existing.info.run_id,
+                    "calibration_uid_set_sha256",
+                    uid_set_hash,
+                )
+            elif anchored != uid_set_hash:
                 raise ValueError(
                     f"Session '{session_id}' is anchored to a different "
                     "calibration UID set; refusing to mix incomparable rounds. "

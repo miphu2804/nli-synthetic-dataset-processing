@@ -516,6 +516,79 @@ class PromptRefinementServiceTest(unittest.TestCase):
             client.get_run(result.mlflow_session_run_id).info.status, "FINISHED"
         )
 
+    def _eval_session(self, *, round_number, uids, session_id):
+        cal = self.root / f"cal-{round_number}.csv"
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": u,
+                    "premise": "p",
+                    "hypothesis": "h",
+                    "label": "entailment",
+                }
+                for u in uids
+            ]
+        ).to_csv(cal, index=False)
+        shutil.rmtree(self.verdicts_dir)
+        self.verdicts_dir.mkdir()
+        for model in ("model-a", "model-b", "model-c"):
+            pd.DataFrame(
+                [
+                    {"source_uid": u, "predicted_label": "entailment", "reason": "ok"}
+                    for u in uids
+                ]
+            ).to_csv(self.verdicts_dir / f"{model}.csv", index=False)
+        return self.service.evaluate_round(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=cal,
+            round_number=round_number,
+            change_summary=f"Round {round_number}.",
+            tracking_uri=self.tracking_uri,
+            experiment_name="test-calibration",
+            artifact_root=self.artifact_root,
+            session_id=session_id,
+        )
+
+    def test_legacy_unanchored_session_is_backfilled_and_guarded(self) -> None:
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        experiment_id = client.create_experiment(
+            "test-calibration", artifact_location=self.artifact_root
+        )
+        legacy = client.create_run(
+            experiment_id=experiment_id,
+            run_name="calibration-session-legacy",
+            tags={
+                "calibration_session_id": "legacy",
+                "run_type": "calibration_session",
+            },
+        )
+
+        # First reuse back-fills the anchor.
+        self._eval_session(round_number=1, uids=["a", "b"], session_id="legacy")
+        self.assertEqual(
+            client.get_run(legacy.info.run_id).data.tags.get(
+                "calibration_uid_set_sha256"
+            )
+            is not None,
+            True,
+        )
+        # A later different UID set is now rejected.
+        with self.assertRaisesRegex(ValueError, "anchored to a different"):
+            self._eval_session(round_number=2, uids=["x", "y"], session_id="legacy")
+
+    def test_finalized_session_rejects_new_rounds(self) -> None:
+        result = self._eval_session(
+            round_number=1, uids=["a", "b"], session_id="sess-fin"
+        )
+        self.service.confirm_prompt_lock(
+            lock_run_id=result.mlflow_run_id,
+            tracking_uri=self.tracking_uri,
+        )
+        with self.assertRaisesRegex(ValueError, "already finalized"):
+            self._eval_session(round_number=2, uids=["a", "b"], session_id="sess-fin")
+
 
 if __name__ == "__main__":
     unittest.main()
