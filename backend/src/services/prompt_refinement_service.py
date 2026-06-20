@@ -51,7 +51,7 @@ class PromptRefinementService:
         model_label_paths = {path.stem: path for path in verdict_paths}
         kappa_result = compute_fleiss_kappa(model_label_paths)
         calibration_path = Path(calibration_input)
-        dataset_hash, sample_count = self._validate_calibration_input(
+        dataset_hash, sample_count, uid_set_hash = self._validate_calibration_input(
             calibration_path,
             verdict_paths[0],
         )
@@ -76,20 +76,8 @@ class PromptRefinementService:
             experiment_name,
             artifact_root,
         )
-        generator_prompt = client.register_prompt(
-            name="nli-generator",
-            template=generator_text,
-            commit_message=change_summary,
-            tags={"round": str(round_number), "bundle_id": bundle_id},
-        )
-        validator_prompt = client.register_prompt(
-            name="nli-validator",
-            template=validator_text,
-            commit_message=change_summary,
-            tags={"round": str(round_number), "bundle_id": bundle_id},
-        )
-
-        # Resolve session run if session_id provided
+        # Resolve session run first so a mismatched calibration UID set is
+        # rejected before any prompt version is registered (no orphans).
         session_run_id = None
         round_tags = {
             "decision": decision,
@@ -98,7 +86,7 @@ class PromptRefinementService:
         }
         if session_id:
             session_run_id = self._resolve_session_run(
-                client, experiment_id, session_id
+                client, experiment_id, session_id, uid_set_hash
             )
             round_tags["mlflow.parentRunId"] = session_run_id
 
@@ -108,9 +96,23 @@ class PromptRefinementService:
             tags=round_tags,
         )
         run_id = run.info.run_id
-        generator_version = int(generator_prompt.version)
-        validator_version = int(validator_prompt.version)
         try:
+            # Register prompt versions inside the try so any failure leaves a
+            # FAILED run for traceability rather than orphaned versions.
+            generator_prompt = client.register_prompt(
+                name="nli-generator",
+                template=generator_text,
+                commit_message=change_summary,
+                tags={"round": str(round_number), "bundle_id": bundle_id},
+            )
+            validator_prompt = client.register_prompt(
+                name="nli-validator",
+                template=validator_text,
+                commit_message=change_summary,
+                tags={"round": str(round_number), "bundle_id": bundle_id},
+            )
+            generator_version = int(generator_prompt.version)
+            validator_version = int(validator_prompt.version)
             self._log_round(
                 client=client,
                 run_id=run_id,
@@ -128,9 +130,15 @@ class PromptRefinementService:
             )
             client.set_prompt_alias("nli-generator", "candidate", generator_version)
             client.set_prompt_alias("nli-validator", "candidate", validator_version)
+            client.set_terminated(run_id, status="FINISHED")
+        except Exception:
+            client.set_terminated(run_id, status="FAILED")
+            raise
 
-            # Log session metrics if session_id provided
-            if session_run_id:
+        # Session trend metrics are auxiliary: never let them fail a finished
+        # round. Logged after the round is finalized, best-effort.
+        if session_run_id:
+            try:
                 client.log_metric(
                     session_run_id, "fleiss_kappa", kappa, step=round_number
                 )
@@ -140,11 +148,8 @@ class PromptRefinementService:
                     n_disagreements,
                     step=round_number,
                 )
-
-            client.set_terminated(run_id, status="FINISHED")
-        except Exception:
-            client.set_terminated(run_id, status="FAILED")
-            raise
+            except Exception:
+                pass
 
         run_url = self._build_run_url(tracking_uri, experiment_id, run_id)
         return PromptRefinementRoundResponse(
@@ -231,6 +236,15 @@ class PromptRefinementService:
         client.set_prompt_alias("nli-validator", "locked", validator_version)
         client.set_tag(lock_run_id, "lock_confirmed", "true")
 
+        # Locking ends the calibration session: finalize the parent run so it no
+        # longer shows as an active session in the UI. Best-effort.
+        session_run_id = run.data.tags.get("mlflow.parentRunId")
+        if session_run_id:
+            try:
+                client.set_terminated(session_run_id, status="FINISHED")
+            except Exception:
+                pass
+
         bundle_id = run.data.tags.get("bundle_id", "")
         calibration_dataset_sha256 = run.data.params.get(
             "calibration_dataset_sha256", ""
@@ -306,7 +320,7 @@ class PromptRefinementService:
     def _validate_calibration_input(
         calibration_path: Path,
         verdict_path: Path,
-    ) -> tuple[str, int]:
+    ) -> tuple[str, int, str]:
         if not calibration_path.exists():
             raise FileNotFoundError(
                 f"Calibration dataset not found: {calibration_path}"
@@ -335,7 +349,12 @@ class PromptRefinementService:
                 "Calibration dataset source UIDs must match verdict source UIDs."
             )
         digest = hashlib.sha256(calibration_path.read_bytes()).hexdigest()
-        return digest, len(calibration)
+        # Hash of the source UID set only (order-independent), used to anchor a
+        # session so later rounds cannot mix an incomparable calibration set.
+        uid_set_hash = hashlib.sha256(
+            "\n".join(sorted(set(calibration_uids))).encode("utf-8")
+        ).hexdigest()
+        return digest, len(calibration), uid_set_hash
 
     @staticmethod
     def _resolve_experiment(
@@ -356,26 +375,39 @@ class PromptRefinementService:
         client: MlflowClient,
         experiment_id: str,
         session_id: str,
+        uid_set_hash: str,
     ) -> str:
-        """Resolve or create a parent run for grouping refinement rounds by session.
+        """Resolve or create a parent run grouping refinement rounds by session.
 
-        Search for an existing run with tag calibration_session_id=session_id.
-        If found, return its run_id. Otherwise, create a new run with that tag.
-        The run is left in RUNNING state to accept metrics from subsequent rounds.
+        The session is anchored to a calibration UID-set hash on first use. A
+        later round whose calibration UID set differs is rejected, since a kappa
+        trend across incomparable item sets would be meaningless. (Content/hash
+        changes for the same UID set remain allowed as separate rounds.)
+        The run is left RUNNING to accept step metrics until the bundle is locked.
         """
         filter_string = f"tags.calibration_session_id = '{session_id}'"
         runs = client.search_runs(
-            experiment_ids=[experiment_id], filter_string=filter_string
+            experiment_ids=[experiment_id],
+            filter_string=filter_string,
+            order_by=["start_time ASC"],
         )
         if runs:
-            return runs[0].info.run_id
-        # Create new session run
+            existing = runs[0]
+            anchored = existing.data.tags.get("calibration_uid_set_sha256")
+            if anchored is not None and anchored != uid_set_hash:
+                raise ValueError(
+                    f"Session '{session_id}' is anchored to a different "
+                    "calibration UID set; refusing to mix incomparable rounds. "
+                    "Use a new session_id for a different calibration set."
+                )
+            return existing.info.run_id
         run = client.create_run(
             experiment_id=experiment_id,
             run_name=f"calibration-session-{session_id}",
             tags={
                 "calibration_session_id": session_id,
                 "run_type": "calibration_session",
+                "calibration_uid_set_sha256": uid_set_hash,
             },
         )
         return run.info.run_id

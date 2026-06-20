@@ -418,6 +418,104 @@ class PromptRefinementServiceTest(unittest.TestCase):
         with self.assertRaises(MlflowException):
             client.get_prompt_version_by_alias("nli-generator", "locked")
 
+    def test_session_rejects_different_calibration_uid_set(self) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+        self.service.evaluate_round(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=self.calibration_input,
+            round_number=1,
+            change_summary="Round 1.",
+            tracking_uri=self.tracking_uri,
+            experiment_name="test-calibration",
+            artifact_root=self.artifact_root,
+            session_id="sess-001",
+        )
+
+        # Round 2 with a completely different source UID set must be rejected.
+        other_calibration = self.root / "calibration2.csv"
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": "x-1",
+                    "premise": "p",
+                    "hypothesis": "h",
+                    "label": "entailment",
+                },
+                {
+                    "source_uid": "x-2",
+                    "premise": "p",
+                    "hypothesis": "h",
+                    "label": "neutral",
+                },
+            ]
+        ).to_csv(other_calibration, index=False)
+        shutil.rmtree(self.verdicts_dir)
+        self.verdicts_dir.mkdir()
+        for model in ("model-a", "model-b", "model-c"):
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": "x-1",
+                        "predicted_label": "entailment",
+                        "reason": "ok",
+                    },
+                    {"source_uid": "x-2", "predicted_label": "neutral", "reason": "ok"},
+                ]
+            ).to_csv(self.verdicts_dir / f"{model}.csv", index=False)
+
+        with self.assertRaisesRegex(ValueError, "anchored to a different"):
+            self.service.evaluate_round(
+                verdicts_dir=self.verdicts_dir,
+                calibration_input=other_calibration,
+                round_number=2,
+                change_summary="Round 2 wrong set.",
+                tracking_uri=self.tracking_uri,
+                experiment_name="test-calibration",
+                artifact_root=self.artifact_root,
+                session_id="sess-001",
+            )
+
+    def test_lock_terminates_session_run(self) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+        result = self.service.evaluate_round(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=self.calibration_input,
+            round_number=1,
+            change_summary="Round 1.",
+            tracking_uri=self.tracking_uri,
+            experiment_name="test-calibration",
+            artifact_root=self.artifact_root,
+            session_id="sess-lock",
+        )
+        self.assertIsNotNone(result.mlflow_session_run_id)
+
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        self.assertEqual(
+            client.get_run(result.mlflow_session_run_id).info.status, "RUNNING"
+        )
+
+        self.service.confirm_prompt_lock(
+            lock_run_id=result.mlflow_run_id,
+            tracking_uri=self.tracking_uri,
+        )
+        self.assertEqual(
+            client.get_run(result.mlflow_session_run_id).info.status, "FINISHED"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
