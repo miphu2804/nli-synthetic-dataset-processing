@@ -35,7 +35,7 @@ class ValidationToolProvider(ToolProvider):
             Field(
                 description=(
                     "Path to the generated CSV or Parquet file inside the server container. "
-                    "Must contain a 'label' column with the ground-truth labels — "
+                    "Must contain a 'label' column with the expected labels — "
                     "do NOT pass a pre-masked file (masked_label only). "
                     "Labels are masked internally before being returned to validators."
                 )

@@ -15,6 +15,8 @@ from src.utils.nli_labels import require_canonical_label
 from src.utils.validation_aggregation import compute_fleiss_kappa
 
 KAPPA_THRESHOLD = 0.85
+GENERATOR_PROMPT_NAME = "nli-generator"
+VALIDATOR_PROMPT_NAME = "nli-validator"
 DATASET_SUFFIXES = {".csv", ".parquet"}
 VERDICT_COLUMNS = {"source_uid", "predicted_label", "reason"}
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -47,6 +49,7 @@ class PromptRefinementService:
                 "session_id may only contain letters, digits, '.', '_', or '-'."
             )
 
+        # Phase 1 — discover verdicts, compute agreement, validate calibration.
         verdict_paths = self._discover_verdicts(Path(verdicts_dir))
         model_label_paths = {path.stem: path for path in verdict_paths}
         kappa_result = compute_fleiss_kappa(model_label_paths)
@@ -56,15 +59,16 @@ class PromptRefinementService:
             verdict_paths[0],
         )
         kappa = float(kappa_result["kappa"])
-
-        # Build disagreement DataFrame once to compute n_disagreements
         disagreements = self._build_disagreement_rows(model_label_paths)
         n_disagreements = len(disagreements)
 
+        # Phase 2 — derive the round decision and prompt-bundle inputs.
         decision = self._decision(kappa)
         generator_text = self._read_skill("generator.md")
         validator_text = self._read_skill("validator.md")
         bundle_id = f"round-{round_number:02d}-{dataset_hash[:8]}"
+
+        # Phase 3 — connect MLflow, resolve experiment, resolve session run.
         mlflow.set_tracking_uri(tracking_uri)
         mlflow.set_registry_uri(tracking_uri)
         client = MlflowClient(
@@ -90,6 +94,9 @@ class PromptRefinementService:
             )
             round_tags["mlflow.parentRunId"] = session_run_id
 
+        # Phase 4 — run lifecycle: create the round run, then register, log,
+        # and alias the prompt bundle inside the try so any failure marks the
+        # run FAILED for traceability rather than leaving it active.
         run = client.create_run(
             experiment_id=experiment_id,
             run_name=f"prompt-refinement-round-{round_number:02d}",
@@ -97,16 +104,14 @@ class PromptRefinementService:
         )
         run_id = run.info.run_id
         try:
-            # Register prompt versions inside the try so any failure leaves a
-            # FAILED run for traceability rather than orphaned versions.
             generator_prompt = client.register_prompt(
-                name="nli-generator",
+                name=GENERATOR_PROMPT_NAME,
                 template=generator_text,
                 commit_message=change_summary,
                 tags={"round": str(round_number), "bundle_id": bundle_id},
             )
             validator_prompt = client.register_prompt(
-                name="nli-validator",
+                name=VALIDATOR_PROMPT_NAME,
                 template=validator_text,
                 commit_message=change_summary,
                 tags={"round": str(round_number), "bundle_id": bundle_id},
@@ -128,15 +133,19 @@ class PromptRefinementService:
                 disagreements=disagreements,
                 n_disagreements=n_disagreements,
             )
-            client.set_prompt_alias("nli-generator", "candidate", generator_version)
-            client.set_prompt_alias("nli-validator", "candidate", validator_version)
+            client.set_prompt_alias(
+                GENERATOR_PROMPT_NAME, "candidate", generator_version
+            )
+            client.set_prompt_alias(
+                VALIDATOR_PROMPT_NAME, "candidate", validator_version
+            )
             client.set_terminated(run_id, status="FINISHED")
         except Exception:
             client.set_terminated(run_id, status="FAILED")
             raise
 
-        # Session trend metrics are auxiliary: never let them fail a finished
-        # round. Logged after the round is finalized, best-effort.
+        # Phase 5 — session trend metrics (auxiliary, best-effort): never let
+        # them fail an already-finished round. Logged after finalization.
         if session_run_id:
             try:
                 client.log_metric(
@@ -151,6 +160,7 @@ class PromptRefinementService:
             except Exception:
                 pass
 
+        # Phase 6 — assemble the response.
         run_url = self._build_run_url(tracking_uri, experiment_id, run_id)
         return PromptRefinementRoundResponse(
             kappa=kappa,
@@ -229,19 +239,35 @@ class PromptRefinementService:
                 "This does not appear to be a valid eligible round."
             )
 
-        generator_version = self._parse_prompt_version(generator_uri)
-        validator_version = self._parse_prompt_version(validator_uri)
+        generator_version = self._parse_prompt_uri(generator_uri, GENERATOR_PROMPT_NAME)
+        validator_version = self._parse_prompt_uri(validator_uri, VALIDATOR_PROMPT_NAME)
 
-        client.set_prompt_alias("nli-generator", "locked", generator_version)
-        client.set_prompt_alias("nli-validator", "locked", validator_version)
-        client.set_tag(lock_run_id, "lock_confirmed", "true")
-
-        # Locking ends the calibration session. Persist a durable lock marker
-        # first (so reuse is rejected even if termination fails), then finalize
-        # the parent run so it no longer shows as active in the UI.
+        # MLflow has no multi-alias transaction. Set both; if the second write
+        # fails, surface the inconsistency loudly rather than leaving 'locked'
+        # pointing at a mixed bundle. confirm_prompt_lock is idempotent, so a
+        # re-run repairs it.
+        client.set_prompt_alias(GENERATOR_PROMPT_NAME, "locked", generator_version)
+        try:
+            client.set_prompt_alias(VALIDATOR_PROMPT_NAME, "locked", validator_version)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Locked {GENERATOR_PROMPT_NAME} -> v{generator_version} but failed "
+                f"to lock {VALIDATOR_PROMPT_NAME} -> v{validator_version}: {exc}. "
+                "The 'locked' bundle is inconsistent; re-run confirm_prompt_lock "
+                "to repair."
+            ) from exc
+        # Locking ends the calibration session. Persist the parent's durable
+        # lock marker BEFORE marking the child confirmed: if that write fails we
+        # must not report a confirmed lock while the session is still reusable
+        # by a later evaluate_round. Termination follows (best-effort) so the
+        # parent no longer shows as active in the UI.
         session_run_id = run.data.tags.get("mlflow.parentRunId")
         if session_run_id:
             client.set_tag(session_run_id, "session_locked", "true")
+
+        client.set_tag(lock_run_id, "lock_confirmed", "true")
+
+        if session_run_id:
             try:
                 client.set_terminated(session_run_id, status="FINISHED")
             except Exception:
@@ -272,18 +298,26 @@ class PromptRefinementService:
         return "refine_prompt"
 
     @staticmethod
-    def _parse_prompt_version(uri: str) -> int:
-        """Parse trailing int from prompts:/name/<version> URI."""
-        parts = uri.rstrip("/").split("/")
-        if not parts:
-            raise ValueError(f"Invalid prompt URI: {uri}")
-        try:
-            return int(parts[-1])
-        except ValueError:
+    def _parse_prompt_uri(uri: str, expected_name: str) -> int:
+        """Parse prompts:/<name>/<version>, enforcing the full URI shape.
+
+        Matching the exact `prompts:/<name>/<version>` form (not just a trailing
+        segment) and requiring a positive integer version prevents a malformed
+        or tampered run from redirecting the 'locked' alias to a different
+        prompt or an unintended version.
+        """
+        match = re.fullmatch(rf"prompts:/{re.escape(expected_name)}/(\d+)", uri.strip())
+        if match is None:
             raise ValueError(
-                f"Cannot parse prompt version from URI: {uri}. "
-                "Expected format: prompts:/name/<version>"
+                f"Prompt URI {uri!r} is not a valid reference to {expected_name!r}; "
+                "expected format prompts:/<name>/<version>. Refusing to lock."
             )
+        version = int(match.group(1))
+        if version < 1:
+            raise ValueError(
+                f"Prompt URI {uri!r} has a non-positive version; refusing to lock."
+            )
+        return version
 
     @staticmethod
     def _build_run_url(

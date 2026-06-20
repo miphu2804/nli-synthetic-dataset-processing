@@ -76,6 +76,22 @@ When a generator change regenerates calibration text, treat the result as a new
 round with the same source UID set but different item content. Report the new
 hash and do not present the kappa delta as a strict same-item comparison.
 
+## Round Integrity (prompt provenance)
+
+Within a single round, `generator.md` and `validator.md` must stay byte-identical
+from the moment you dispatch the validator subagents until
+`evaluate_prompt_refinement_round` returns. Kappa is computed on verdicts produced
+by the prompts as they were at dispatch time, while the tool registers the prompt
+files as they are on disk at evaluation time. Editing either file mid-round makes
+the registered MLflow prompt version diverge from the prompts that actually produced
+the verdicts.
+
+If you need to change a prompt, finish (or abandon) the current round first, then
+edit and run a new round. Do not keep parallel hand-managed `.md` version copies:
+MLflow's Prompt Registry already versions every generator and validator prompt on
+each evaluation (`nli-generator` / `nli-validator` vN), so on-disk version copies are
+redundant and provide no extra provenance safety.
+
 ## Choose What to Edit
 
 - Edit `backend/skills/generator.md` when disagreements come from ambiguous,

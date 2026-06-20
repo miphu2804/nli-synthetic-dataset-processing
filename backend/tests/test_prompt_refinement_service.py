@@ -618,6 +618,79 @@ class PromptRefinementServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already finalized"):
             self._eval_session(round_number=2, uids=["a", "b"], session_id="sess-mark")
 
+    def test_parse_prompt_uri_accepts_only_exact_well_formed_uri(self) -> None:
+        self.assertEqual(
+            PromptRefinementService._parse_prompt_uri(
+                "prompts:/nli-generator/7", "nli-generator"
+            ),
+            7,
+        )
+        malformed = [
+            "prompts:/evil-prompt/7",  # wrong prompt name
+            "prompts:/x/nli-generator/7",  # extra path segment
+            "nli-generator/7",  # missing scheme
+            "prompts://nli-generator/7",  # double slash
+            "prompts:/nli-generator/",  # missing version
+            "prompts:/nli-generator/0",  # non-positive version
+            "prompts:/nli-generator/-1",  # negative version
+            "prompts:/nli-generator/v7",  # non-numeric version
+        ]
+        for uri in malformed:
+            with self.assertRaises(ValueError, msg=uri):
+                PromptRefinementService._parse_prompt_uri(uri, "nli-generator")
+
+    def test_partial_locked_alias_write_raises_and_is_repairable(self) -> None:
+        from unittest.mock import patch
+
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+        result = self._evaluate()
+        self.assertEqual(result.decision, "eligible_to_lock")
+
+        original = MlflowClient.set_prompt_alias
+
+        def fail_validator(self_client, name, alias, version, *args, **kwargs):
+            if alias == "locked" and name == "nli-validator":
+                raise MlflowException("transient alias failure")
+            return original(self_client, name, alias, version, *args, **kwargs)
+
+        with patch.object(MlflowClient, "set_prompt_alias", fail_validator):
+            with self.assertRaisesRegex(RuntimeError, "inconsistent"):
+                self.service.confirm_prompt_lock(
+                    lock_run_id=result.mlflow_run_id,
+                    tracking_uri=self.tracking_uri,
+                )
+
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        # Generator alias got locked, validator did not, run not marked confirmed.
+        self.assertEqual(
+            int(client.get_prompt_version_by_alias("nli-generator", "locked").version),
+            result.generator_prompt_version,
+        )
+        with self.assertRaises(MlflowException):
+            client.get_prompt_version_by_alias("nli-validator", "locked")
+        self.assertNotIn(
+            "lock_confirmed", client.get_run(result.mlflow_run_id).data.tags
+        )
+
+        # Re-running repairs the bundle (idempotent).
+        lock_result = self.service.confirm_prompt_lock(
+            lock_run_id=result.mlflow_run_id,
+            tracking_uri=self.tracking_uri,
+        )
+        self.assertEqual(lock_result.decision, "lock_prompt")
+        self.assertEqual(
+            int(client.get_prompt_version_by_alias("nli-validator", "locked").version),
+            result.validator_prompt_version,
+        )
+
     def test_legacy_session_with_existing_rounds_rejected(self) -> None:
         client = MlflowClient(
             tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
