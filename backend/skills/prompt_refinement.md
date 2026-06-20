@@ -98,6 +98,11 @@ MLflow to display a trend line showing kappa and disagreement improvement across
 refinement rounds. Without `session_id`, each round is logged as a standalone
 run (backward compatible).
 
+A session is anchored to the calibration source-UID set of its first round. A
+later round under the same `session_id` whose UID set differs is rejected, so the
+trend never mixes incomparable item sets; use a new `session_id` for a different
+calibration set. Confirming a lock finalizes the session's parent run.
+
 ## Report
 
 Return the changed prompt files, kappa, decision, calibration dataset hash,

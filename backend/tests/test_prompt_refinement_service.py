@@ -178,7 +178,7 @@ class PromptRefinementServiceTest(unittest.TestCase):
         result = self._evaluate()
 
         self.assertEqual(result.decision, "refine_prompt")
-        with self.assertRaisesRegex(ValueError, "not eligible to lock"):
+        with self.assertRaisesRegex(ValueError, "eligible"):
             self.service.confirm_prompt_lock(
                 lock_run_id=result.mlflow_run_id,
                 tracking_uri=self.tracking_uri,
@@ -341,6 +341,307 @@ class PromptRefinementServiceTest(unittest.TestCase):
             "Locked and candidate should point to the same version; "
             "confirm_prompt_lock did not register a new version.",
         )
+
+    def test_mixed_numeric_and_named_labels_agree(self) -> None:
+        # Equivalent numeric/named labels must canonicalize to agreement so the
+        # disagreement count matches kappa.
+        for model, labels in {
+            "model-a": [0, 1],
+            "model-b": ["entailment", "neutral"],
+            "model-c": ["0", 1],
+        }.items():
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": f"row-{index}",
+                        "predicted_label": label,
+                        "reason": "Lý do hợp lệ.",
+                    }
+                    for index, label in enumerate(labels, start=1)
+                ]
+            ).to_csv(self.verdicts_dir / f"{model}.csv", index=False)
+
+        result = self._evaluate()
+
+        self.assertEqual(result.kappa, 1.0)
+        self.assertEqual(result.n_disagreements, 0)
+        self.assertEqual(result.decision, "eligible_to_lock")
+
+    def test_invalid_session_id_rejected_before_registration(self) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "session_id"):
+            self.service.evaluate_round(
+                verdicts_dir=self.verdicts_dir,
+                calibration_input=self.calibration_input,
+                round_number=1,
+                change_summary="Initial calibration.",
+                tracking_uri=self.tracking_uri,
+                experiment_name="test-calibration",
+                artifact_root=self.artifact_root,
+                session_id="team's session",
+            )
+
+        # No prompt versions should have been registered on early rejection.
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        self.assertIsNone(client.get_prompt("nli-generator"))
+
+    def test_confirm_lock_rejects_unfinished_run(self) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+        result = self._evaluate()
+
+        # Simulate a run that logged eligible metrics but ended up FAILED.
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        client.set_terminated(result.mlflow_run_id, status="FAILED")
+
+        with self.assertRaisesRegex(ValueError, "did not finish"):
+            self.service.confirm_prompt_lock(
+                lock_run_id=result.mlflow_run_id,
+                tracking_uri=self.tracking_uri,
+            )
+        with self.assertRaises(MlflowException):
+            client.get_prompt_version_by_alias("nli-generator", "locked")
+
+    def test_session_rejects_different_calibration_uid_set(self) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+        self.service.evaluate_round(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=self.calibration_input,
+            round_number=1,
+            change_summary="Round 1.",
+            tracking_uri=self.tracking_uri,
+            experiment_name="test-calibration",
+            artifact_root=self.artifact_root,
+            session_id="sess-001",
+        )
+
+        # Round 2 with a completely different source UID set must be rejected.
+        other_calibration = self.root / "calibration2.csv"
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": "x-1",
+                    "premise": "p",
+                    "hypothesis": "h",
+                    "label": "entailment",
+                },
+                {
+                    "source_uid": "x-2",
+                    "premise": "p",
+                    "hypothesis": "h",
+                    "label": "neutral",
+                },
+            ]
+        ).to_csv(other_calibration, index=False)
+        shutil.rmtree(self.verdicts_dir)
+        self.verdicts_dir.mkdir()
+        for model in ("model-a", "model-b", "model-c"):
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": "x-1",
+                        "predicted_label": "entailment",
+                        "reason": "ok",
+                    },
+                    {"source_uid": "x-2", "predicted_label": "neutral", "reason": "ok"},
+                ]
+            ).to_csv(self.verdicts_dir / f"{model}.csv", index=False)
+
+        with self.assertRaisesRegex(ValueError, "anchored to a different"):
+            self.service.evaluate_round(
+                verdicts_dir=self.verdicts_dir,
+                calibration_input=other_calibration,
+                round_number=2,
+                change_summary="Round 2 wrong set.",
+                tracking_uri=self.tracking_uri,
+                experiment_name="test-calibration",
+                artifact_root=self.artifact_root,
+                session_id="sess-001",
+            )
+
+    def test_lock_terminates_session_run(self) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+        result = self.service.evaluate_round(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=self.calibration_input,
+            round_number=1,
+            change_summary="Round 1.",
+            tracking_uri=self.tracking_uri,
+            experiment_name="test-calibration",
+            artifact_root=self.artifact_root,
+            session_id="sess-lock",
+        )
+        self.assertIsNotNone(result.mlflow_session_run_id)
+
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        self.assertEqual(
+            client.get_run(result.mlflow_session_run_id).info.status, "RUNNING"
+        )
+
+        self.service.confirm_prompt_lock(
+            lock_run_id=result.mlflow_run_id,
+            tracking_uri=self.tracking_uri,
+        )
+        self.assertEqual(
+            client.get_run(result.mlflow_session_run_id).info.status, "FINISHED"
+        )
+
+    def _eval_session(self, *, round_number, uids, session_id):
+        cal = self.root / f"cal-{round_number}.csv"
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": u,
+                    "premise": "p",
+                    "hypothesis": "h",
+                    "label": "entailment",
+                }
+                for u in uids
+            ]
+        ).to_csv(cal, index=False)
+        shutil.rmtree(self.verdicts_dir)
+        self.verdicts_dir.mkdir()
+        for model in ("model-a", "model-b", "model-c"):
+            pd.DataFrame(
+                [
+                    {"source_uid": u, "predicted_label": "entailment", "reason": "ok"}
+                    for u in uids
+                ]
+            ).to_csv(self.verdicts_dir / f"{model}.csv", index=False)
+        return self.service.evaluate_round(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=cal,
+            round_number=round_number,
+            change_summary=f"Round {round_number}.",
+            tracking_uri=self.tracking_uri,
+            experiment_name="test-calibration",
+            artifact_root=self.artifact_root,
+            session_id=session_id,
+        )
+
+    def test_legacy_unanchored_session_is_backfilled_and_guarded(self) -> None:
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        experiment_id = client.create_experiment(
+            "test-calibration", artifact_location=self.artifact_root
+        )
+        legacy = client.create_run(
+            experiment_id=experiment_id,
+            run_name="calibration-session-legacy",
+            tags={
+                "calibration_session_id": "legacy",
+                "run_type": "calibration_session",
+            },
+        )
+
+        # First reuse back-fills the anchor.
+        self._eval_session(round_number=1, uids=["a", "b"], session_id="legacy")
+        self.assertEqual(
+            client.get_run(legacy.info.run_id).data.tags.get(
+                "calibration_uid_set_sha256"
+            )
+            is not None,
+            True,
+        )
+        # A later different UID set is now rejected.
+        with self.assertRaisesRegex(ValueError, "anchored to a different"):
+            self._eval_session(round_number=2, uids=["x", "y"], session_id="legacy")
+
+    def test_finalized_session_rejects_new_rounds(self) -> None:
+        result = self._eval_session(
+            round_number=1, uids=["a", "b"], session_id="sess-fin"
+        )
+        self.service.confirm_prompt_lock(
+            lock_run_id=result.mlflow_run_id,
+            tracking_uri=self.tracking_uri,
+        )
+        with self.assertRaisesRegex(ValueError, "already finalized"):
+            self._eval_session(round_number=2, uids=["a", "b"], session_id="sess-fin")
+
+    def test_locked_marker_blocks_reuse_when_termination_fails(self) -> None:
+        from unittest.mock import patch
+
+        result = self._eval_session(
+            round_number=1, uids=["a", "b"], session_id="sess-mark"
+        )
+        original = MlflowClient.set_terminated
+
+        def fail_session(self_client, run_id, *args, **kwargs):
+            if run_id == result.mlflow_session_run_id:
+                raise MlflowException("transient")
+            return original(self_client, run_id, *args, **kwargs)
+
+        with patch.object(MlflowClient, "set_terminated", fail_session):
+            self.service.confirm_prompt_lock(
+                lock_run_id=result.mlflow_run_id,
+                tracking_uri=self.tracking_uri,
+            )
+
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        session_run = client.get_run(result.mlflow_session_run_id)
+        # Termination failed (still RUNNING) but the durable marker is set.
+        self.assertEqual(session_run.info.status, "RUNNING")
+        self.assertEqual(session_run.data.tags.get("session_locked"), "true")
+        with self.assertRaisesRegex(ValueError, "already finalized"):
+            self._eval_session(round_number=2, uids=["a", "b"], session_id="sess-mark")
+
+    def test_legacy_session_with_existing_rounds_rejected(self) -> None:
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        experiment_id = client.create_experiment(
+            "test-calibration", artifact_location=self.artifact_root
+        )
+        legacy = client.create_run(
+            experiment_id=experiment_id,
+            run_name="calibration-session-old",
+            tags={
+                "calibration_session_id": "old",
+                "run_type": "calibration_session",
+            },
+        )
+        # A pre-existing child round, with the parent left unanchored.
+        client.create_run(
+            experiment_id=experiment_id,
+            run_name="prompt-refinement-round-01",
+            tags={"mlflow.parentRunId": legacy.info.run_id},
+        )
+
+        with self.assertRaisesRegex(ValueError, "already has rounds"):
+            self._eval_session(round_number=1, uids=["a", "b"], session_id="old")
 
 
 if __name__ == "__main__":
