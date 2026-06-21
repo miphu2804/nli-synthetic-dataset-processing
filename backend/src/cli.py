@@ -1,4 +1,5 @@
 import argparse
+import json
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ import pandas as pd
 from rich.console import Console
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
+from src.utils.dataset_split import split_dataset_by_group
 from src.utils.validation_aggregation import (
     apply_paraphrases,
     build_retained_dataset,
@@ -942,6 +944,115 @@ def _run_promote_paraphrase_command(
 
 
 # --------------------------------------------------------------------------- #
+# split command
+# --------------------------------------------------------------------------- #
+def run_split(
+    input_path: Path,
+    output_dir: Path,
+    group_column: str,
+    label_column: str,
+    train_ratio: float,
+    dev_ratio: float,
+    test_ratio: float,
+    seed: int,
+) -> dict:
+    dataframe = read_dataset(input_path)
+    result = split_dataset_by_group(
+        dataframe,
+        group_column=group_column,
+        label_column=label_column,
+        train_ratio=train_ratio,
+        dev_ratio=dev_ratio,
+        test_ratio=test_ratio,
+        seed=seed,
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_paths = {
+        "train": output_dir / "train.csv",
+        "dev": output_dir / "dev.csv",
+        "test": output_dir / "test.csv",
+        "manifest": output_dir / "split_manifest.json",
+    }
+    with tempfile.TemporaryDirectory(dir=output_dir) as staging_dir:
+        staging = Path(staging_dir)
+        for split_name in ("train", "dev", "test"):
+            result.splits[split_name].to_csv(
+                staging / f"{split_name}.csv",
+                index=False,
+            )
+        (staging / "split_manifest.json").write_text(
+            json.dumps(result.manifest, ensure_ascii=False, indent=2, sort_keys=True)
+            + "\n"
+        )
+        for split_name in ("train", "dev", "test"):
+            shutil.move(str(staging / f"{split_name}.csv"), output_paths[split_name])
+        shutil.move(
+            str(staging / "split_manifest.json"),
+            output_paths["manifest"],
+        )
+
+    return {
+        "train_output": output_paths["train"],
+        "dev_output": output_paths["dev"],
+        "test_output": output_paths["test"],
+        "manifest_output": output_paths["manifest"],
+        "total_rows": result.manifest["total_rows"],
+        "total_groups": result.manifest["total_groups"],
+        "train_rows": result.manifest["splits"]["train"]["rows"],
+        "dev_rows": result.manifest["splits"]["dev"]["rows"],
+        "test_rows": result.manifest["splits"]["test"]["rows"],
+    }
+
+
+def _run_split_command(args: argparse.Namespace, console: Console) -> int:
+    input_path = Path(args.input).expanduser()
+    if not input_path.exists():
+        console.print(f"[red]Input dataset not found:[/red] {input_path}")
+        return 2
+    output_dir = Path(args.output_dir).expanduser()
+
+    console.print(f"[bold]Input:[/bold]        {input_path}")
+    console.print(f"[bold]Output dir:[/bold]   {output_dir}")
+    console.print(f"[bold]Group column:[/bold] {args.group_column}")
+    console.print(f"[bold]Label column:[/bold] {args.label_column}")
+    console.print(
+        "[bold]Ratios:[/bold]       "
+        f"{args.train_ratio}:{args.dev_ratio}:{args.test_ratio}"
+    )
+    console.print(f"[bold]Seed:[/bold]         {args.seed}")
+
+    try:
+        result = run_split(
+            input_path=input_path,
+            output_dir=output_dir,
+            group_column=args.group_column,
+            label_column=args.label_column,
+            train_ratio=args.train_ratio,
+            dev_ratio=args.dev_ratio,
+            test_ratio=args.test_ratio,
+            seed=args.seed,
+        )
+    except Exception as exc:
+        console.print(f"[red]Failed:[/red] {exc}")
+        return 2
+
+    summary = Table(title="Grouped Split Complete")
+    summary.add_column("Metric")
+    summary.add_column("Value", justify="right")
+    summary.add_row("Total rows", str(result["total_rows"]))
+    summary.add_row("Total premise groups", str(result["total_groups"]))
+    summary.add_row("Train rows", str(result["train_rows"]))
+    summary.add_row("Dev rows", str(result["dev_rows"]))
+    summary.add_row("Test rows", str(result["test_rows"]))
+    summary.add_row("Train output", str(result["train_output"]))
+    summary.add_row("Dev output", str(result["dev_output"]))
+    summary.add_row("Test output", str(result["test_output"]))
+    summary.add_row("Manifest output", str(result["manifest_output"]))
+    console.print(summary)
+    return 0
+
+
+# --------------------------------------------------------------------------- #
 # dispatch
 # --------------------------------------------------------------------------- #
 _COMMAND_HANDLERS = {
@@ -952,8 +1063,8 @@ _COMMAND_HANDLERS = {
     "kappa": _run_kappa_command,
     "apply-paraphrase": _run_apply_paraphrase_command,
     "promote-paraphrase": _run_promote_paraphrase_command,
+    "split": _run_split_command,
     # "lexical": _run_lexical_command,  # future
-    # "split": _run_split_command,      # future
 }
 
 
@@ -987,8 +1098,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_kappa_parser(subparsers)
     _add_apply_paraphrase_parser(subparsers)
     _add_promote_paraphrase_parser(subparsers)
+    _add_split_parser(subparsers)
     # _add_lexical_parser(subparsers)  # future
-    # _add_split_parser(subparsers)    # future
     return parser
 
 
@@ -1288,6 +1399,62 @@ def _add_promote_paraphrase_parser(subparsers: argparse._SubParsersAction) -> No
         help="Expected-label column in --expected-input. Default: label.",
     )
     promote.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress Rich output for tests or scripted runs.",
+    )
+
+
+def _add_split_parser(subparsers: argparse._SubParsersAction) -> None:
+    split = subparsers.add_parser(
+        "split",
+        help="Create deterministic train/dev/test splits grouped by premise.",
+    )
+    split.add_argument(
+        "--input",
+        required=True,
+        help="Final validated/promoted dataset path.",
+    )
+    split.add_argument(
+        "--output-dir",
+        required=True,
+        help="Directory for train.csv, dev.csv, test.csv, and split_manifest.json.",
+    )
+    split.add_argument(
+        "--group-column",
+        default="premise",
+        help="Grouping column that must not cross splits. Default: premise.",
+    )
+    split.add_argument(
+        "--label-column",
+        default="label",
+        help="Label column used for manifest distributions. Default: label.",
+    )
+    split.add_argument(
+        "--train-ratio",
+        type=float,
+        default=0.8,
+        help="Train split ratio. Default: 0.8.",
+    )
+    split.add_argument(
+        "--dev-ratio",
+        type=float,
+        default=0.1,
+        help="Dev split ratio. Default: 0.1.",
+    )
+    split.add_argument(
+        "--test-ratio",
+        type=float,
+        default=0.1,
+        help="Test split ratio. Default: 0.1.",
+    )
+    split.add_argument(
+        "--seed",
+        type=int,
+        default=13,
+        help="Deterministic group shuffle seed. Default: 13.",
+    )
+    split.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress Rich output for tests or scripted runs.",

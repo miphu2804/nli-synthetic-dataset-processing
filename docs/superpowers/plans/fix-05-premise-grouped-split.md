@@ -2,6 +2,8 @@
 
 Proposed branch: `fix/premise-grouped-split`
 
+Status: implemented on `fix/premise-grouped-split`.
+
 ## Problem
 
 The final data split stage is still missing. The CLI has `split` commented as
@@ -43,6 +45,16 @@ risking premise leakage across splits.
 - Tests cover grouping, deterministic seed behavior, small datasets, and invalid
   ratios.
 - Docs mention split only after the final promoted dataset exists.
+
+## Implemented Fix
+
+- Added deterministic grouped split utility with default `0.8/0.1/0.1` ratios
+  and seed `13`.
+- Added CLI `split` that writes `train.csv`, `dev.csv`, `test.csv`, and
+  `split_manifest.json`.
+- Manifest records seed, ratios, row/group counts, and label distribution.
+- Added tests for grouping, deterministic seed behavior, small datasets, invalid
+  ratios, and CLI output.
 
 ## Verification
 

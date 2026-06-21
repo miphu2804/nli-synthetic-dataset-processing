@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,7 @@ from src.cli import (
     run_consensus_pmi,
     run_pmi,
     run_promote_paraphrase,
+    run_split,
 )
 
 
@@ -904,6 +906,103 @@ class PromoteParaphraseCommandTest(unittest.TestCase):
             ]
         )
         self.assertEqual(exit_code, 2)
+
+
+class DatasetSplitCommandTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.input_path = self.root / "promoted_dataset.csv"
+        self.output_dir = self.root / "split"
+        pd.DataFrame(
+            [
+                {"source_uid": "1a", "premise": "p1", "hypothesis": "h1", "label": 0},
+                {"source_uid": "1b", "premise": "p1", "hypothesis": "h2", "label": 1},
+                {"source_uid": "2a", "premise": "p2", "hypothesis": "h3", "label": 0},
+                {"source_uid": "3a", "premise": "p3", "hypothesis": "h4", "label": 1},
+                {"source_uid": "4a", "premise": "p4", "hypothesis": "h5", "label": 2},
+                {"source_uid": "5a", "premise": "p5", "hypothesis": "h6", "label": 2},
+            ]
+        ).to_csv(self.input_path, index=False)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_run_split_writes_csvs_and_manifest(self) -> None:
+        result = run_split(
+            input_path=self.input_path,
+            output_dir=self.output_dir,
+            group_column="premise",
+            label_column="label",
+            train_ratio=0.6,
+            dev_ratio=0.2,
+            test_ratio=0.2,
+            seed=11,
+        )
+
+        self.assertTrue(result["train_output"].exists())
+        self.assertTrue(result["dev_output"].exists())
+        self.assertTrue(result["test_output"].exists())
+        self.assertTrue(result["manifest_output"].exists())
+        manifest = json.loads(result["manifest_output"].read_text())
+        self.assertEqual(manifest["total_rows"], 6)
+        self.assertEqual(manifest["total_groups"], 5)
+
+    def test_main_split_subcommand_exits_zero_and_groups_by_premise(self) -> None:
+        exit_code = main(
+            [
+                "split",
+                "--input",
+                str(self.input_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--train-ratio",
+                "0.6",
+                "--dev-ratio",
+                "0.2",
+                "--test-ratio",
+                "0.2",
+                "--seed",
+                "11",
+                "--quiet",
+            ]
+        )
+
+        self.assertEqual(exit_code, 0)
+        splits = {
+            name: pd.read_csv(self.output_dir / f"{name}.csv")
+            for name in ("train", "dev", "test")
+        }
+        premise_sets = {
+            name: set(split["premise"])
+            for name, split in splits.items()
+            if not split.empty
+        }
+        self.assertTrue(premise_sets["train"].isdisjoint(premise_sets["dev"]))
+        self.assertTrue(premise_sets["train"].isdisjoint(premise_sets["test"]))
+        self.assertTrue(premise_sets["dev"].isdisjoint(premise_sets["test"]))
+        self.assertTrue((self.output_dir / "split_manifest.json").exists())
+
+    def test_main_split_fails_on_invalid_ratios(self) -> None:
+        exit_code = main(
+            [
+                "split",
+                "--input",
+                str(self.input_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--train-ratio",
+                "0.7",
+                "--dev-ratio",
+                "0.2",
+                "--test-ratio",
+                "0.2",
+                "--quiet",
+            ]
+        )
+
+        self.assertEqual(exit_code, 2)
+        self.assertFalse((self.output_dir / "train.csv").exists())
 
 
 if __name__ == "__main__":

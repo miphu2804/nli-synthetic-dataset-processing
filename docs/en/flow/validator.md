@@ -243,6 +243,31 @@ publishable output and written to the review artifact.
 The equivalent MCP wrapper is `promote_paraphrase_revalidation`; it calls the
 same deterministic CLI logic and still requires exactly three verdict files.
 
+Layer 6 — final premise-grouped split. Run this only after a publishable final
+dataset exists, usually `promoted_dataset.csv` when PMI/paraphrase rewrote rows,
+or `validated_dataset.csv` when no row needed paraphrasing. The split keeps every
+hypothesis with the same `premise` in the same set to prevent train/dev/test
+leakage.
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ python -m src.cli split                                  │
+│   --input promoted_dataset.csv                           │
+│   --output-dir data/splits/<run_or_dataset_id>            │
+│   --group-column premise                                 │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+   train.csv
+   dev.csv
+   test.csv
+   split_manifest.json  (seed, ratios, row/group counts, label distribution)
+```
+
+The default ratio is `0.8/0.1/0.1`, with default seed `13`. Override with
+`--train-ratio`, `--dev-ratio`, `--test-ratio`, and `--seed`; the ratio sum must
+be `1.0`.
+
 ## Claimed Row Schema
 
 ```csv

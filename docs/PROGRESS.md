@@ -1,3 +1,30 @@
+### [2026-06-22 05:45] — [ValidationIntegrity] Add premise-grouped split CLI
+
+**Đã làm:**
+- Thêm utility split deterministic theo `premise`/group column để mọi hypothesis cùng premise không crossing giữa train/dev/test.
+- Thêm CLI `split` với input/output dir, seed, ratio args; ghi `train.csv`, `dev.csv`, `test.csv`, và `split_manifest.json`.
+- Manifest ghi seed, ratios, row/group counts, và label distribution từng split.
+- Thêm tests cho grouping, deterministic seed, small dataset, invalid ratios, và CLI output.
+- Cập nhật validator flow docs EN/VI và status của fix plan 05.
+
+**Files thay đổi:**
+- `backend/src/utils/dataset_split.py` — created
+- `backend/src/cli.py` — modified
+- `backend/tests/test_dataset_split.py` — created
+- `backend/tests/test_cli.py` — modified
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
+- `docs/superpowers/plans/fix-05-premise-grouped-split.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None trong chuỗi 5 fix branch đã lập từ issue Markdown.
+
+**Flow explained:**
+Split là stage cuối sau `promoted_dataset.csv` hoặc `validated_dataset.csv` publishable. Thuật toán shuffle premise groups bằng seed cố định, assign theo row targets, rồi backfill split rỗng cho small datasets khi đủ group. Output giữ row order gốc trong từng split và manifest đủ để audit distribution.
+
+---
+
 ### [2026-06-22 05:20] — [ValidationIntegrity] Expose deterministic MCP wrappers
 
 **Đã làm:**
@@ -215,33 +242,3 @@ The Codex main agent freezes the calibration source UID set, generates or reuses
 
 **Flow explained:**
 Run MLflow separately only when calibration is needed. The agent reads `skill://prompt_refinement`, generates one fixed calibration sample, collects exactly three blind verdict files, then calls the MCP tool. Kappa below `0.85` returns `refine_prompt`; kappa at least `0.85` returns `eligible_to_lock`; only `confirm_lock=true` assigns the locked prompt aliases. PMI stays outside this loop and runs after large-scale generation and consensus validation.
-
----
-
-### [2026-06-19 19:00] — [ValidationIntegrity] Harden validation pipeline integrity
-
-**Đã làm:**
-- Enforced the three-class label domain at runtime and offline aggregation boundaries; invalid source or predicted labels now fail before output is written.
-- Required exactly three validator files, exact unique UID coverage across expected, masked, and verdict datasets, non-empty reasons, and collision-free normalized model names.
-- Bound paraphrases to the exact PMI-flagged UID set; rejected missing/duplicate/null flag data, unchanged rewrites, and rewrites that retain listed artifact tokens.
-- Renamed the post-rewrite candidate to `paraphrased_dataset.csv` and added `paraphrase_revalidation_masked.csv`; changed rows are not considered final until semantic revalidation.
-- Built aggregate outputs fully before staging and replacing final CSV files, so validation/serialization failures do not truncate existing outputs.
-- Updated English and Vietnamese validator flow docs. MCP wrappers and premise-grouped split remain intentionally deferred.
-- Verified `118 passed` with `uv run pytest -q`; isort and black hooks pass; the four original repros now reject invalid input.
-
-**Files thay đổi:**
-- `backend/src/utils/nli_labels.py`, `backend/src/schemas/validation_runtime_schema.py`
-- `backend/src/utils/validation_aggregation.py`, `backend/src/services/validation_run_service.py`, `backend/src/cli.py`
-- `backend/tests/test_validation_aggregation.py`, `backend/tests/test_cli.py`
-- `backend/tests/test_validation_run_service.py`, `backend/tests/test_validation_provider.py`
-- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md`
-
-**Blockers:** None
-
-**Còn lại:**
-- Add thin MCP wrappers over the hardened deterministic functions.
-- Operationalize semantic revalidation and promotion of paraphrased rows.
-- Implement deterministic premise-grouped 8:1:1 split.
-
-**Flow explained:**
-Agent/LLM work remains semantic: produce verdicts or paraphrases. Python owns deterministic validation, aggregation, κ, PMI, and file application. The post-paraphrase dataset is a candidate plus an explicit masked revalidation queue, not a final training artifact.

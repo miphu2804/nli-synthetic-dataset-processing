@@ -238,6 +238,30 @@ output và được ghi vào review artifact.
 MCP wrapper tương đương là `promote_paraphrase_revalidation`; wrapper này chỉ
 gọi cùng logic deterministic của CLI và yêu cầu đúng ba verdict files.
 
+Lớp 6 — final split theo premise. Chỉ chạy sau khi đã có dataset final
+publishable, thường là `promoted_dataset.csv` nếu PMI/paraphrase có rewrite,
+hoặc `validated_dataset.csv` nếu không có row nào cần paraphrase. Split giữ mọi
+hypothesis cùng `premise` trong cùng một tập để tránh leakage giữa train/dev/test.
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ python -m src.cli split                                  │
+│   --input promoted_dataset.csv                           │
+│   --output-dir data/splits/<run_or_dataset_id>            │
+│   --group-column premise                                 │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+   train.csv
+   dev.csv
+   test.csv
+   split_manifest.json  (seed, ratios, row/group counts, label distribution)
+```
+
+Default ratio là `0.8/0.1/0.1`, seed default `13`. Có thể override bằng
+`--train-ratio`, `--dev-ratio`, `--test-ratio`, và `--seed`; tổng ratio phải
+bằng `1.0`.
+
 ## Claimed Row Schema
 
 ```csv
