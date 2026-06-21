@@ -1,3 +1,26 @@
+### [2026-06-22 04:08] — [Planning] Add ordered fix branch notes
+
+**Đã làm:**
+- Tạo 5 Markdown plan theo thứ tự nhánh fix: prompt lock/current HEAD, paraphrase revalidation promotion, persisted consensus/PMI artifacts, deterministic-stage MCP wrappers, premise-grouped split.
+- Mỗi file nêu rõ problem, verified evidence, scope, out-of-scope, acceptance criteria, và verification command.
+
+**Files thay đổi:**
+- `docs/superpowers/plans/fix-01-prompt-lock-current-head.md` — created
+- `docs/superpowers/plans/fix-02-paraphrase-revalidation-promotion.md` — created
+- `docs/superpowers/plans/fix-03-persist-consensus-pmi-artifacts.md` — created
+- `docs/superpowers/plans/fix-04-deterministic-stage-mcp-wrappers.md` — created
+- `docs/superpowers/plans/fix-05-premise-grouped-split.md` — created
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** Chưa implement các fix; đây là handoff plan cho từng branch.
+
+**Flow explained:**
+Thứ tự fix đề xuất là: lock/rerun prompt trước khi generation lớn; đóng revalidation/promotion trước khi expose MCP wrapper; xác lập artifact output convention cho consensus/PMI; cuối cùng mới split dataset đã promoted. MCP wrappers phụ thuộc vào CLI/service contract đã ổn định, nên không nên làm trước revalidation/promotion.
+
+---
+
 ### [2026-06-20 16:00] — [PromptRefinement] Hard-khoá provenance + lock bundle (codex round 4)
 
 **Đã làm:**
@@ -217,26 +240,4 @@ Agent/LLM work remains semantic: produce verdicts or paraphrases. Python owns de
 The current aggregate path is now coverage-guarded for both publishable kept rows and manual-review rows. Missing or duplicated masked `source_uid` values fail before output generation, preventing silent row loss or one-to-many join inflation. Aggregate currently emits all-row votes, keep-only validated data, and review-only manual queue; PMI remains a separate step on the validated data.
 
 ---
-
-### [2026-06-17 21:19] — Verify retained dataset coverage fix
-
-**What was done:**
-- Reviewed the fix for `validated_dataset.csv` silently dropping kept rows when `masked_input` is incomplete.
-- Confirmed `build_retained_dataset()` now validates every kept `source_uid` exists in the masked dataset before joining text.
-- Confirmed duplicate masked `source_uid` values for kept rows now fail instead of duplicating or ambiguously joining output rows.
-- Ran the old repro: it now raises `ValueError: Expected 2 kept rows, but masked dataset is missing 1 source_uid(s): row-2`.
-- Ran the backend unittest suite: 78 tests pass.
-
-**Files changed:**
-- `docs/PROGRESS.md` — added this verification entry.
-
-**Blockers:**
-- None.
-
-**Remaining issues:**
-- Validator flow docs still mention `pmi_consensus.csv` as an aggregate output, while current code/tests say aggregate only writes `validation_votes.csv` and `validated_dataset.csv`.
-- `review` consensus rows still do not have a dedicated downstream manual-review artifact.
-
-**Flow explained:**
-The retained dataset step now fails before writing if the keep set from `validation_votes.csv` cannot be fully joined back to `masked_input`. That changes the previous silent truncation failure mode into an explicit data-integrity error with the missing `source_uid` values listed.
 
