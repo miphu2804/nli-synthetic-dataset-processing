@@ -165,6 +165,21 @@ validated/kept rows:
 └──────────────────────────────────────────────────────────┘
 ```
 
+The operator can run Layer 2 + Layer 3 with one command to persist all artifacts
+to a canonical output directory:
+
+```bash
+python -m src.cli consensus-pmi \
+  --verdicts-dir <verdicts_dir> \
+  --masked-input <validation_masked.csv> \
+  --expected-input <labeled_dataset.csv> \
+  --output-dir data/validated/<run_or_dataset_id> \
+  --yes
+```
+
+When `--output-dir` is omitted, the default is
+`data/validated/<expected-input-stem>`.
+
 Layer 4 — apply paraphrase (deterministic). The harness paraphrases the
 hypotheses in `pmi_flagged_rows.csv` (the LLM step, outside this code), emits a
 `source_uid,hypothesis` file of rewrites, then applies them back:
@@ -260,5 +275,5 @@ source_uid,<model>_label...,expected_label,agree_count,decision
   `decision` = do ≥ 2 of 3 models match `expected_label`.
 - Prompt-calibration kappa is available through
   `evaluate_prompt_refinement_round` and logged to MLflow. The deterministic
-  CLI stages `aggregate`, `pmi`, `apply-paraphrase`, and
+  CLI stages `aggregate`, `pmi`, `consensus-pmi`, `apply-paraphrase`, and
   `promote-paraphrase` remain operator-run.

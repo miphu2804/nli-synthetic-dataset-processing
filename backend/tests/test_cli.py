@@ -5,12 +5,14 @@ from pathlib import Path
 import pandas as pd
 from src.cli import (
     build_verdict_candidates,
+    default_consensus_output_dir,
     default_output_path,
     discover_dataset_files,
     discover_verdict_files,
     infer_uid_column,
     main,
     run_aggregation,
+    run_consensus_pmi,
     run_pmi,
     run_promote_paraphrase,
 )
@@ -375,6 +377,61 @@ class ValidationAggregationCliTest(unittest.TestCase):
             ]
         )
         self.assertEqual(exit_code, 2)
+
+    def test_default_consensus_output_dir_uses_expected_input_stem(self) -> None:
+        self.assertEqual(
+            default_consensus_output_dir(Path("data/generated/foo.csv")),
+            Path("data/validated/foo"),
+        )
+
+    def test_run_consensus_pmi_writes_all_artifacts(self) -> None:
+        paths = discover_verdict_files(self.verdicts_dir)
+        valid_candidates = [c for c in build_verdict_candidates(paths) if c.is_valid]
+        self.output_dir.mkdir()
+
+        result = run_consensus_pmi(
+            valid_candidates=valid_candidates,
+            masked_dataset_path=self.masked_path,
+            expected_input_path=self.expected_path,
+            output_dir=self.output_dir,
+            uid_column="source_uid",
+            label_column="label",
+            text_column="hypothesis",
+            pmi_threshold=0.0,
+            min_joint_count=1,
+        )
+
+        self.assertTrue((self.output_dir / "validation_votes.csv").exists())
+        self.assertTrue((self.output_dir / "validated_dataset.csv").exists())
+        self.assertTrue((self.output_dir / "review_dataset.csv").exists())
+        self.assertTrue((self.output_dir / "pmi_artifact_tokens.csv").exists())
+        self.assertTrue((self.output_dir / "pmi_flagged_rows.csv").exists())
+        self.assertEqual(result["keep"], 1)
+        self.assertEqual(result["pmi_total_rows"], 1)
+
+    def test_main_consensus_pmi_subcommand_exits_zero(self) -> None:
+        exit_code = main(
+            [
+                "consensus-pmi",
+                "--verdicts-dir",
+                str(self.verdicts_dir),
+                "--masked-input",
+                str(self.masked_path),
+                "--expected-input",
+                str(self.expected_path),
+                "--output-dir",
+                str(self.output_dir),
+                "--pmi-threshold",
+                "0.0",
+                "--min-joint-count",
+                "1",
+                "--yes",
+                "--quiet",
+            ]
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((self.output_dir / "validation_votes.csv").exists())
+        self.assertTrue((self.output_dir / "pmi_flagged_rows.csv").exists())
 
 
 class AggregationOutputSafetyTest(unittest.TestCase):

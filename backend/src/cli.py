@@ -532,6 +532,130 @@ def _run_pmi_command(args: argparse.Namespace, console: Console) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# consensus-pmi command
+# --------------------------------------------------------------------------- #
+def default_consensus_output_dir(expected_input_path: Path) -> Path:
+    return Path("data/validated") / expected_input_path.stem
+
+
+def run_consensus_pmi(
+    valid_candidates: list[VerdictFileCandidate],
+    masked_dataset_path: Path,
+    expected_input_path: Path,
+    output_dir: Path,
+    uid_column: str,
+    label_column: str,
+    text_column: str,
+    pmi_threshold: float,
+    min_joint_count: int,
+) -> dict:
+    expected_labels = load_expected_labels(
+        expected_input_path,
+        uid_column,
+        label_column,
+    )
+    aggregate_result = run_aggregation(
+        valid_candidates=valid_candidates,
+        masked_dataset_path=masked_dataset_path,
+        output_dir=output_dir,
+        expected_labels=expected_labels,
+    )
+    pmi_result = run_pmi(
+        input_path=aggregate_result["validated_output"],
+        output_dir=output_dir,
+        label_column="label",
+        text_column=text_column,
+        uid_column=uid_column,
+        pmi_threshold=pmi_threshold,
+        min_joint_count=min_joint_count,
+    )
+    return {
+        **aggregate_result,
+        "pmi_tokens_output": pmi_result["tokens_output"],
+        "pmi_rows_output": pmi_result["rows_output"],
+        "pmi_total_rows": pmi_result["total_rows"],
+        "artifact_tokens": pmi_result["artifact_tokens"],
+        "flagged_rows": pmi_result["flagged_rows"],
+    }
+
+
+def _run_consensus_pmi_command(args: argparse.Namespace, console: Console) -> int:
+    verdicts_dir = Path(args.verdicts_dir).expanduser()
+    if not verdicts_dir.exists():
+        console.print(f"[red]Verdicts directory not found:[/red] {verdicts_dir}")
+        return 2
+    masked_input = Path(args.masked_input).expanduser()
+    if not masked_input.exists():
+        console.print(f"[red]Masked dataset not found:[/red] {masked_input}")
+        return 2
+    expected_input = Path(args.expected_input).expanduser()
+    if not expected_input.exists():
+        console.print(f"[red]Expected-label dataset not found:[/red] {expected_input}")
+        return 2
+
+    candidates = build_verdict_candidates(discover_verdict_files(verdicts_dir))
+    valid_candidates = [candidate for candidate in candidates if candidate.is_valid]
+    if candidates:
+        render_verdict_candidates_table(console, candidates)
+    if len(valid_candidates) != 3:
+        console.print(
+            f"[red]Need exactly 3 valid verdict files, found {len(valid_candidates)} "
+            "(columns: source_uid, predicted_label, reason).[/red]"
+        )
+        return 2
+
+    output_dir = (
+        Path(args.output_dir).expanduser()
+        if args.output_dir
+        else default_consensus_output_dir(expected_input)
+    )
+    console.print(f"[bold]Verdicts dir:[/bold]  {verdicts_dir}")
+    console.print(f"[bold]Masked input:[/bold] {masked_input}")
+    console.print(f"[bold]Expected input:[/bold] {expected_input}")
+    console.print(f"[bold]Output dir:[/bold]   {output_dir}")
+    console.print(f"[bold]PMI threshold:[/bold] {args.pmi_threshold}")
+    console.print(f"[bold]Min count:[/bold]     {args.min_joint_count}")
+    if not args.yes and not Confirm.ask("Run consensus + PMI?", default=True):
+        console.print("[yellow]Cancelled.[/yellow]")
+        return 1
+
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        result = run_consensus_pmi(
+            valid_candidates=valid_candidates,
+            masked_dataset_path=masked_input,
+            expected_input_path=expected_input,
+            output_dir=output_dir,
+            uid_column=args.uid_column,
+            label_column=args.label_column,
+            text_column=args.text_column,
+            pmi_threshold=args.pmi_threshold,
+            min_joint_count=args.min_joint_count,
+        )
+    except Exception as exc:
+        console.print(f"[red]Failed:[/red] {exc}")
+        return 2
+
+    summary = Table(title="Consensus + PMI Complete")
+    summary.add_column("Metric")
+    summary.add_column("Value", justify="right")
+    summary.add_row("Total rows", str(result["total_rows"]))
+    summary.add_row("Keep", str(result["keep"]))
+    summary.add_row("Review", str(result["review"]))
+    summary.add_row("Discard", str(result["discard"]))
+    summary.add_row("PMI rows scored", str(result["pmi_total_rows"]))
+    summary.add_row("Artifact tokens", str(result["artifact_tokens"]))
+    summary.add_row("Flagged rows", str(result["flagged_rows"]))
+    summary.add_row("Votes output", str(result["votes_output"]))
+    summary.add_row("Validated output", str(result["validated_output"]))
+    summary.add_row("Review output", str(result["review_output"]))
+    summary.add_row("PMI tokens output", str(result["pmi_tokens_output"]))
+    summary.add_row("PMI flagged rows output", str(result["pmi_rows_output"]))
+    console.print(summary)
+    return 0
+
+
+# --------------------------------------------------------------------------- #
 # kappa command
 # --------------------------------------------------------------------------- #
 KAPPA_THRESHOLD = 0.85
@@ -824,6 +948,7 @@ _COMMAND_HANDLERS = {
     "mask": _run_mask_command,
     "aggregate": _run_aggregate_command,
     "pmi": _run_pmi_command,
+    "consensus-pmi": _run_consensus_pmi_command,
     "kappa": _run_kappa_command,
     "apply-paraphrase": _run_apply_paraphrase_command,
     "promote-paraphrase": _run_promote_paraphrase_command,
@@ -858,6 +983,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_mask_parser(subparsers)
     _add_aggregate_parser(subparsers)
     _add_pmi_parser(subparsers)
+    _add_consensus_pmi_parser(subparsers)
     _add_kappa_parser(subparsers)
     _add_apply_paraphrase_parser(subparsers)
     _add_promote_paraphrase_parser(subparsers)
@@ -986,6 +1112,69 @@ def _add_pmi_parser(subparsers: argparse._SubParsersAction) -> None:
         help="Directory for output CSVs. Defaults to the input file's directory.",
     )
     pmi.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress Rich output for tests or scripted runs.",
+    )
+
+
+def _add_consensus_pmi_parser(subparsers: argparse._SubParsersAction) -> None:
+    consensus = subparsers.add_parser(
+        "consensus-pmi",
+        help="Run consensus aggregation and PMI artifact detection in one step.",
+    )
+    consensus.add_argument(
+        "--verdicts-dir",
+        required=True,
+        help="Directory containing exactly three model verdict CSV/parquet files.",
+    )
+    consensus.add_argument(
+        "--masked-input",
+        required=True,
+        help="Path to masked validation dataset.",
+    )
+    consensus.add_argument(
+        "--expected-input",
+        required=True,
+        help="Original dataset with trusted expected labels.",
+    )
+    consensus.add_argument(
+        "--uid-column",
+        default="source_uid",
+        help="UID column in --expected-input. Default: source_uid.",
+    )
+    consensus.add_argument(
+        "--label-column",
+        default="label",
+        help="Expected-label column in --expected-input. Default: label.",
+    )
+    consensus.add_argument(
+        "--text-column",
+        default="hypothesis",
+        help="Text column for PMI. Default: hypothesis.",
+    )
+    consensus.add_argument(
+        "--pmi-threshold",
+        type=float,
+        default=1.0,
+        help="Minimum PMI for a token-label artifact. Default: 1.0.",
+    )
+    consensus.add_argument(
+        "--min-joint-count",
+        type=int,
+        default=3,
+        help="Minimum joint token-label count included in PMI. Default: 3.",
+    )
+    consensus.add_argument(
+        "--output-dir",
+        help="Directory for aggregate and PMI outputs. Defaults to data/validated/<expected-input-stem>.",
+    )
+    consensus.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts for scripted runs.",
+    )
+    consensus.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress Rich output for tests or scripted runs.",

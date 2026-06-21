@@ -2,6 +2,9 @@
 
 Proposed branch: `fix/persist-consensus-pmi-artifacts`
 
+Status: implemented on this branch with the `consensus-pmi` CLI command and
+canonical default output directory `data/validated/<expected-input-stem>`.
+
 ## Problem
 
 The deterministic aggregate and PMI commands work, but the repo does not

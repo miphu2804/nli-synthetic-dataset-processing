@@ -1,3 +1,27 @@
+### [2026-06-22 04:55] — [ValidationIntegrity] Add consensus PMI command
+
+**Đã làm:**
+- Thêm CLI `consensus-pmi` để chạy aggregate + PMI trong một bước và persist `validation_votes.csv`, `validated_dataset.csv`, `review_dataset.csv`, `pmi_artifact_tokens.csv`, `pmi_flagged_rows.csv`.
+- Thêm default output convention `data/validated/<expected-input-stem>` khi operator không truyền `--output-dir`.
+- Thêm tests cho default path, function output, và subcommand noninteractive.
+- Cập nhật validator flow docs EN/VI và status của fix plan 03.
+
+**Files thay đổi:**
+- `backend/src/cli.py` — modified
+- `backend/tests/test_cli.py` — modified
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
+- `docs/superpowers/plans/fix-03-persist-consensus-pmi-artifacts.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** Chưa expose qua MCP; command này vẫn là operator-run deterministic stage.
+
+**Flow explained:**
+`consensus-pmi` không đổi rule consensus hay PMI. Nó chỉ gom hai bước đã có vào một entrypoint có output convention rõ, giúp handoff biết corpus đã có đủ artifacts trước khi paraphrase.
+
+---
+
 ### [2026-06-22 04:35] — [ValidationIntegrity] Add paraphrase promotion CLI
 
 **Đã làm:**
@@ -219,28 +243,5 @@ Agent/LLM work remains semantic: produce verdicts or paraphrases. Python owns de
 
 **Flow explained:**
 `paper_explanation.md` now treats ViLegalNLI as the source of truth and avoids mixing in implementation status. The key mental model is: prompt optimization happens before large-scale generation and uses Fleiss' κ to calibrate generation/labeling prompt setup; data validation happens after generation and retains examples with at least two validating models agreeing with the original label; PMI/artifact mitigation happens after validation and paraphrases high-PMI hypotheses; benchmarking happens only after the final split.
-
----
-
-### [2026-06-17 21:35] — Fix stale validator docs + add review_dataset.csv artifact
-
-**What was done:**
-- Removed stale `pmi_consensus.csv` references from `docs/en/flow/validator.md` and `docs/vi/flow/validator.md` (aggregate no longer writes it; PMI is the separate `cli pmi` step). Also corrected the misleading diagram label: `validation_votes.csv` holds ALL rows + decisions, `validated_dataset.csv` only the KEEP subset.
-- Addressed the operational risk that REVIEW rows (agree==1) had no downstream artifact: `aggregate` now also writes `review_dataset.csv` (manual-review queue).
-
-**Files changed:**
-- `backend/src/utils/validation_aggregation.py` — extracted `_assert_masked_coverage()` helper (shared by retained + review builders); added `build_review_dataset()`.
-- `backend/src/cli.py` — `run_aggregation()` writes `review_dataset.csv`; summary table + result dict report review rows/output; import added.
-- `backend/tests/test_validation_aggregation.py` — added 2 tests for `build_review_dataset` (filter + coverage guard).
-- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — corrected aggregate outputs, documented review_dataset.csv.
-
-**Blockers:**
-- None.
-
-**Remaining issues:**
-- None known.
-
-**Flow explained:**
-`aggregate` now emits 3 files: `validation_votes.csv` (full vote table, every row + keep/review/discard decision), `validated_dataset.csv` (KEEP only, expected_label→label, publishable schema), and `review_dataset.csv` (REVIEW only — text joined onto vote rows, keeps per-model labels + expected_label + agree_count so a human can see disagreement; expected_label is NOT renamed since these rows are unverified). Both retained and review builders share `_assert_masked_coverage()`, which raises on any kept/review source_uid missing from — or duplicated in — masked_input, preventing silent row loss or one-to-many inflation in the inner join. PMI remains a separate `cli pmi` step on `validated_dataset.csv`; no `pmi_consensus.csv` is produced.
 
 ---

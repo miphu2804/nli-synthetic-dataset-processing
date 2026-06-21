@@ -163,6 +163,20 @@ validated/kept:
 └──────────────────────────────────────────────────────────┘
 ```
 
+Operator có thể chạy Lớp 2 + Lớp 3 bằng một command để persist đủ artifact vào
+một thư mục chuẩn:
+
+```bash
+python -m src.cli consensus-pmi \
+  --verdicts-dir <verdicts_dir> \
+  --masked-input <validation_masked.csv> \
+  --expected-input <labeled_dataset.csv> \
+  --output-dir data/validated/<run_or_dataset_id> \
+  --yes
+```
+
+Nếu bỏ `--output-dir`, default là `data/validated/<expected-input-stem>`.
+
 Lớp 4 — apply paraphrase (deterministic). Harness paraphrase các hypothesis trong
 `pmi_flagged_rows.csv` (bước LLM, ngoài code), xuất file `source_uid,hypothesis`
 đã viết lại, rồi apply ngược:
@@ -257,5 +271,5 @@ source_uid,<model>_label...,expected_label,agree_count,decision
   = có ≥ 2 trong 3 model khớp `expected_label` không.
 - Kappa cho prompt calibration đã có qua
   `evaluate_prompt_refinement_round` và được log vào MLflow. Các CLI stage
-  deterministic `aggregate`, `pmi`, `apply-paraphrase`, và
+  deterministic `aggregate`, `pmi`, `consensus-pmi`, `apply-paraphrase`, và
   `promote-paraphrase` vẫn do operator chạy.
