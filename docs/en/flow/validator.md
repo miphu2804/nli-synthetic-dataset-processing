@@ -143,7 +143,9 @@ vote context so a human can see the disagreement; `expected_label` is preserved
 published as-is. `accepted` (a per-model flag in Layer 1) and `decision`
 (cross-model consensus) are different layers.
 
-No MCP tool exists yet for this CLI stage. It is run manually by an operator.
+An operator can run this layer through the `aggregate` CLI. MCP exposes only the
+combined `run_consensus_pmi` wrapper after aggregation + PMI share a stable
+contract.
 
 Layer 3 — artifact flagging (deterministic, corpus-level). Run on the
 validated/kept rows:
@@ -179,6 +181,9 @@ python -m src.cli consensus-pmi \
 
 When `--output-dir` is omitted, the default is
 `data/validated/<expected-input-stem>`.
+The equivalent MCP wrapper is `run_consensus_pmi`; it is still deterministic,
+does not call a model, and writes the same artifact set to the same output
+convention.
 
 Layer 4 — apply paraphrase (deterministic). The harness paraphrases the
 hypotheses in `pmi_flagged_rows.csv` (the LLM step, outside this code), emits a
@@ -235,6 +240,8 @@ rule:
 `promoted_dataset.csv` keeps unchanged rows and changed rows whose revalidation
 decision is `keep`. Changed rows with `review` or `discard` are removed from the
 publishable output and written to the review artifact.
+The equivalent MCP wrapper is `promote_paraphrase_revalidation`; it calls the
+same deterministic CLI logic and still requires exactly three verdict files.
 
 ## Claimed Row Schema
 
@@ -275,5 +282,7 @@ source_uid,<model>_label...,expected_label,agree_count,decision
   `decision` = do ≥ 2 of 3 models match `expected_label`.
 - Prompt-calibration kappa is available through
   `evaluate_prompt_refinement_round` and logged to MLflow. The deterministic
-  CLI stages `aggregate`, `pmi`, `consensus-pmi`, `apply-paraphrase`, and
-  `promote-paraphrase` remain operator-run.
+  CLI stages `aggregate`, `pmi`, and `apply-paraphrase` remain operator-run.
+  The combined/stable stages `consensus-pmi` and `promote-paraphrase` also have
+  thin MCP wrappers: `run_consensus_pmi` and
+  `promote_paraphrase_revalidation`.

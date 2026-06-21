@@ -4,6 +4,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from fastmcp.tools import tool
 from pydantic import Field
+from src.cli import (
+    build_verdict_candidates,
+    default_consensus_output_dir,
+    discover_verdict_files,
+)
+from src.cli import run_consensus_pmi as run_consensus_pmi_stage
+from src.cli import run_promote_paraphrase as run_promote_paraphrase_stage
 from src.providers.base import ToolProvider
 from src.services.dataset_reader_service import DatasetReaderService
 from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
@@ -273,6 +280,195 @@ class ValidationToolProvider(ToolProvider):
             lock_run_id=lock_run_id,
             tracking_uri=tracking_uri,
         ).model_dump(mode="json")
+
+    @tool(
+        name="run_consensus_pmi",
+        description=(
+            "Run deterministic consensus aggregation and PMI artifact detection "
+            "over exactly three validator verdict files."
+        ),
+    )
+    def run_consensus_pmi(
+        self,
+        verdicts_dir: Annotated[
+            str,
+            Field(description="Directory containing exactly three verdict files."),
+        ],
+        masked_input: Annotated[
+            str,
+            Field(description="Masked validation dataset path."),
+        ],
+        expected_input: Annotated[
+            str,
+            Field(description="Original dataset path with trusted labels."),
+        ],
+        output_dir: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Output directory for aggregate and PMI artifacts. Defaults to "
+                    "data/validated/<expected-input-stem>."
+                )
+            ),
+        ] = None,
+        uid_column: Annotated[
+            str,
+            Field(description="Row identifier column. Default: source_uid."),
+        ] = "source_uid",
+        label_column: Annotated[
+            str,
+            Field(
+                description="Trusted label column in expected_input. Default: label."
+            ),
+        ] = "label",
+        text_column: Annotated[
+            str,
+            Field(description="Text column used by PMI. Default: hypothesis."),
+        ] = "hypothesis",
+        pmi_threshold: Annotated[
+            float,
+            Field(description="Minimum PMI for a token-label artifact. Default: 1.0."),
+        ] = 1.0,
+        min_joint_count: Annotated[
+            int,
+            Field(ge=1, description="Minimum joint token-label count. Default: 3."),
+        ] = 3,
+    ) -> dict[str, Any]:
+        verdicts_path = Path(verdicts_dir).expanduser()
+        masked_input_path = Path(masked_input).expanduser()
+        expected_input_path = Path(expected_input).expanduser()
+        resolved_output_dir = (
+            Path(output_dir).expanduser()
+            if output_dir
+            else default_consensus_output_dir(expected_input_path)
+        )
+        valid_candidates = self._load_valid_verdict_candidates(verdicts_path)
+        resolved_output_dir.mkdir(parents=True, exist_ok=True)
+        result = run_consensus_pmi_stage(
+            valid_candidates=valid_candidates,
+            masked_dataset_path=masked_input_path,
+            expected_input_path=expected_input_path,
+            output_dir=resolved_output_dir,
+            uid_column=uid_column,
+            label_column=label_column,
+            text_column=text_column,
+            pmi_threshold=pmi_threshold,
+            min_joint_count=min_joint_count,
+        )
+        return self._jsonable_paths(result)
+
+    @tool(
+        name="promote_paraphrase_revalidation",
+        description=(
+            "Promote paraphrased rows that pass deterministic semantic "
+            "revalidation from exactly three verdict files."
+        ),
+    )
+    def promote_paraphrase_revalidation(
+        self,
+        input_path: Annotated[
+            str,
+            Field(description="Paraphrased candidate dataset path."),
+        ],
+        revalidation_input: Annotated[
+            str,
+            Field(description="Masked changed-row revalidation queue path."),
+        ],
+        verdicts_dir: Annotated[
+            str,
+            Field(description="Directory containing exactly three verdict files."),
+        ],
+        expected_input: Annotated[
+            str,
+            Field(description="Trusted label dataset for changed row UIDs."),
+        ],
+        output_path: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Promoted dataset output path. Defaults to promoted_dataset.csv "
+                    "next to input_path."
+                )
+            ),
+        ] = None,
+        review_output: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Review output path. Defaults to "
+                    "paraphrase_revalidation_review.csv next to output_path."
+                )
+            ),
+        ] = None,
+        votes_output: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Vote table output path. Defaults to "
+                    "paraphrase_revalidation_votes.csv next to output_path."
+                )
+            ),
+        ] = None,
+        uid_column: Annotated[
+            str,
+            Field(description="Row identifier column. Default: source_uid."),
+        ] = "source_uid",
+        label_column: Annotated[
+            str,
+            Field(
+                description="Trusted label column in expected_input. Default: label."
+            ),
+        ] = "label",
+    ) -> dict[str, Any]:
+        input = Path(input_path).expanduser()
+        output = (
+            Path(output_path).expanduser()
+            if output_path
+            else input.with_name("promoted_dataset.csv")
+        )
+        review = (
+            Path(review_output).expanduser()
+            if review_output
+            else output.with_name("paraphrase_revalidation_review.csv")
+        )
+        votes = (
+            Path(votes_output).expanduser()
+            if votes_output
+            else output.with_name("paraphrase_revalidation_votes.csv")
+        )
+        valid_candidates = self._load_valid_verdict_candidates(
+            Path(verdicts_dir).expanduser()
+        )
+        result = run_promote_paraphrase_stage(
+            input_path=input,
+            revalidation_input_path=Path(revalidation_input).expanduser(),
+            verdict_candidates=valid_candidates,
+            expected_input_path=Path(expected_input).expanduser(),
+            output_path=output,
+            review_output_path=review,
+            votes_output_path=votes,
+            uid_column=uid_column,
+            label_column=label_column,
+        )
+        return self._jsonable_paths(result)
+
+    @staticmethod
+    def _load_valid_verdict_candidates(verdicts_dir: Path) -> list[Any]:
+        candidates = build_verdict_candidates(discover_verdict_files(verdicts_dir))
+        valid_candidates = [candidate for candidate in candidates if candidate.is_valid]
+        if len(valid_candidates) != 3:
+            raise ValueError(
+                f"Need exactly 3 valid verdict files, found {len(valid_candidates)} "
+                "(columns: source_uid, predicted_label, reason)."
+            )
+        return valid_candidates
+
+    @staticmethod
+    def _jsonable_paths(result: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: str(value) if isinstance(value, Path) else value
+            for key, value in result.items()
+        }
 
 
 def register_validation_tools(

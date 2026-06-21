@@ -61,6 +61,37 @@ class ValidationProviderTest(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_deterministic_stage_tools_expose_explicit_parameters(self) -> None:
+        async def scenario() -> None:
+            consensus = await self.mcp.get_tool("run_consensus_pmi")
+            consensus_properties = consensus.parameters["properties"]
+            for name in (
+                "verdicts_dir",
+                "masked_input",
+                "expected_input",
+                "output_dir",
+                "pmi_threshold",
+                "min_joint_count",
+            ):
+                self.assertIn(name, consensus_properties)
+            self.assertNotIn("self", consensus_properties)
+
+            promote = await self.mcp.get_tool("promote_paraphrase_revalidation")
+            promote_properties = promote.parameters["properties"]
+            for name in (
+                "input_path",
+                "revalidation_input",
+                "verdicts_dir",
+                "expected_input",
+                "output_path",
+                "review_output",
+                "votes_output",
+            ):
+                self.assertIn(name, promote_properties)
+            self.assertNotIn("self", promote_properties)
+
+        asyncio.run(scenario())
+
     def test_validation_tool_round_trip_uses_masked_rows(self) -> None:
         async def scenario() -> None:
             started = await self.mcp.call_tool(
@@ -119,6 +150,153 @@ class ValidationProviderTest(unittest.TestCase):
                     "validation_results.csv"
                 )
             )
+
+        asyncio.run(scenario())
+
+    def test_run_consensus_pmi_tool_writes_artifacts(self) -> None:
+        verdicts_dir = self.root / "consensus-verdicts"
+        verdicts_dir.mkdir()
+        masked_path = self.root / "masked.csv"
+        expected_path = self.root / "expected.csv"
+        output_dir = self.root / "consensus-output"
+        pd.DataFrame(
+            [
+                {"source_uid": "row-1", "premise": "p1", "hypothesis": "alpha"},
+                {"source_uid": "row-2", "premise": "p2", "hypothesis": "beta"},
+            ]
+        ).to_csv(masked_path, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": "row-1",
+                    "premise": "p1",
+                    "hypothesis": "alpha",
+                    "label": "entailment",
+                },
+                {
+                    "source_uid": "row-2",
+                    "premise": "p2",
+                    "hypothesis": "beta",
+                    "label": "entailment",
+                },
+            ]
+        ).to_csv(expected_path, index=False)
+        labels_by_model = {
+            "gpt4o": {"row-1": "entailment", "row-2": "neutral"},
+            "deepseek": {"row-1": "entailment", "row-2": "contradiction"},
+            "llama": {"row-1": "entailment", "row-2": "neutral"},
+        }
+        for model_name, labels in labels_by_model.items():
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": source_uid,
+                        "predicted_label": label,
+                        "reason": "ok",
+                    }
+                    for source_uid, label in labels.items()
+                ]
+            ).to_csv(verdicts_dir / f"{model_name}.csv", index=False)
+
+        async def scenario() -> None:
+            result = await self.mcp.call_tool(
+                "run_consensus_pmi",
+                {
+                    "verdicts_dir": str(verdicts_dir),
+                    "masked_input": str(masked_path),
+                    "expected_input": str(expected_path),
+                    "output_dir": str(output_dir),
+                    "pmi_threshold": 0.0,
+                    "min_joint_count": 1,
+                },
+            )
+            content = result.structured_content
+            self.assertEqual(content["total_rows"], 2)
+            self.assertEqual(content["keep"], 1)
+            self.assertTrue(Path(content["validated_output"]).exists())
+            self.assertTrue(Path(content["pmi_rows_output"]).exists())
+
+        asyncio.run(scenario())
+
+    def test_promote_paraphrase_revalidation_tool_writes_outputs(self) -> None:
+        input_path = self.root / "paraphrased_dataset.csv"
+        revalidation_path = self.root / "paraphrase_revalidation_masked.csv"
+        expected_path = self.root / "validated_dataset.csv"
+        verdicts_dir = self.root / "promotion-verdicts"
+        verdicts_dir.mkdir()
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": "row-1",
+                    "premise": "p1",
+                    "hypothesis": "h1",
+                    "label": "entailment",
+                },
+                {
+                    "source_uid": "row-2",
+                    "premise": "p2",
+                    "hypothesis": "h2-rewritten",
+                    "label": "neutral",
+                },
+            ]
+        ).to_csv(input_path, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": "row-1",
+                    "premise": "p1",
+                    "hypothesis": "h1",
+                    "label": "entailment",
+                },
+                {
+                    "source_uid": "row-2",
+                    "premise": "p2",
+                    "hypothesis": "h2",
+                    "label": "neutral",
+                },
+            ]
+        ).to_csv(expected_path, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": "row-2",
+                    "premise": "p2",
+                    "hypothesis": "h2-rewritten",
+                    "masked_label": "[MASK]",
+                }
+            ]
+        ).to_csv(revalidation_path, index=False)
+        labels_by_model = {
+            "gpt4o": "neutral",
+            "deepseek": "neutral",
+            "llama": "entailment",
+        }
+        for model_name, label in labels_by_model.items():
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": "row-2",
+                        "predicted_label": label,
+                        "reason": "ok",
+                    }
+                ]
+            ).to_csv(verdicts_dir / f"{model_name}.csv", index=False)
+
+        async def scenario() -> None:
+            result = await self.mcp.call_tool(
+                "promote_paraphrase_revalidation",
+                {
+                    "input_path": str(input_path),
+                    "revalidation_input": str(revalidation_path),
+                    "verdicts_dir": str(verdicts_dir),
+                    "expected_input": str(expected_path),
+                },
+            )
+            content = result.structured_content
+            self.assertEqual(content["promoted_rows"], 2)
+            self.assertEqual(content["accepted_rewrites"], 1)
+            self.assertTrue(Path(content["output_path"]).exists())
+            self.assertTrue(Path(content["votes_output_path"]).exists())
 
         asyncio.run(scenario())
 

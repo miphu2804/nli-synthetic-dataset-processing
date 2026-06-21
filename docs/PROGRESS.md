@@ -1,3 +1,27 @@
+### [2026-06-22 05:20] — [ValidationIntegrity] Expose deterministic MCP wrappers
+
+**Đã làm:**
+- Thêm MCP wrapper `run_consensus_pmi` để gọi cùng contract deterministic của CLI `consensus-pmi` và trả row counts + artifact paths.
+- Thêm MCP wrapper `promote_paraphrase_revalidation` để promote rewrites sau đúng ba verdict files revalidation.
+- Thêm provider tests cho schema không leak `self` và runtime write artifacts cho cả consensus/PMI lẫn paraphrase promotion.
+- Cập nhật validator flow docs EN/VI và status của fix plan 04.
+
+**Files thay đổi:**
+- `backend/src/providers/validation_provider.py` — modified
+- `backend/tests/test_validation_provider.py` — modified
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
+- `docs/superpowers/plans/fix-04-deterministic-stage-mcp-wrappers.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** Premise-grouped train/dev/test split vẫn chưa có CLI.
+
+**Flow explained:**
+MCP wrappers chỉ là transport adapters. Chúng không gọi model và không tự suy hidden labels; chúng discover đúng ba verdict files rồi gọi lại function CLI đã được test. `aggregate`, `pmi`, và `apply-paraphrase` vẫn là stage CLI/operator riêng, còn `consensus-pmi` và `promote-paraphrase` có thêm wrapper mỏng vì artifact contract đã ổn định.
+
+---
+
 ### [2026-06-22 04:55] — [ValidationIntegrity] Add consensus PMI command
 
 **Đã làm:**
@@ -221,27 +245,3 @@ Run MLflow separately only when calibration is needed. The agent reads `skill://
 
 **Flow explained:**
 Agent/LLM work remains semantic: produce verdicts or paraphrases. Python owns deterministic validation, aggregation, κ, PMI, and file application. The post-paraphrase dataset is a candidate plus an explicit masked revalidation queue, not a final training artifact.
-
----
-
-### [2026-06-18 00:01] — Rewrite paper explanation as paper-only note
-
-**What was done:**
-- Pulled the ViLegalNLI paper context from arXiv and rewrote `docs/paper_explanation.md` as a standalone paper explanation.
-- Removed repo/codebase comparison sections and replaced them with a full paper flow: task definition, seven-step dataset construction, prompt optimization, validation, PMI artifact mitigation, splitting, dataset analysis, experiments, result analysis, and conclusion.
-- Clarified the important distinction: low κ belongs to prompt/data-construction calibration, while high PMI leads to paraphrasing hypothesis text.
-
-**Files changed:**
-- `docs/paper_explanation.md` — rewritten as paper-only explanation.
-- `docs/PROGRESS.md` — added this progress entry.
-
-**Blockers:**
-- None.
-
-**Remaining issues:**
-- None known.
-
-**Flow explained:**
-`paper_explanation.md` now treats ViLegalNLI as the source of truth and avoids mixing in implementation status. The key mental model is: prompt optimization happens before large-scale generation and uses Fleiss' κ to calibrate generation/labeling prompt setup; data validation happens after generation and retains examples with at least two validating models agreeing with the original label; PMI/artifact mitigation happens after validation and paraphrases high-PMI hypotheses; benchmarking happens only after the final split.
-
----

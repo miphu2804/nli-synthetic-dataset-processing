@@ -2,6 +2,8 @@
 
 Proposed branch: `fix/deterministic-stage-mcp-wrappers`
 
+Status: implemented on `fix/deterministic-stage-mcp-wrappers`.
+
 ## Problem
 
 The validation runtime exposes MCP tools for per-run validation and prompt
@@ -51,6 +53,15 @@ otherwise the MCP surface would encode an incomplete workflow.
 - Existing CLI tests still pass.
 - Provider tests verify the tools are registered and schema exposes explicit
   inputs.
+
+## Implemented Fix
+
+- Added `run_consensus_pmi` MCP wrapper over the existing deterministic
+  aggregate + PMI contract.
+- Added `promote_paraphrase_revalidation` MCP wrapper over the existing
+  paraphrase promotion contract.
+- Kept `aggregate`, `pmi`, and `apply-paraphrase` as CLI/operator stages.
+- Added provider tests for schema exposure and runtime artifact writes.
 
 ## Verification
 

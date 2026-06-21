@@ -141,7 +141,9 @@ context để người duyệt thấy chỗ bất đồng; `expected_label` đư
 như vậy. `accepted` (flag per-model ở Lớp 1) và `decision` (cross-model consensus)
 là hai lớp khác nhau.
 
-Chưa có MCP tool nào cho CLI stage này. Operator chạy thủ công.
+Operator có thể chạy layer này bằng CLI `aggregate`. MCP chỉ expose wrapper
+cho combined stage `run_consensus_pmi` sau khi aggregate + PMI được chạy như
+một contract ổn định.
 
 Lớp 3 — artifact flagging (deterministic, corpus-level). Chạy trên các row
 validated/kept:
@@ -176,6 +178,8 @@ python -m src.cli consensus-pmi \
 ```
 
 Nếu bỏ `--output-dir`, default là `data/validated/<expected-input-stem>`.
+MCP wrapper tương đương là `run_consensus_pmi`; wrapper này vẫn deterministic,
+không gọi model, và ghi cùng bộ artifact vào cùng output convention.
 
 Lớp 4 — apply paraphrase (deterministic). Harness paraphrase các hypothesis trong
 `pmi_flagged_rows.csv` (bước LLM, ngoài code), xuất file `source_uid,hypothesis`
@@ -231,6 +235,8 @@ các rewrite còn giữ đúng label theo quy tắc `2 trong 3`:
 `promoted_dataset.csv` giữ các row không đổi và các rewrite được revalidation
 `keep`. Rewrite có decision `review` hoặc `discard` bị loại khỏi publishable
 output và được ghi vào review artifact.
+MCP wrapper tương đương là `promote_paraphrase_revalidation`; wrapper này chỉ
+gọi cùng logic deterministic của CLI và yêu cầu đúng ba verdict files.
 
 ## Claimed Row Schema
 
@@ -271,5 +277,7 @@ source_uid,<model>_label...,expected_label,agree_count,decision
   = có ≥ 2 trong 3 model khớp `expected_label` không.
 - Kappa cho prompt calibration đã có qua
   `evaluate_prompt_refinement_round` và được log vào MLflow. Các CLI stage
-  deterministic `aggregate`, `pmi`, `consensus-pmi`, `apply-paraphrase`, và
-  `promote-paraphrase` vẫn do operator chạy.
+  deterministic `aggregate`, `pmi`, và `apply-paraphrase` vẫn do operator chạy.
+  Hai combined/stable stages `consensus-pmi` và `promote-paraphrase` cũng có
+  MCP wrappers mỏng: `run_consensus_pmi` và
+  `promote_paraphrase_revalidation`.
