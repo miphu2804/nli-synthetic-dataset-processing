@@ -182,8 +182,6 @@ hypotheses in `pmi_flagged_rows.csv` (the LLM step, outside this code), emits a
   this file is published.
 - `paraphrase_revalidation_masked.csv` — revalidation queue containing only
   the changed rows: `source_uid, premise, hypothesis, masked_label=[MASK]`.
-  Feed this file into Layer 1 of a new validation run before promoting the
-  paraphrased dataset.
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
@@ -195,8 +193,33 @@ hypotheses in `pmi_flagged_rows.csv` (the LLM step, outside this code), emits a
                               │
                               ▼
    paraphrased_dataset.csv          (candidate — awaits revalidation)
-   paraphrase_revalidation_masked.csv (next-stage input for Layer 1)
+   paraphrase_revalidation_masked.csv (changed-row revalidation queue)
 ```
+
+Layer 5 — promote paraphrases after semantic revalidation. Run exactly three
+validators on `paraphrase_revalidation_masked.csv`, with each model producing
+one `source_uid,predicted_label,reason` verdict file. Then use trusted labels to
+promote only rewrites that still preserve the intended label under the `2 of 3`
+rule:
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ python -m src.cli promote-paraphrase                     │
+│   --input paraphrased_dataset.csv                        │
+│   --revalidation-input paraphrase_revalidation_masked.csv │
+│   --verdicts-dir <revalidation_verdicts_dir>              │
+│   --expected-input validated_dataset.csv                  │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+   promoted_dataset.csv                 (publishable candidate)
+   paraphrase_revalidation_votes.csv    (all changed rows + decisions)
+   paraphrase_revalidation_review.csv   (review/discard changed rows)
+```
+
+`promoted_dataset.csv` keeps unchanged rows and changed rows whose revalidation
+decision is `keep`. Changed rows with `review` or `discard` are removed from the
+publishable output and written to the review artifact.
 
 ## Claimed Row Schema
 
@@ -237,4 +260,5 @@ source_uid,<model>_label...,expected_label,agree_count,decision
   `decision` = do ≥ 2 of 3 models match `expected_label`.
 - Prompt-calibration kappa is available through
   `evaluate_prompt_refinement_round` and logged to MLflow. The deterministic
-  CLI stages `aggregate`, `pmi`, and `apply-paraphrase` remain operator-run.
+  CLI stages `aggregate`, `pmi`, `apply-paraphrase`, and
+  `promote-paraphrase` remain operator-run.

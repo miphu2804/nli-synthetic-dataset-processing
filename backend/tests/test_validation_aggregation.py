@@ -14,6 +14,7 @@ from src.utils.validation_aggregation import (
     compute_fleiss_kappa,
     compute_hypothesis_label_pmi,
     flag_pmi_artifacts,
+    promote_revalidated_paraphrases,
 )
 
 
@@ -756,6 +757,180 @@ class ValidationAggregationTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "duplicate source_uid"):
             apply_paraphrases(dataset, flagged, paraphrases)
+
+    def test_promote_revalidated_paraphrases_filters_failed_rewrites(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model_paths = self._write_revalidation_label_files(root)
+            dataset = pd.DataFrame(
+                [
+                    {
+                        "source_uid": "row-1",
+                        "premise": "p1",
+                        "hypothesis": "h1",
+                        "label": "entailment",
+                    },
+                    {
+                        "source_uid": "row-2",
+                        "premise": "p2",
+                        "hypothesis": "h2-rewritten",
+                        "label": "neutral",
+                    },
+                    {
+                        "source_uid": "row-3",
+                        "premise": "p3",
+                        "hypothesis": "h3-rewritten",
+                        "label": "contradiction",
+                    },
+                ]
+            )
+            revalidation = pd.DataFrame(
+                [
+                    {
+                        "source_uid": "row-2",
+                        "premise": "p2",
+                        "hypothesis": "h2-rewritten",
+                        "masked_label": "[MASK]",
+                    },
+                    {
+                        "source_uid": "row-3",
+                        "premise": "p3",
+                        "hypothesis": "h3-rewritten",
+                        "masked_label": "[MASK]",
+                    },
+                ]
+            )
+
+            promoted, review, votes = promote_revalidated_paraphrases(
+                dataset,
+                revalidation,
+                model_paths,
+                {"row-2": "neutral", "row-3": "contradiction"},
+            )
+
+        self.assertEqual(list(promoted["source_uid"]), ["row-1", "row-2"])
+        self.assertEqual(list(review["source_uid"]), ["row-3"])
+        self.assertEqual(
+            dict(zip(votes["source_uid"], votes["decision"])),
+            {"row-2": "keep", "row-3": "review"},
+        )
+
+    def test_promote_revalidated_paraphrases_rejects_missing_dataset_uid(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model_paths = self._write_revalidation_label_files(root, rows=("row-9",))
+            dataset = pd.DataFrame(
+                [{"source_uid": "row-1", "premise": "p1", "hypothesis": "h1"}]
+            )
+            revalidation = pd.DataFrame(
+                [
+                    {
+                        "source_uid": "row-9",
+                        "premise": "p9",
+                        "hypothesis": "h9",
+                        "masked_label": "[MASK]",
+                    }
+                ]
+            )
+            with self.assertRaisesRegex(ValueError, "not found"):
+                promote_revalidated_paraphrases(
+                    dataset,
+                    revalidation,
+                    model_paths,
+                    {"row-9": "neutral"},
+                )
+
+    def test_promote_revalidated_paraphrases_rejects_duplicate_queue_uid(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model_paths = self._write_revalidation_label_files(root, rows=("row-2",))
+            dataset = pd.DataFrame(
+                [{"source_uid": "row-2", "premise": "p2", "hypothesis": "h2"}]
+            )
+            revalidation = pd.DataFrame(
+                [
+                    {
+                        "source_uid": "row-2",
+                        "premise": "p2",
+                        "hypothesis": "h2",
+                        "masked_label": "[MASK]",
+                    },
+                    {
+                        "source_uid": "row-2",
+                        "premise": "p2b",
+                        "hypothesis": "h2b",
+                        "masked_label": "[MASK]",
+                    },
+                ]
+            )
+            with self.assertRaisesRegex(ValueError, "duplicate source_uid"):
+                promote_revalidated_paraphrases(
+                    dataset,
+                    revalidation,
+                    model_paths,
+                    {"row-2": "neutral"},
+                )
+
+    def test_promote_revalidated_paraphrases_rejects_invalid_expected_label(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model_paths = self._write_revalidation_label_files(root, rows=("row-2",))
+            dataset = pd.DataFrame(
+                [{"source_uid": "row-2", "premise": "p2", "hypothesis": "h2"}]
+            )
+            revalidation = pd.DataFrame(
+                [
+                    {
+                        "source_uid": "row-2",
+                        "premise": "p2",
+                        "hypothesis": "h2",
+                        "masked_label": "[MASK]",
+                    }
+                ]
+            )
+            with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
+                promote_revalidated_paraphrases(
+                    dataset,
+                    revalidation,
+                    model_paths,
+                    {"row-2": "garbage"},
+                )
+
+    @staticmethod
+    def _write_revalidation_label_files(
+        root: Path,
+        rows: tuple[str, ...] = ("row-2", "row-3"),
+    ) -> dict[str, Path]:
+        labels_by_model = {
+            "gpt4o": {"row-2": "neutral", "row-3": "entailment", "row-9": "neutral"},
+            "deepseek": {"row-2": "neutral", "row-3": "neutral", "row-9": "neutral"},
+            "llama": {
+                "row-2": "entailment",
+                "row-3": "contradiction",
+                "row-9": "neutral",
+            },
+        }
+        paths = {}
+        for model_name, labels in labels_by_model.items():
+            path = root / f"{model_name}.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": source_uid,
+                        "predicted_label": labels[source_uid],
+                        "reason": "ok",
+                    }
+                    for source_uid in rows
+                ]
+            ).to_csv(path, index=False)
+            paths[model_name] = path
+        return paths
 
     @staticmethod
     def _write_model_label_files(root: Path) -> dict[str, Path]:

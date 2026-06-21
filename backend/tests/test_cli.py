@@ -12,6 +12,7 @@ from src.cli import (
     main,
     run_aggregation,
     run_pmi,
+    run_promote_paraphrase,
 )
 
 
@@ -680,6 +681,168 @@ class ApplyParaphraseCommandTest(unittest.TestCase):
                 str(flagged_path),
                 "--paraphrases",
                 str(self.paraphrases_path),
+                "--quiet",
+            ]
+        )
+        self.assertEqual(exit_code, 2)
+
+
+class PromoteParaphraseCommandTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.input_path = self.root / "paraphrased_dataset.csv"
+        self.revalidation_path = self.root / "paraphrase_revalidation_masked.csv"
+        self.expected_path = self.root / "validated_dataset.csv"
+        self.verdicts_dir = self.root / "verdicts"
+        self.verdicts_dir.mkdir()
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": "row-1",
+                    "premise": "p1",
+                    "hypothesis": "h1",
+                    "label": "entailment",
+                },
+                {
+                    "source_uid": "row-2",
+                    "premise": "p2",
+                    "hypothesis": "h2-rewritten",
+                    "label": "neutral",
+                },
+                {
+                    "source_uid": "row-3",
+                    "premise": "p3",
+                    "hypothesis": "h3-rewritten",
+                    "label": "contradiction",
+                },
+            ]
+        ).to_csv(self.input_path, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": "row-1",
+                    "premise": "p1",
+                    "hypothesis": "h1",
+                    "label": "entailment",
+                },
+                {
+                    "source_uid": "row-2",
+                    "premise": "p2",
+                    "hypothesis": "h2",
+                    "label": "neutral",
+                },
+                {
+                    "source_uid": "row-3",
+                    "premise": "p3",
+                    "hypothesis": "h3",
+                    "label": "contradiction",
+                },
+            ]
+        ).to_csv(self.expected_path, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": "row-2",
+                    "premise": "p2",
+                    "hypothesis": "h2-rewritten",
+                    "masked_label": "[MASK]",
+                },
+                {
+                    "source_uid": "row-3",
+                    "premise": "p3",
+                    "hypothesis": "h3-rewritten",
+                    "masked_label": "[MASK]",
+                },
+            ]
+        ).to_csv(self.revalidation_path, index=False)
+        labels_by_model = {
+            "gpt4o": {"row-2": "neutral", "row-3": "entailment"},
+            "deepseek": {"row-2": "neutral", "row-3": "neutral"},
+            "llama": {"row-2": "entailment", "row-3": "contradiction"},
+        }
+        for model_name, labels in labels_by_model.items():
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": source_uid,
+                        "predicted_label": label,
+                        "reason": "ok",
+                    }
+                    for source_uid, label in labels.items()
+                ]
+            ).to_csv(self.verdicts_dir / f"{model_name}.csv", index=False)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_run_promote_paraphrase_writes_outputs(self) -> None:
+        valid_candidates = [
+            candidate
+            for candidate in build_verdict_candidates(
+                discover_verdict_files(self.verdicts_dir)
+            )
+            if candidate.is_valid
+        ]
+        output_path = self.root / "promoted_dataset.csv"
+        review_output_path = self.root / "paraphrase_revalidation_review.csv"
+        votes_output_path = self.root / "paraphrase_revalidation_votes.csv"
+
+        result = run_promote_paraphrase(
+            input_path=self.input_path,
+            revalidation_input_path=self.revalidation_path,
+            verdict_candidates=valid_candidates,
+            expected_input_path=self.expected_path,
+            output_path=output_path,
+            review_output_path=review_output_path,
+            votes_output_path=votes_output_path,
+            uid_column="source_uid",
+            label_column="label",
+        )
+
+        promoted = pd.read_csv(output_path)
+        review = pd.read_csv(review_output_path)
+        votes = pd.read_csv(votes_output_path)
+        self.assertEqual(list(promoted["source_uid"]), ["row-1", "row-2"])
+        self.assertEqual(list(review["source_uid"]), ["row-3"])
+        self.assertEqual(set(votes["decision"]), {"keep", "review"})
+        self.assertEqual(result["accepted_rewrites"], 1)
+        self.assertEqual(result["review_rewrites"], 1)
+
+    def test_main_promote_paraphrase_subcommand_exits_zero(self) -> None:
+        exit_code = main(
+            [
+                "promote-paraphrase",
+                "--input",
+                str(self.input_path),
+                "--revalidation-input",
+                str(self.revalidation_path),
+                "--verdicts-dir",
+                str(self.verdicts_dir),
+                "--expected-input",
+                str(self.expected_path),
+                "--quiet",
+            ]
+        )
+        self.assertEqual(exit_code, 0)
+        promoted = pd.read_csv(self.root / "promoted_dataset.csv")
+        self.assertEqual(list(promoted["source_uid"]), ["row-1", "row-2"])
+        self.assertTrue((self.root / "paraphrase_revalidation_review.csv").exists())
+        self.assertTrue((self.root / "paraphrase_revalidation_votes.csv").exists())
+
+    def test_main_promote_paraphrase_fails_with_two_verdict_files(self) -> None:
+        (self.verdicts_dir / "llama.csv").unlink()
+        exit_code = main(
+            [
+                "promote-paraphrase",
+                "--input",
+                str(self.input_path),
+                "--revalidation-input",
+                str(self.revalidation_path),
+                "--verdicts-dir",
+                str(self.verdicts_dir),
+                "--expected-input",
+                str(self.expected_path),
                 "--quiet",
             ]
         )

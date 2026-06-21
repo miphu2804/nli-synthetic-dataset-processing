@@ -1,3 +1,30 @@
+### [2026-06-22 04:35] — [ValidationIntegrity] Add paraphrase promotion CLI
+
+**Đã làm:**
+- Thêm utility `promote_revalidated_paraphrases()` để promote only rewrites được 2/3 revalidation verdicts giữ đúng trusted label.
+- Thêm CLI `promote-paraphrase` nhận `paraphrased_dataset.csv`, `paraphrase_revalidation_masked.csv`, 3 verdict files, và trusted labels; xuất promoted dataset, revalidation votes, review/discard artifact.
+- Thêm unit tests cho accept/reject/missing UID/duplicate UID/invalid label và CLI tests cho output + exact 3 verdict files.
+- Cập nhật validator flow docs EN/VI và status của fix plan 02.
+
+**Files thay đổi:**
+- `backend/src/utils/validation_aggregation/promotion.py` — created
+- `backend/src/utils/validation_aggregation/__init__.py` — modified
+- `backend/src/cli.py` — modified
+- `backend/tests/test_validation_aggregation.py` — modified
+- `backend/tests/test_cli.py` — modified
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
+- `docs/superpowers/plans/fix-02-paraphrase-revalidation-promotion.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** MCP wrappers vẫn chưa expose stage này; làm sau khi artifact convention ổn định.
+
+**Flow explained:**
+`apply-paraphrase` vẫn chỉ tạo candidate và changed-row queue. `promote-paraphrase` là gate deterministic tiếp theo: aggregate đúng 3 verdict files trên changed rows, giữ rewrite có decision `keep`, loại `review/discard` khỏi publishable output, và ghi review artifact để người duyệt xử lý.
+
+---
+
 ### [2026-06-22 04:08] — [Planning] Add ordered fix branch notes
 
 **Đã làm:**
@@ -217,27 +244,3 @@ Agent/LLM work remains semantic: produce verdicts or paraphrases. Python owns de
 `aggregate` now emits 3 files: `validation_votes.csv` (full vote table, every row + keep/review/discard decision), `validated_dataset.csv` (KEEP only, expected_label→label, publishable schema), and `review_dataset.csv` (REVIEW only — text joined onto vote rows, keeps per-model labels + expected_label + agree_count so a human can see disagreement; expected_label is NOT renamed since these rows are unverified). Both retained and review builders share `_assert_masked_coverage()`, which raises on any kept/review source_uid missing from — or duplicated in — masked_input, preventing silent row loss or one-to-many inflation in the inner join. PMI remains a separate `cli pmi` step on `validated_dataset.csv`; no `pmi_consensus.csv` is produced.
 
 ---
-
-### [2026-06-17 21:32] — Re-check aggregation coverage and review artifact
-
-**What was done:**
-- Re-checked the current aggregation changes after the retained-row fix and review artifact addition.
-- Confirmed old missing-UID repro now fails explicitly for both retained rows and review rows.
-- Confirmed active validator flow docs no longer reference `pmi_consensus.csv`.
-- Ran a smoke aggregate: it wrote `validation_votes.csv`, `validated_dataset.csv`, and `review_dataset.csv`; review output kept text plus per-model labels, `expected_label`, `agree_count`, and `decision`.
-- Ran the backend unittest suite: 80 tests pass.
-
-**Files changed:**
-- `docs/PROGRESS.md` — added this re-check entry.
-
-**Blockers:**
-- None.
-
-**Remaining issues:**
-- Older append-only `docs/PROGRESS.md` entries still mention previous `pmi_consensus.csv` behavior as history; active flow docs and current code/tests no longer do.
-
-**Flow explained:**
-The current aggregate path is now coverage-guarded for both publishable kept rows and manual-review rows. Missing or duplicated masked `source_uid` values fail before output generation, preventing silent row loss or one-to-many join inflation. Aggregate currently emits all-row votes, keep-only validated data, and review-only manual queue; PMI remains a separate step on the validated data.
-
----
-

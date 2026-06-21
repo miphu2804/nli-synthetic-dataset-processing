@@ -15,6 +15,7 @@ from src.utils.validation_aggregation import (
     build_validation_vote_table,
     compute_fleiss_kappa,
     flag_pmi_artifacts,
+    promote_revalidated_paraphrases,
 )
 from src.utils.validation_masking import write_masked_validation_dataset
 
@@ -686,6 +687,137 @@ def _run_apply_paraphrase_command(args: argparse.Namespace, console: Console) ->
 
 
 # --------------------------------------------------------------------------- #
+# promote-paraphrase command
+# --------------------------------------------------------------------------- #
+def run_promote_paraphrase(
+    input_path: Path,
+    revalidation_input_path: Path,
+    verdict_candidates: list[VerdictFileCandidate],
+    expected_input_path: Path,
+    output_path: Path,
+    review_output_path: Path,
+    votes_output_path: Path,
+    uid_column: str,
+    label_column: str,
+) -> dict:
+    dataset = read_dataset(input_path)
+    revalidation_queue = read_dataset(revalidation_input_path)
+    expected_labels = load_expected_labels(
+        expected_input_path,
+        uid_column,
+        label_column,
+    )
+    model_label_paths = {
+        candidate.model_name: candidate.path for candidate in verdict_candidates
+    }
+    promoted, review, votes = promote_revalidated_paraphrases(
+        paraphrased_dataset=dataset,
+        revalidation_queue=revalidation_queue,
+        model_label_paths=model_label_paths,
+        expected_labels=expected_labels,
+        uid_column=uid_column,
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    review_output_path.parent.mkdir(parents=True, exist_ok=True)
+    votes_output_path.parent.mkdir(parents=True, exist_ok=True)
+    promoted.to_csv(output_path, index=False)
+    review.to_csv(review_output_path, index=False)
+    votes.to_csv(votes_output_path, index=False)
+    decision_counts = votes["decision"].value_counts().to_dict()
+    return {
+        "output_path": output_path,
+        "review_output_path": review_output_path,
+        "votes_output_path": votes_output_path,
+        "total_rows": len(dataset),
+        "promoted_rows": len(promoted),
+        "revalidated_rows": len(votes),
+        "accepted_rewrites": decision_counts.get("keep", 0),
+        "review_rewrites": decision_counts.get("review", 0),
+        "discarded_rewrites": decision_counts.get("discard", 0),
+    }
+
+
+def _run_promote_paraphrase_command(
+    args: argparse.Namespace,
+    console: Console,
+) -> int:
+    input_path = Path(args.input).expanduser()
+    if not input_path.exists():
+        console.print(f"[red]Paraphrased dataset not found:[/red] {input_path}")
+        return 2
+    revalidation_input = Path(args.revalidation_input).expanduser()
+    if not revalidation_input.exists():
+        console.print(f"[red]Revalidation input not found:[/red] {revalidation_input}")
+        return 2
+    expected_input = Path(args.expected_input).expanduser()
+    if not expected_input.exists():
+        console.print(f"[red]Expected-label dataset not found:[/red] {expected_input}")
+        return 2
+    verdicts_dir = Path(args.verdicts_dir).expanduser()
+    if not verdicts_dir.exists():
+        console.print(f"[red]Verdicts directory not found:[/red] {verdicts_dir}")
+        return 2
+
+    candidates = build_verdict_candidates(discover_verdict_files(verdicts_dir))
+    valid_candidates = [candidate for candidate in candidates if candidate.is_valid]
+    if candidates:
+        render_verdict_candidates_table(console, candidates)
+    if len(valid_candidates) != 3:
+        console.print(
+            f"[red]Need exactly 3 valid verdict files, found {len(valid_candidates)} "
+            "(columns: source_uid, predicted_label, reason).[/red]"
+        )
+        return 2
+
+    output_path = (
+        Path(args.output).expanduser()
+        if args.output
+        else input_path.with_name("promoted_dataset.csv")
+    )
+    review_output_path = (
+        Path(args.review_output).expanduser()
+        if args.review_output
+        else output_path.with_name("paraphrase_revalidation_review.csv")
+    )
+    votes_output_path = (
+        Path(args.votes_output).expanduser()
+        if args.votes_output
+        else output_path.with_name("paraphrase_revalidation_votes.csv")
+    )
+
+    try:
+        result = run_promote_paraphrase(
+            input_path=input_path,
+            revalidation_input_path=revalidation_input,
+            verdict_candidates=valid_candidates,
+            expected_input_path=expected_input,
+            output_path=output_path,
+            review_output_path=review_output_path,
+            votes_output_path=votes_output_path,
+            uid_column=args.uid_column,
+            label_column=args.label_column,
+        )
+    except Exception as exc:
+        console.print(f"[red]Failed:[/red] {exc}")
+        return 2
+
+    summary = Table(title="Paraphrase Promotion Complete")
+    summary.add_column("Metric")
+    summary.add_column("Value", justify="right")
+    summary.add_row("Total rows", str(result["total_rows"]))
+    summary.add_row("Promoted rows", str(result["promoted_rows"]))
+    summary.add_row("Revalidated rows", str(result["revalidated_rows"]))
+    summary.add_row("Accepted rewrites", str(result["accepted_rewrites"]))
+    summary.add_row("Review rewrites", str(result["review_rewrites"]))
+    summary.add_row("Discarded rewrites", str(result["discarded_rewrites"]))
+    summary.add_row("Promoted dataset output", str(result["output_path"]))
+    summary.add_row("Review output", str(result["review_output_path"]))
+    summary.add_row("Votes output", str(result["votes_output_path"]))
+    console.print(summary)
+    return 0
+
+
+# --------------------------------------------------------------------------- #
 # dispatch
 # --------------------------------------------------------------------------- #
 _COMMAND_HANDLERS = {
@@ -694,6 +826,7 @@ _COMMAND_HANDLERS = {
     "pmi": _run_pmi_command,
     "kappa": _run_kappa_command,
     "apply-paraphrase": _run_apply_paraphrase_command,
+    "promote-paraphrase": _run_promote_paraphrase_command,
     # "lexical": _run_lexical_command,  # future
     # "split": _run_split_command,      # future
 }
@@ -727,6 +860,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_pmi_parser(subparsers)
     _add_kappa_parser(subparsers)
     _add_apply_paraphrase_parser(subparsers)
+    _add_promote_paraphrase_parser(subparsers)
     # _add_lexical_parser(subparsers)  # future
     # _add_split_parser(subparsers)    # future
     return parser
@@ -911,6 +1045,60 @@ def _add_apply_paraphrase_parser(subparsers: argparse._SubParsersAction) -> None
         help="Text column to overwrite. Default: hypothesis.",
     )
     apply.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress Rich output for tests or scripted runs.",
+    )
+
+
+def _add_promote_paraphrase_parser(subparsers: argparse._SubParsersAction) -> None:
+    promote = subparsers.add_parser(
+        "promote-paraphrase",
+        help="Promote paraphrased rows that pass semantic revalidation.",
+    )
+    promote.add_argument(
+        "--input",
+        required=True,
+        help="Paraphrased candidate dataset, e.g. paraphrased_dataset.csv.",
+    )
+    promote.add_argument(
+        "--revalidation-input",
+        required=True,
+        help="Masked changed-row queue, e.g. paraphrase_revalidation_masked.csv.",
+    )
+    promote.add_argument(
+        "--verdicts-dir",
+        required=True,
+        help="Directory containing exactly three revalidation verdict files.",
+    )
+    promote.add_argument(
+        "--expected-input",
+        required=True,
+        help="Trusted label dataset for the changed row UIDs.",
+    )
+    promote.add_argument(
+        "--output",
+        help="Output path. Defaults to promoted_dataset.csv next to --input.",
+    )
+    promote.add_argument(
+        "--review-output",
+        help="Review output path for non-promoted changed rows.",
+    )
+    promote.add_argument(
+        "--votes-output",
+        help="Vote table output path for revalidated changed rows.",
+    )
+    promote.add_argument(
+        "--uid-column",
+        default="source_uid",
+        help="Row identifier column. Default: source_uid.",
+    )
+    promote.add_argument(
+        "--label-column",
+        default="label",
+        help="Expected-label column in --expected-input. Default: label.",
+    )
+    promote.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress Rich output for tests or scripted runs.",

@@ -179,8 +179,7 @@ Lớp 4 — apply paraphrase (deterministic). Harness paraphrase các hypothesis
   phải final.** Semantic label của các row đã thay đổi phải được revalidate trước
   khi publish.
 - `paraphrase_revalidation_masked.csv` — hàng đợi revalidation, chỉ chứa các row
-  đã thay đổi: `source_uid, premise, hypothesis, masked_label=[MASK]`. Feed file
-  này vào Lớp 1 của một validation run mới trước khi promote dataset paraphrased.
+  đã thay đổi: `source_uid, premise, hypothesis, masked_label=[MASK]`.
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
@@ -192,8 +191,32 @@ Lớp 4 — apply paraphrase (deterministic). Harness paraphrase các hypothesis
                               │
                               ▼
    paraphrased_dataset.csv           (candidate — chờ revalidate)
-   paraphrase_revalidation_masked.csv (input cho Lớp 1 tiếp theo)
+   paraphrase_revalidation_masked.csv (changed-row revalidation queue)
 ```
+
+Lớp 5 — promote paraphrase sau semantic revalidation. Chạy đúng ba validator
+trên `paraphrase_revalidation_masked.csv`, mỗi model xuất một verdict file
+`source_uid,predicted_label,reason`. Sau đó dùng trusted labels để promote chỉ
+các rewrite còn giữ đúng label theo quy tắc `2 trong 3`:
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ python -m src.cli promote-paraphrase                     │
+│   --input paraphrased_dataset.csv                        │
+│   --revalidation-input paraphrase_revalidation_masked.csv │
+│   --verdicts-dir <revalidation_verdicts_dir>              │
+│   --expected-input validated_dataset.csv                  │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+   promoted_dataset.csv                 (publishable candidate)
+   paraphrase_revalidation_votes.csv    (all changed rows + decisions)
+   paraphrase_revalidation_review.csv   (review/discard changed rows)
+```
+
+`promoted_dataset.csv` giữ các row không đổi và các rewrite được revalidation
+`keep`. Rewrite có decision `review` hoặc `discard` bị loại khỏi publishable
+output và được ghi vào review artifact.
 
 ## Claimed Row Schema
 
@@ -234,4 +257,5 @@ source_uid,<model>_label...,expected_label,agree_count,decision
   = có ≥ 2 trong 3 model khớp `expected_label` không.
 - Kappa cho prompt calibration đã có qua
   `evaluate_prompt_refinement_round` và được log vào MLflow. Các CLI stage
-  deterministic `aggregate`, `pmi`, và `apply-paraphrase` vẫn do operator chạy.
+  deterministic `aggregate`, `pmi`, `apply-paraphrase`, và
+  `promote-paraphrase` vẫn do operator chạy.

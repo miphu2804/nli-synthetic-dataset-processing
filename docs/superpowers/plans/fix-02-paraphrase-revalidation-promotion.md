@@ -2,6 +2,9 @@
 
 Proposed branch: `fix/paraphrase-revalidation-promotion`
 
+Status: implemented on this branch with the `promote-paraphrase` CLI command
+and `promote_revalidated_paraphrases()` utility.
+
 ## Problem
 
 The post-PMI paraphrase stage creates `paraphrase_revalidation_masked.csv`, but

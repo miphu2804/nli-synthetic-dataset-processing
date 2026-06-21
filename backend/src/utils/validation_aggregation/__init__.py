@@ -9,6 +9,7 @@ from src.utils.validation_aggregation.pmi import (
     compute_hypothesis_label_pmi,
     flag_pmi_artifacts,
 )
+from src.utils.validation_aggregation.promotion import promote_revalidated_paraphrases
 from src.utils.validation_aggregation.voting import build_validation_vote_table
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "compute_fleiss_kappa",
     "compute_hypothesis_label_pmi",
     "flag_pmi_artifacts",
+    "promote_revalidated_paraphrases",
 ]
