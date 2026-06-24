@@ -54,7 +54,9 @@ phát hiện artifact token cần paraphrase.
 | Resource | Mục đích |
 |----------|----------|
 | `skill://instructor` | Điểm bắt đầu và sơ đồ toàn pipeline |
-| `skill://generator` | Quy tắc generation và self-check |
+| `skill://generator_plain` | Translate/naturalize cho source NLI đã có label |
+| `skill://generator_adversarial` | Quy tắc adversarial generation có kiểm soát |
+| `skill://generator` | Legacy adversarial generator alias |
 | `skill://validator` | Blind validation 3 class |
 | `skill://prompt_refinement` | Calibration ba model và MLflow prompt versioning |
 

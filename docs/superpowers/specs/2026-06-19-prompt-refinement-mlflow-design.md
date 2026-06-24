@@ -3,7 +3,7 @@
 ## Goal
 
 Add an optional, agent-operated prompt-refinement loop before large-scale
-generation. The loop versions the current generator and validator skills,
+generation. The loop versions the selected generator policy and validator skill,
 computes Fleiss' kappa from exactly three calibration verdict files, records the
 round in a local MLflow server, and tells the agent whether to refine or lock the
 prompt bundle.
@@ -42,7 +42,7 @@ The agent then reads `skill://prompt_refinement` and executes:
 
 ```text
 fixed calibration sample
-  -> generate hypotheses with current generator skill
+  -> generate hypotheses with selected generator policy
   -> run exactly three independent validators
   -> save source_uid,predicted_label,reason per model
   -> call evaluate_prompt_refinement_round
@@ -64,8 +64,8 @@ The skill:
 - requires a fixed calibration dataset across rounds;
 - requires exactly three independent verdict files;
 - distinguishes generation ambiguity from labeling-rubric ambiguity;
-- edits `backend/skills/generator.md` when generated hypotheses are unclear or
-  logically wrong;
+- edits the chosen generator policy file when generated hypotheses are unclear
+  or logically wrong;
 - edits `backend/skills/validator.md` when the three-class rubric or labeling
   instructions cause disagreement;
 - may edit both only when evidence supports both changes;
@@ -88,15 +88,15 @@ verdicts_dir: directory containing exactly three valid verdict CSV/parquet files
 calibration_input: fixed labeled calibration dataset used for this round
 round_number: positive integer
 change_summary: concise description of changes tested in this round
-confirm_lock: set true only when the agent/operator chooses to lock an eligible round
 tracking_uri: MLflow tracking server, default http://127.0.0.1:5000
 experiment_name: default nli-prompt-calibration
+generator_skill_name: generator, generator_plain, or generator_adversarial
 ```
 
-The tool reads prompt content from the current:
+The tool reads prompt content from the selected generator skill and current:
 
 ```text
-skills/generator.md
+skills/<generator_skill_name>.md
 skills/validator.md
 ```
 
@@ -136,7 +136,7 @@ Create a small service responsible for:
 1. validating paths and round metadata;
 2. reusing `compute_fleiss_kappa()` rather than duplicating the statistic;
 3. hashing the calibration dataset;
-4. registering the current generator and validator skill snapshots as MLflow
+4. registering the selected generator and current validator skill snapshots as MLflow
    prompt versions;
 5. creating one MLflow experiment run per round;
 6. logging parameters, metrics, tags, and artifacts;

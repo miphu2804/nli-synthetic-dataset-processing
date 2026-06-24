@@ -20,6 +20,10 @@ class PromptRefinementServiceTest(unittest.TestCase):
         (self.skills_dir / "generator.md").write_text(
             "# Generator\nGenerate clear hypotheses.\n", encoding="utf-8"
         )
+        (self.skills_dir / "generator_plain.md").write_text(
+            "# Plain Generator\nTranslate without extra adversarial transforms.\n",
+            encoding="utf-8",
+        )
         (self.skills_dir / "validator.md").write_text(
             "# Validator\nAssign one canonical label.\n", encoding="utf-8"
         )
@@ -129,6 +133,38 @@ class PromptRefinementServiceTest(unittest.TestCase):
         self.assertIn("prompt_bundle.json", artifact_paths)
         self.assertIn("disagreement_rows.csv", artifact_paths)
         self.assertIn("verdicts", artifact_paths)
+
+    def test_evaluate_round_versions_selected_generator_skill(self) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+
+        result = self.service.evaluate_round(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=self.calibration_input,
+            round_number=1,
+            change_summary="Plain generator calibration.",
+            tracking_uri=self.tracking_uri,
+            experiment_name="test-calibration",
+            artifact_root=self.artifact_root,
+            generator_skill_name="generator_plain",
+        )
+
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        generator_candidate = client.get_prompt_version_by_alias(
+            "nli-generator", "candidate"
+        )
+        run = client.get_run(result.mlflow_run_id)
+
+        self.assertIn("without extra adversarial", generator_candidate.template)
+        self.assertEqual(run.data.params["generator_skill_name"], "generator_plain")
+        self.assertEqual(run.data.params["generator_skill_file"], "generator_plain.md")
 
     def test_confirmed_eligible_round_sets_locked_aliases(self) -> None:
         self._write_verdicts(

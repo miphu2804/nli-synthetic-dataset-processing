@@ -107,7 +107,9 @@ means refine; kappa at least `0.85` is eligible to lock and still requires
 | Resource | Purpose |
 |----------|---------|
 | `skill://instructor` | Start here: NLI task, resource map and phase flow |
-| `skill://generator` | Transformation rules and generation self-checks |
+| `skill://generator_plain` | Plain translation/naturalization for already-labeled NLI sources |
+| `skill://generator_adversarial` | Controlled adversarial generation rules and self-checks |
+| `skill://generator` | Legacy adversarial generator alias |
 | `skill://delegation` | Stateless parallel worker prompt |
 | `skill://progress_tracking` | Local audit, resume and cleanup |
 | `skill://execution` | Runtime ownership boundaries |

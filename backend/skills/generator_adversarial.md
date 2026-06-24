@@ -1,16 +1,7 @@
-# NLI Synthetic Data - Generator
+# NLI Synthetic Data - Adversarial Generator
 
-Read `skill://instructor` first. This legacy resource is kept for existing
-prompt-refinement and harness prompts. For new generation runs, prefer the
-explicit resource that matches the dataset goal:
-
-| Resource | Use when |
-|----------|----------|
-| `skill://generator_plain` | Source rows already contain a valid NLI/adversarial relation, such as ANLI-derived pairs. Translate and naturalize only. |
-| `skill://generator_adversarial` | The goal is to create a new controlled adversarial Vietnamese NLI variant. |
-
-The legacy `skill://generator` behavior is adversarial generation for backward
-compatibility.
+Read `skill://instructor` first. Use this resource when the goal is to create a
+new controlled adversarial Vietnamese NLI variant from a labeled source row.
 
 Translate pre-labeled English NLI pairs to Vietnamese and apply one
 label-compatible adversarial transformation while preserving the expected_label.

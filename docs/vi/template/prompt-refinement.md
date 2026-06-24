@@ -7,11 +7,12 @@ Dùng prompt này trong Codex khi harness có thể chạy ba model subagent đ�
 Bạn là main agent đang kết nối MCP server `nli-tools`.
 
 Mục tiêu:
-Calibrate generator prompt và validator prompt hiện tại trước large-scale
-generation.
+Calibrate generator policy đã chọn và validator prompt hiện tại trước
+large-scale generation.
 
 Input:
 - calibration_source: <FIXED_SOURCE_DATASET_OR_SLICE>
+- generator_skill_name: <generator_plain_OR_generator_adversarial_OR_generator>
 - output_root: outputs/prompt-refinement
 - tracking_uri: http://127.0.0.1:5000
 - experiment_name: nli-prompt-calibration
@@ -19,14 +20,14 @@ Input:
 
 Resources bắt buộc:
 - skill://instructor
-- skill://generator
+- skill://generator_plain hoặc skill://generator_adversarial
 - skill://validator
 - skill://prompt_refinement
 
 Trách nhiệm của main agent:
 1. Đọc toàn bộ resources bắt buộc.
 2. Giữ cố định một tập source_uid cho mọi round.
-3. Tạo output_root/round-<NN>/calibration.csv bằng generator prompt hiện tại.
+3. Tạo output_root/round-<NN>/calibration.csv bằng generator policy đã chọn.
 4. Chuẩn bị masked rows chỉ gồm source_uid, premise, hypothesis.
 5. Dispatch đúng ba validator subagent song song, mỗi subagent dùng một model thật.
 6. Validate response và lưu one verdict file cho mỗi model với schema:
@@ -35,7 +36,7 @@ Trách nhiệm của main agent:
 7. Gọi evaluate_prompt_refinement_round.
 8. Lấy disagreement_rows.csv từ tab Artifacts của MLflow run và chỉ sửa prompt
    chịu trách nhiệm:
-   backend/skills/generator.md, backend/skills/validator.md, hoặc cả hai.
+   generator policy file đã chọn, backend/skills/validator.md, hoặc cả hai.
 9. Lặp khi decision=refine_prompt.
 10. Khi decision=eligible_to_lock, báo cáo round và xin xác nhận.
     Gọi confirm_prompt_lock(lock_run_id=<MLFLOW_RUN_ID>) sau khi được xác nhận.
@@ -48,7 +49,8 @@ evaluate_prompt_refinement_round(
   change_summary="<PROMPT_CHANGES_TESTED_THIS_ROUND>",
   tracking_uri="http://127.0.0.1:5000",
   experiment_name="nli-prompt-calibration",
-  session_id="<OPTIONAL_SESSION_ID_TO_GROUP_ROUNDS>"
+  session_id="<OPTIONAL_SESSION_ID_TO_GROUP_ROUNDS>",
+  generator_skill_name="<GENERATOR_SKILL_NAME>"
 )
 
 Confirmation call (sau eligible_to_lock):

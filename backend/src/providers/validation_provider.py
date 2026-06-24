@@ -197,7 +197,7 @@ class ValidationToolProvider(ToolProvider):
         name="evaluate_prompt_refinement_round",
         description=(
             "Compute Fleiss kappa from exactly three independent verdict files, "
-            "version the current generator and validator prompts, and log the "
+            "version the selected generator skill and validator prompt, and log the "
             "calibration round to an explicitly configured MLflow server."
         ),
     )
@@ -245,6 +245,16 @@ class ValidationToolProvider(ToolProvider):
                 ),
             ),
         ] = None,
+        generator_skill_name: Annotated[
+            str,
+            Field(
+                description=(
+                    "Generator skill stem to version for this round. Use generator "
+                    "for legacy prompts, generator_plain for ANLI-style translation, "
+                    "or generator_adversarial for controlled adversarial generation."
+                )
+            ),
+        ] = "generator",
     ) -> dict[str, Any]:
         return self._prompt_refinement_service.evaluate_round(
             verdicts_dir=verdicts_dir,
@@ -254,6 +264,7 @@ class ValidationToolProvider(ToolProvider):
             tracking_uri=tracking_uri,
             experiment_name=experiment_name,
             session_id=session_id,
+            generator_skill_name=generator_skill_name,
         ).model_dump(mode="json")
 
     @tool(

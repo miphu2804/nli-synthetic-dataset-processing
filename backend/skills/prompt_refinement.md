@@ -43,10 +43,12 @@ successful model's verdict file.
 
 ## Flow
 
-1. Load `skill://generator` and generate the calibration rows for the frozen
-   source UID set. If only validator instructions changed, reuse the same
-   generated calibration file. If generator instructions changed, regenerate
-   the same source UID set and record the new round hash.
+1. Load the generation policy being calibrated and generate the calibration
+   rows for the frozen source UID set. Use `skill://generator_plain` for plain
+   ANLI-style translation runs and `skill://generator_adversarial` for
+   controlled adversarial runs. If only validator instructions changed, reuse
+   the same generated calibration file. If generator instructions changed,
+   regenerate the same source UID set and record the new round hash.
 2. Load `skill://validator` and dispatch exactly three independent model
    subagents to judge the same generated rows without seeing expected labels.
 3. Validate the three returned verdict sets and save one verdict file per model
@@ -54,7 +56,9 @@ successful model's verdict file.
 4. The main agent calls `evaluate_prompt_refinement_round` with the verdict
    directory, generated labeled calibration file path, round number, change
    summary, MLflow tracking URI, and optionally `session_id` to group all rounds
-   of one calibration session together.
+   of one calibration session together. Pass `generator_skill_name` as
+   `generator_plain`, `generator_adversarial`, or the legacy `generator` so
+   MLflow versions the policy that produced the calibration rows.
 5. Follow the returned decision:
 
 | Decision | Action |
@@ -78,13 +82,13 @@ hash and do not present the kappa delta as a strict same-item comparison.
 
 ## Round Integrity (prompt provenance)
 
-Within a single round, `generator.md` and `validator.md` must stay byte-identical
-from the moment you dispatch the validator subagents until
-`evaluate_prompt_refinement_round` returns. Kappa is computed on verdicts produced
-by the prompts as they were at dispatch time, while the tool registers the prompt
-files as they are on disk at evaluation time. Editing either file mid-round makes
-the registered MLflow prompt version diverge from the prompts that actually produced
-the verdicts.
+Within a single round, the chosen generator policy file and `validator.md` must
+stay byte-identical from the moment you dispatch the validator subagents until
+`evaluate_prompt_refinement_round` returns. Kappa is computed on verdicts
+produced by the prompts as they were at dispatch time, while the tool registers
+the prompt files as they are on disk at evaluation time. Editing either file
+mid-round makes the registered MLflow prompt version diverge from the prompts
+that actually produced the verdicts.
 
 If you need to change a prompt, finish (or abandon) the current round first, then
 edit and run a new round. Do not keep parallel hand-managed `.md` version copies:
@@ -94,7 +98,7 @@ redundant and provide no extra provenance safety.
 
 ## Choose What to Edit
 
-- Edit `backend/skills/generator.md` when disagreements come from ambiguous,
+- Edit the chosen generator policy file when disagreements come from ambiguous,
   unnatural, or logically incorrect generated hypotheses.
 - Edit `backend/skills/validator.md` when disagreements come from unclear
   distinctions between entailment, neutral, and contradiction.

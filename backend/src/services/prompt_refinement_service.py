@@ -20,6 +20,7 @@ VALIDATOR_PROMPT_NAME = "nli-validator"
 DATASET_SUFFIXES = {".csv", ".parquet"}
 VERDICT_COLUMNS = {"source_uid", "predicted_label", "reason"}
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+SKILL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class PromptRefinementService:
@@ -38,6 +39,7 @@ class PromptRefinementService:
         experiment_name: str = "nli-prompt-calibration",
         artifact_root: str | None = None,
         session_id: str | None = None,
+        generator_skill_name: str = "generator",
     ) -> PromptRefinementRoundResponse:
         """Compute kappa, version current skills, and log one MLflow round."""
         if round_number < 1:
@@ -47,6 +49,10 @@ class PromptRefinementService:
         if session_id is not None and not SESSION_ID_PATTERN.fullmatch(session_id):
             raise ValueError(
                 "session_id may only contain letters, digits, '.', '_', or '-'."
+            )
+        if not SKILL_NAME_PATTERN.fullmatch(generator_skill_name):
+            raise ValueError(
+                "generator_skill_name may only contain letters, digits, '_' or '-'."
             )
 
         # Phase 1 — discover verdicts, compute agreement, validate calibration.
@@ -64,7 +70,8 @@ class PromptRefinementService:
 
         # Phase 2 — derive the round decision and prompt-bundle inputs.
         decision = self._decision(kappa)
-        generator_text = self._read_skill("generator.md")
+        generator_skill_file = f"{generator_skill_name}.md"
+        generator_text = self._read_skill(generator_skill_file)
         validator_text = self._read_skill("validator.md")
         bundle_id = f"round-{round_number:02d}-{dataset_hash[:8]}"
 
@@ -87,6 +94,7 @@ class PromptRefinementService:
             "decision": decision,
             "change_summary": change_summary,
             "bundle_id": bundle_id,
+            "generator_skill_name": generator_skill_name,
         }
         if session_id:
             session_run_id = self._resolve_session_run(
@@ -129,6 +137,8 @@ class PromptRefinementService:
                 generator_prompt=generator_prompt,
                 validator_prompt=validator_prompt,
                 bundle_id=bundle_id,
+                generator_skill_name=generator_skill_name,
+                generator_skill_file=generator_skill_file,
                 calibration_path=calibration_path,
                 disagreements=disagreements,
                 n_disagreements=n_disagreements,
@@ -487,6 +497,8 @@ class PromptRefinementService:
         generator_prompt,
         validator_prompt,
         bundle_id: str,
+        generator_skill_name: str,
+        generator_skill_file: str,
         calibration_path: Path,
         disagreements: pd.DataFrame,
         n_disagreements: int,
@@ -497,6 +509,8 @@ class PromptRefinementService:
             "round_number": round_number,
             "generator_prompt_uri": generator_uri,
             "validator_prompt_uri": validator_uri,
+            "generator_skill_name": generator_skill_name,
+            "generator_skill_file": generator_skill_file,
             "calibration_dataset_sha256": dataset_hash,
             "sample_count": sample_count,
             "model_names": ",".join(sorted(model_label_paths)),
@@ -514,6 +528,8 @@ class PromptRefinementService:
         bundle = {
             "bundle_id": bundle_id,
             "generator_prompt_uri": generator_uri,
+            "generator_skill_name": generator_skill_name,
+            "generator_skill_file": generator_skill_file,
             "validator_prompt_uri": validator_uri,
             "calibration_dataset_sha256": dataset_hash,
             "fleiss_kappa": float(kappa_result["kappa"]),

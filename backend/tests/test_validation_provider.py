@@ -57,6 +57,7 @@ class ValidationProviderTest(unittest.TestCase):
             self.assertIn("change_summary", properties)
             self.assertIn("tracking_uri", properties)
             self.assertIn("experiment_name", properties)
+            self.assertIn("generator_skill_name", properties)
             self.assertNotIn("confirm_lock", properties)
 
         asyncio.run(scenario())

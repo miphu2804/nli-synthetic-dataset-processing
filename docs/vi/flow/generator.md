@@ -1,8 +1,16 @@
 # Generator Flow
 
-Generator phase tạo dữ liệu NLI tiếng Việt adversarial từ source slice có label.
-Harness đọc resources, claim batch qua MCP, transform rows, self-check, rồi chỉ
-submit rows đã validate.
+Generator phase tạo dữ liệu NLI tiếng Việt từ source slice có label. Harness đọc
+một generation policy rõ ràng, claim batch qua MCP, transform rows, self-check,
+rồi chỉ submit rows đã validate.
+
+## Chọn policy
+
+| Resource | Khi dùng |
+|----------|----------|
+| `skill://generator_plain` | Source rows đã có quan hệ NLI/adversarial hợp lệ, ví dụ ANLI-derived pairs. Chỉ translate/naturalize, không thêm adversarial transform mới. |
+| `skill://generator_adversarial` | Mục tiêu là tạo biến thể Vietnamese NLI adversarial mới có kiểm soát. Translate và apply một rule tương thích label. |
+| `skill://generator` | Legacy adversarial alias cho harness prompt cũ. Run mới nên dùng policy explicit. |
 
 ## State Machine
 
@@ -11,7 +19,7 @@ START
   -> đọc skill://instructor
   -> đọc skill://execution
   -> đọc skill://progress_tracking
-  -> đọc skill://generator
+  -> chọn và đọc skill://generator_plain hoặc skill://generator_adversarial
   -> start_generation_run(from_sample, to_sample)
        tạo .pipeline/runs/{run_id}
        tạo data/batches/{run_id}
@@ -43,6 +51,8 @@ source_uid,premise,hypothesis,label
 
 - Dùng `from_sample` và `to_sample` là sample number 1-based inclusive.
 - Giữ nguyên source label.
+- Chỉ load một generation policy cho mỗi run, trừ khi user yêu cầu so sánh
+  policy.
 - Không generate hypothesis text bằng Python templates.
 - Chỉ MCP runtime tools được ghi progress.
 - Subagents có thể transform rows đã claim nhưng chỉ được trả JSON.

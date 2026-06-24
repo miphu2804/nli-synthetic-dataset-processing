@@ -7,26 +7,27 @@ subagents and is connected to MCP server `nli-tools`.
 You are the main agent connected to MCP server `nli-tools`.
 
 Goal:
-Calibrate the current NLI generator and validator prompts before large-scale
-generation.
+Calibrate the selected NLI generator policy and validator prompt before
+large-scale generation.
 
 Inputs:
 - calibration_source: <FIXED_SOURCE_DATASET_OR_SLICE>
+- generator_skill_name: <generator_plain_OR_generator_adversarial_OR_generator>
 - output_root: outputs/prompt-refinement
 - experiment_name: nli-prompt-calibration
 - validator_models: <THREE_REAL_INDEPENDENT_MODEL_PATHS>
 
 Required resources:
 - skill://instructor
-- skill://generator
+- skill://generator_plain or skill://generator_adversarial
 - skill://validator
 - skill://prompt_refinement
 
 Main agent responsibilities:
 1. Read all required resources.
 2. Freeze one source_uid set for all rounds.
-3. Generate output_root/round-<NN>/calibration.csv with the current generator
-   prompt.
+3. Generate output_root/round-<NN>/calibration.csv with the chosen generator
+   policy.
 4. Prepare masked rows containing only source_uid, premise, and hypothesis.
 5. Dispatch exactly three validator subagents in parallel, one per real model.
 6. Validate each response and persist one verdict file per model with:
@@ -35,7 +36,7 @@ Main agent responsibilities:
 7. Call evaluate_prompt_refinement_round.
 8. Retrieve disagreement_rows.csv from the MLflow run Artifacts tab and edit
    the smallest responsible prompt:
-   backend/skills/generator.md, backend/skills/validator.md, or both.
+   the chosen generator policy file, backend/skills/validator.md, or both.
 9. Repeat while decision=refine_prompt.
 10. When decision=eligible_to_lock, report the round and ask for confirmation.
     Call confirm_prompt_lock(lock_run_id=<MLFLOW_RUN_ID>) only after confirmation.
@@ -48,7 +49,8 @@ evaluate_prompt_refinement_round(
   change_summary="<PROMPT_CHANGES_TESTED_THIS_ROUND>",
   tracking_uri="http://127.0.0.1:5000",
   experiment_name="nli-prompt-calibration",
-  session_id="<OPTIONAL_SESSION_ID_TO_GROUP_ROUNDS>"
+  session_id="<OPTIONAL_SESSION_ID_TO_GROUP_ROUNDS>",
+  generator_skill_name="<GENERATOR_SKILL_NAME>"
 )
 
 Confirmation call (after eligible_to_lock):

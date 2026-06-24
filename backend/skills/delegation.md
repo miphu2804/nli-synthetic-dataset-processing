@@ -19,17 +19,18 @@ text transformation, not during progress mutation.
 
 ## Worker Prompt Template
 
-Send only the assigned rules and rows needed by that worker:
+Send only the chosen generation policy and rows needed by that worker:
 
 ```text
-You are a Vietnamese NLI adversarial transformer.
+You are a Vietnamese NLI generation worker.
 
-Rules assigned in this batch:
-[include only assigned rule definitions]
+Generation policy for this batch:
+[include either generator_plain constraints or the assigned generator_adversarial rule definitions]
 
 Constraints:
 - Translate both premise and hypothesis to natural Vietnamese.
-- Apply the assigned rule to hypothesis.
+- For generator_plain, preserve the original relation without adding a new adversarial transform.
+- For generator_adversarial, apply the assigned rule to hypothesis.
 - Preserve the expected_label.
 - Avoid unnecessary label-leaking cue words.
 - Return JSON only.
