@@ -790,13 +790,13 @@ class ValidationAggregationTest(unittest.TestCase):
                         "source_uid": "row-2",
                         "premise": "p2",
                         "hypothesis": "h2-rewritten",
-                        "masked_label": "[MASK]",
+                        "label": "",
                     },
                     {
                         "source_uid": "row-3",
                         "premise": "p3",
                         "hypothesis": "h3-rewritten",
-                        "masked_label": "[MASK]",
+                        "label": "",
                     },
                 ]
             )
@@ -830,7 +830,7 @@ class ValidationAggregationTest(unittest.TestCase):
                         "source_uid": "row-9",
                         "premise": "p9",
                         "hypothesis": "h9",
-                        "masked_label": "[MASK]",
+                        "label": "",
                     }
                 ]
             )
@@ -857,13 +857,13 @@ class ValidationAggregationTest(unittest.TestCase):
                         "source_uid": "row-2",
                         "premise": "p2",
                         "hypothesis": "h2",
-                        "masked_label": "[MASK]",
+                        "label": "",
                     },
                     {
                         "source_uid": "row-2",
                         "premise": "p2b",
                         "hypothesis": "h2b",
-                        "masked_label": "[MASK]",
+                        "label": "",
                     },
                 ]
             )
@@ -890,7 +890,7 @@ class ValidationAggregationTest(unittest.TestCase):
                         "source_uid": "row-2",
                         "premise": "p2",
                         "hypothesis": "h2",
-                        "masked_label": "[MASK]",
+                        "label": "",
                     }
                 ]
             )

@@ -29,7 +29,7 @@ FINAL_ROW_COUNT_ERROR = (
 
 
 class ValidationRunService(BaseRunService):
-    """Validate generated NLI rows with masked labels over the shared run lifecycle."""
+    """Validate generated NLI rows with blank labels over the shared run lifecycle."""
 
     OUTPUT_COLUMNS = (
         "source_uid",
@@ -115,7 +115,7 @@ class ValidationRunService(BaseRunService):
         run_id: str,
         agent_id: str,
     ) -> ClaimNextValidationBatchResponse:
-        """Claim the next available batch and return its rows with the label masked."""
+        """Claim the next available batch and return its rows with the label blanked."""
         result = self._claim_next_batch(run_id, agent_id)
         if result["status"] != "claimed":
             return ClaimNextValidationBatchResponse(

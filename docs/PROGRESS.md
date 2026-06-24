@@ -1,3 +1,55 @@
+### [2026-06-24 00:00] — [ValidationIntegrity] Blank validator label payloads
+
+**Đã làm:**
+- Đổi validator-facing payload từ `masked_label=[MASK]` sang cột `label` có giá trị rỗng.
+- Giữ trusted input/runtime vẫn cần expected `label` thật để chấm `predicted_label`.
+- Đổi apply-paraphrase revalidation queue sang `source_uid,premise,hypothesis,label` với label rỗng.
+- Đổi promotion check để reject mọi label thật trong revalidation queue, nhưng chấp nhận ô trống/NaN khi đọc CSV.
+- Cập nhật validator skill, provider descriptions, docs/templates EN/VI, và tests theo contract mới.
+
+**Files thay đổi:**
+- `backend/src/utils/validation_masking.py`, `backend/src/schemas/validation_runtime_schema.py`, `backend/src/services/validation_run_service.py` — modified
+- `backend/src/cli.py`, `backend/src/providers/validation_provider.py`, `backend/src/utils/validation_aggregation/promotion.py` — modified
+- `backend/skills/validator.md`, `backend/skills/instructor.md` — modified
+- `backend/tests/*validation*`, `backend/tests/test_cli.py`, `backend/tests/test_skill_service.py` — modified
+- `docs/en/*`, `docs/vi/*`, `docs/PROGRESS.md` — modified
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Input cho `start_validation_run` vẫn phải là dataset có label thật; runtime dùng label đó làm hidden expected label khi submit/finalize. Chỉ payload/file giao cho validator mới có `label` rỗng để tránh lộ đáp án và tránh sentinel `[MASK]`. File `*_validation_masked.csv` giữ tên cũ vì downstream đang dùng tên này, nhưng nội dung masked giờ là blank label.
+
+---
+
+### [2026-06-23 19:49] — [GeneratorPolicy] Split plain and adversarial generator skills
+
+**Đã làm:**
+- Thêm `generator_plain.md` cho ANLI/source đã có quan hệ NLI-adversarial: translate/naturalize, giữ relation và label, không thêm adversarial transform mới.
+- Thêm `generator_adversarial.md` cho controlled adversarial generation, giữ rule catalog cũ.
+- Giữ `generator.md` làm legacy adversarial alias để không gãy prompt/harness cũ.
+- Cập nhật `instructor`, `delegation`, README, flow/template docs EN/VI để agent chọn đúng một generation policy.
+- Thêm `generator_skill_name` cho `evaluate_prompt_refinement_round` để MLflow version đúng generator policy được dùng trong calibration.
+- Thêm tests cho skill split, provider schema, và prompt-refinement versioning theo selected generator skill.
+
+**Files thay đổi:**
+- `backend/skills/generator_plain.md` — created
+- `backend/skills/generator_adversarial.md` — created
+- `backend/skills/generator.md`, `backend/skills/instructor.md`, `backend/skills/delegation.md`, `backend/skills/prompt_refinement.md` — modified
+- `backend/src/providers/validation_provider.py`, `backend/src/services/prompt_refinement_service.py` — modified
+- `backend/tests/test_skill_service.py`, `backend/tests/test_validation_provider.py`, `backend/tests/test_prompt_refinement_service.py` — modified
+- `README.md`, `README.vi.md`, `docs/en/*`, `docs/vi/*`, `docs/superpowers/specs/2026-06-19-prompt-refinement-mlflow-design.md` — modified
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Generation runtime vẫn giữ lifecycle MCP cũ (`start_generation_run` → claim/submit → verify/finalize). Khác biệt nằm ở policy markdown agent đọc trước khi transform: `generator_plain` cho ANLI/already-adversarial source để tránh double-adversarial label drift; `generator_adversarial` cho tạo biến thể mới có kiểm soát. Prompt refinement nhận `generator_skill_name` để snapshot đúng policy vào MLflow thay vì luôn hardcode `generator.md`.
+
+---
+
 ### [2026-06-22 05:45] — [ValidationIntegrity] Add premise-grouped split CLI
 
 **Đã làm:**
@@ -190,55 +242,3 @@ Chỉ tổ chức lại, không đổi behavior. Dùng package + re-export thay 
 Service = business logic; Provider = hợp đồng MCP (tên/mô tả/schema tham số) + dịch biên 1-based→0-based + `.model_dump`. Phần phân mảnh thật là "đăng ký": mỗi tool phải vừa viết method `@tool` vừa nhớ thêm `mcp.add_tool` — quên là tool biến mất im lặng. `ToolProvider.register` quét `__fastmcp__` (đã verify FastMCP 3.3.1 giữ marker khi bind method) nên thêm tool mới chỉ cần 1 method. Phần forward (`self._service.x().model_dump`) giống hình dạng giữa gen/val nhưng gọi service khác → cố ý không gom.
 
 ---
-
-### [2026-06-19 21:42] — [PromptRefinement] Add subagent orchestration templates
-
-**Đã làm:**
-- Added English and Vietnamese copy-paste templates for Codex to orchestrate exactly three isolated validator subagents.
-- Defined main-agent ownership of MCP calls, prompt edits, verdict persistence, MLflow evaluation, and explicit locking.
-- Defined subagent isolation: masked rows only, no expected labels, no cross-agent verdict sharing, no MCP or file mutation, and one real model path per subagent.
-- Added retry/abort rules, prompt-freeze guards, round output paths, MLflow artifact retrieval, and regenerated-calibration hash caveats.
-- Updated the refinement skill, instructor, validator flow docs, and README links.
-- Verified `126 passed`, clean isort/black hooks, and `git diff --check`.
-
-**Files thay đổi:**
-- `backend/skills/prompt_refinement.md`, `backend/skills/instructor.md`
-- `backend/tests/test_skill_service.py`
-- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md`
-- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md`
-- `README.md`, `README.vi.md`
-
-**Blockers:** None
-
-**Còn lại:**
-- The Codex harness still needs three genuinely independent model execution paths; three subagents using one underlying model are not valid three-model agreement.
-
-**Flow explained:**
-The Codex main agent freezes the calibration source UID set, generates or reuses the round input, dispatches three isolated model subagents in parallel, validates and writes one verdict file per model, then alone calls `evaluate_prompt_refinement_round`. Subagents never see expected labels, other verdicts, MCP state, or prompt files. Prompt files remain frozen from dispatch through evaluation; only the main agent may edit them after a `refine_prompt` result or confirm an unchanged eligible bundle.
-
----
-
-### [2026-06-19 21:24] — [PromptRefinement] Add MLflow prompt calibration flow
-
-**Đã làm:**
-- Added an optional pre-generation refinement loop using one fixed calibration dataset and exactly three independent validator verdict files.
-- Reused `compute_fleiss_kappa()` and exposed `evaluate_prompt_refinement_round` through the validation MCP provider.
-- Registered generator and validator prompt snapshots in MLflow, logged kappa/label metrics and artifacts, assigned `candidate` aliases every round, and required explicit confirmation before assigning `locked`.
-- Added `skill://prompt_refinement`, updated the instructor, and synchronized English/Vietnamese README, flow, and validator template docs.
-- Verified a temporary SQLite MLflow store, MCP tool registration, `125 passed`, and clean isort/black pre-commit hooks.
-
-**Files thay đổi:**
-- `backend/src/services/prompt_refinement_service.py`, `backend/src/providers/validation_provider.py`, `backend/src/schemas/validation_runtime_schema.py`
-- `backend/tests/test_prompt_refinement_service.py`, `backend/tests/test_validation_provider.py`, `backend/tests/test_skill_service.py`
-- `backend/skills/prompt_refinement.md`, `backend/skills/instructor.md`
-- `backend/pyproject.toml`, `backend/uv.lock`, `.gitignore`
-- `README.md`, `README.vi.md`, `docs/en/flow/validator.md`, `docs/vi/flow/validator.md`
-- `docs/en/template/validator.md`, `docs/vi/template/validator.md`
-
-**Blockers:** None
-
-**Còn lại:**
-- The active agent harness must provide three real independent model execution paths; backend code intentionally does not call models or rewrite prompts automatically.
-
-**Flow explained:**
-Run MLflow separately only when calibration is needed. The agent reads `skill://prompt_refinement`, generates one fixed calibration sample, collects exactly three blind verdict files, then calls the MCP tool. Kappa below `0.85` returns `refine_prompt`; kappa at least `0.85` returns `eligible_to_lock`; only `confirm_lock=true` assigns the locked prompt aliases. PMI stays outside this loop and runs after large-scale generation and consensus validation.

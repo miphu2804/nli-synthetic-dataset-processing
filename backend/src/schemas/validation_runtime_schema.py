@@ -9,7 +9,10 @@ class MaskedValidationRow(BaseModel):
     source_uid: str | int = Field(description="Original generated row identifier.")
     premise: str
     hypothesis: str
-    masked_label: Literal["[MASK]"] = "[MASK]"
+    label: Literal[""] = Field(
+        default="",
+        description="Intentionally blank so validators cannot see the expected label.",
+    )
 
 
 class ValidatorVerdict(BaseModel):

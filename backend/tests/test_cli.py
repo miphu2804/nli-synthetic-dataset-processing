@@ -75,13 +75,13 @@ class ValidationMaskingCliTest(unittest.TestCase):
                 ]
             )
 
-            masked = pd.read_csv(output_path)
+            masked = pd.read_csv(output_path, keep_default_na=False)
         self.assertEqual(exit_code, 0)
         self.assertEqual(
             list(masked.columns),
-            ["source_uid", "premise", "hypothesis", "masked_label"],
+            ["source_uid", "premise", "hypothesis", "label"],
         )
-        self.assertNotIn("label", masked.columns)
+        self.assertEqual(masked.to_dict(orient="records")[0]["label"], "")
 
 
 class ValidationAggregationCliTest(unittest.TestCase):
@@ -719,9 +719,9 @@ class ApplyParaphraseCommandTest(unittest.TestCase):
         self.assertEqual(list(processed["hypothesis"]), ["h1", "h2-rewritten"])
         revalidation_path = self.root / "paraphrase_revalidation_masked.csv"
         self.assertTrue(revalidation_path.exists())
-        revalidation = pd.read_csv(revalidation_path)
+        revalidation = pd.read_csv(revalidation_path, keep_default_na=False)
         self.assertEqual(list(revalidation["source_uid"]), ["row-2"])
-        self.assertEqual(list(revalidation["masked_label"]), ["[MASK]"])
+        self.assertEqual(list(revalidation["label"]), [""])
 
     def test_main_apply_paraphrase_fails_on_unknown_uid(self) -> None:
         flagged_path = self.root / "flagged_unknown.csv"
@@ -805,13 +805,13 @@ class PromoteParaphraseCommandTest(unittest.TestCase):
                     "source_uid": "row-2",
                     "premise": "p2",
                     "hypothesis": "h2-rewritten",
-                    "masked_label": "[MASK]",
+                    "label": "",
                 },
                 {
                     "source_uid": "row-3",
                     "premise": "p3",
                     "hypothesis": "h3-rewritten",
-                    "masked_label": "[MASK]",
+                    "label": "",
                 },
             ]
         ).to_csv(self.revalidation_path, index=False)

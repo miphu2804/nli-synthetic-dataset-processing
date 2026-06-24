@@ -27,10 +27,9 @@ class ValidationMaskingTest(unittest.TestCase):
 
         self.assertEqual(
             list(masked.columns),
-            ["source_uid", "premise", "hypothesis", "masked_label"],
+            ["source_uid", "premise", "hypothesis", "label"],
         )
-        self.assertEqual(masked.to_dict(orient="records")[0]["masked_label"], "[MASK]")
-        self.assertNotIn("label", masked.columns)
+        self.assertEqual(masked.to_dict(orient="records")[0]["label"], "")
         self.assertNotIn("extra", masked.columns)
         self.assertIn("label", source.columns)
 
@@ -60,12 +59,12 @@ class ValidationMaskingTest(unittest.TestCase):
                 uid_column="source_uid",
             )
 
-            masked = pd.read_csv(written_path)
+            masked = pd.read_csv(written_path, keep_default_na=False)
         self.assertEqual(
             list(masked.columns),
-            ["source_uid", "premise", "hypothesis", "masked_label"],
+            ["source_uid", "premise", "hypothesis", "label"],
         )
-        self.assertNotIn("label", masked.columns)
+        self.assertEqual(masked.to_dict(orient="records")[0]["label"], "")
 
 
 if __name__ == "__main__":

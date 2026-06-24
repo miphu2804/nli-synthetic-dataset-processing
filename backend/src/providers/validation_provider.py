@@ -43,8 +43,8 @@ class ValidationToolProvider(ToolProvider):
                 description=(
                     "Path to the generated CSV or Parquet file inside the server container. "
                     "Must contain a 'label' column with the expected labels — "
-                    "do NOT pass a pre-masked file (masked_label only). "
-                    "Labels are masked internally before being returned to validators."
+                    "do NOT pass a validator-facing file with blank label values. "
+                    "Labels are blanked internally before being returned to validators."
                 )
             ),
         ],
@@ -91,8 +91,8 @@ class ValidationToolProvider(ToolProvider):
     @tool(
         name="claim_next_validation_batch",
         description=(
-            "Claim the next validation batch with labels masked. The returned rows "
-            "include premise, hypothesis, source_uid and masked_label only."
+            "Claim the next validation batch with labels blanked. The returned rows "
+            "include premise, hypothesis, source_uid and an empty label field only."
         ),
     )
     def claim_next_validation_batch(
@@ -383,7 +383,7 @@ class ValidationToolProvider(ToolProvider):
         ],
         revalidation_input: Annotated[
             str,
-            Field(description="Masked changed-row revalidation queue path."),
+            Field(description="Changed-row revalidation queue path with blank labels."),
         ],
         verdicts_dir: Annotated[
             str,

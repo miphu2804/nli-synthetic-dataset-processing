@@ -8,12 +8,25 @@ class SkillServiceTest(unittest.TestCase):
     def test_validator_skill_describes_masked_validation_contract(self) -> None:
         skill = SkillService().get_skill("validator")
 
-        self.assertIn("masked_label", skill)
+        self.assertIn('"label": ""', skill)
         self.assertIn("predicted_label", skill)
         self.assertIn("reason", skill)
         self.assertNotIn("confidence", skill)
         self.assertNotIn("rationale", skill)
         self.assertNotIn("artifact_flags", skill)
+
+    def test_generator_policy_skills_are_explicit(self) -> None:
+        skill_service = SkillService()
+
+        plain = skill_service.get_skill("generator_plain")
+        adversarial = skill_service.get_skill("generator_adversarial")
+        instructor = skill_service.get_skill("instructor")
+
+        self.assertIn("Do not add a new", plain)
+        self.assertIn("adversarial transformation", plain)
+        self.assertIn("label-compatible adversarial transformation", adversarial)
+        self.assertIn("skill://generator_plain", instructor)
+        self.assertIn("skill://generator_adversarial", instructor)
 
     def test_prompt_refinement_skill_uses_mcp_kappa_and_explicit_lock(self) -> None:
         skill_service = SkillService()

@@ -2,8 +2,11 @@
 
 Project này cung cấp MCP runtime local cho hai phase chính:
 
-- **Generator:** tạo dữ liệu NLI tiếng Việt adversarial từ slice nguồn có label.
-- **Validator:** validate dữ liệu đã generate bằng masked labels và để trusted
+- **Generator:** tạo dữ liệu NLI tiếng Việt từ slice nguồn có label. Dùng
+  `skill://generator_plain` cho nguồn kiểu ANLI đã có quan hệ adversarial/NLI,
+  hoặc `skill://generator_adversarial` khi muốn tạo biến thể adversarial mới có
+  kiểm soát.
+- **Validator:** validate dữ liệu đã generate bằng label rỗng và để trusted
   runtime so với hidden source label.
 
 ## Kiến trúc

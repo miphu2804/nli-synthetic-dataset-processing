@@ -3,12 +3,11 @@ from typing import Final
 
 import pandas as pd
 
-MASKED_LABEL_VALUE: Final = "[MASK]"
 VALIDATION_PAYLOAD_COLUMNS: Final = (
     "source_uid",
     "premise",
     "hypothesis",
-    "masked_label",
+    "label",
 )
 
 
@@ -27,7 +26,7 @@ def build_masked_validation_dataset(
 
     masked_dataframe = dataframe[[uid_column, "premise", "hypothesis"]].copy()
     masked_dataframe = masked_dataframe.rename(columns={uid_column: "source_uid"})
-    masked_dataframe["masked_label"] = MASKED_LABEL_VALUE
+    masked_dataframe["label"] = ""
     return masked_dataframe[list(VALIDATION_PAYLOAD_COLUMNS)]
 
 

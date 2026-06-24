@@ -100,7 +100,7 @@ def _validate_revalidation_queue(
     revalidation_queue: pd.DataFrame,
     uid_column: str,
 ) -> None:
-    required_columns = [uid_column, "premise", "hypothesis", "masked_label"]
+    required_columns = [uid_column, "premise", "hypothesis", "label"]
     missing = [
         column
         for column in required_columns
@@ -111,5 +111,7 @@ def _validate_revalidation_queue(
             f"revalidation queue is missing required columns: {', '.join(missing)}"
         )
     _validate_dataset_uids(revalidation_queue, uid_column, "revalidation queue")
-    if set(revalidation_queue["masked_label"].astype(str)) != {"[MASK]"}:
-        raise ValueError("revalidation queue masked_label values must all be [MASK].")
+    labels = revalidation_queue["label"]
+    non_blank = labels.notna() & labels.astype(str).str.strip().ne("")
+    if non_blank.any():
+        raise ValueError("revalidation queue label values must be blank.")

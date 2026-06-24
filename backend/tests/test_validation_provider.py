@@ -112,8 +112,8 @@ class ValidationProviderTest(unittest.TestCase):
             )
             first_row = claimed.structured_content["batch"]["rows"][0]
 
-            self.assertEqual(first_row["masked_label"], "[MASK]")
-            self.assertNotIn("label", first_row)
+            self.assertEqual(first_row["label"], "")
+            self.assertNotIn("masked_label", first_row)
 
             submitted = await self.mcp.call_tool(
                 "submit_validation_result",
@@ -263,7 +263,7 @@ class ValidationProviderTest(unittest.TestCase):
                     "source_uid": "row-2",
                     "premise": "p2",
                     "hypothesis": "h2-rewritten",
-                    "masked_label": "[MASK]",
+                    "label": "",
                 }
             ]
         ).to_csv(revalidation_path, index=False)

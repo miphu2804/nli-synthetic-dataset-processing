@@ -41,8 +41,8 @@ class ValidationRunServiceTest(unittest.TestCase):
 
         self.assertEqual(claim.status, "claimed")
         self.assertEqual(len(claim.batch.rows), 2)
-        self.assertEqual(claim.batch.rows[0].masked_label, "[MASK]")
-        self.assertFalse(hasattr(claim.batch.rows[0], "label"))
+        self.assertEqual(claim.batch.rows[0].label, "")
+        self.assertFalse(hasattr(claim.batch.rows[0], "masked_label"))
 
     def test_submit_validation_result_marks_accepted_rows(self) -> None:
         started = self.service.start_validation_run(

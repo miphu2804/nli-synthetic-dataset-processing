@@ -11,11 +11,12 @@ Each claimed row includes:
   "source_uid": "original row id",
   "premise": "Vietnamese legal premise",
   "hypothesis": "Vietnamese legal hypothesis",
-  "masked_label": "[MASK]"
+  "label": ""
 }
 ```
 
-Do not infer the hidden label from metadata, row order, batch id, or prior
+The empty `label` field means the expected label is intentionally hidden. Do
+not infer the hidden label from metadata, row order, batch id, or prior
 outputs. Judge only whether the hypothesis follows from the premise.
 
 ## Output Contract

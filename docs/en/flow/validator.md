@@ -17,7 +17,7 @@ Layer 0 — optional prompt refinement before large-scale generation:
 
 ```text
 fixed labeled calibration dataset
-  -> generate with the current generator skill
+  -> generate with the selected generator policy
   -> exactly three independent validators judge the same rows
   -> evaluate_prompt_refinement_round
   -> kappa < 0.85: inspect disagreement_rows.csv and refine prompts
@@ -27,12 +27,12 @@ fixed labeled calibration dataset
 ```
 
 Start MLflow separately; the backend never starts it automatically. Each round
-records the calibration dataset hash, both prompt versions, Fleiss' kappa,
+records the calibration dataset hash, prompt versions, Fleiss' kappa,
 verdict files, disagreements, and the bundle decision. Freeze the same source
-UID set across rounds. If the generator prompt changes, regenerate that UID set
-and record the new round hash; if only the validator prompt changes, reuse the
-same generated calibration file. Read `skill://prompt_refinement` for the agent
-procedure.
+UID set across rounds. If the selected generator policy changes, regenerate
+that UID set and record the new round hash; if only the validator prompt
+changes, reuse the same generated calibration file. Read
+`skill://prompt_refinement` for the agent procedure.
 
 The Codex main agent owns MCP calls, prompt edits, and file persistence. It
 dispatches three isolated validator subagents; each receives masked rows only
@@ -61,7 +61,7 @@ Layer 1 — per-run blind check (one validator model). This is the main run loop
 ┌──────────────────────────────────────────────────────────┐
 │ claim_next_validation_batch                              │
 │ → source_uid, premise, hypothesis,                       │
-│   masked_label=[MASK]   (expected_label is hidden)       │
+│   label=""   (expected_label is hidden)                  │
 └──────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -201,7 +201,7 @@ hypotheses in `pmi_flagged_rows.csv` (the LLM step, outside this code), emits a
   **Not final.** Semantic labels for changed rows must be revalidated before
   this file is published.
 - `paraphrase_revalidation_masked.csv` — revalidation queue containing only
-  the changed rows: `source_uid, premise, hypothesis, masked_label=[MASK]`.
+  the changed rows: `source_uid, premise, hypothesis, label=""`.
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
@@ -271,7 +271,7 @@ be `1.0`.
 ## Claimed Row Schema
 
 ```csv
-source_uid,premise,hypothesis,masked_label
+source_uid,premise,hypothesis,label
 ```
 
 ## Verdict Schema

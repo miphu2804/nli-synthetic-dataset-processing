@@ -23,7 +23,7 @@ Available validation tools:
 - list_validation_runs
 
 Goal:
-Validate generated Vietnamese NLI rows through masked labels:
+Validate generated Vietnamese NLI rows through blanked labels:
 - input_path: <GENERATED_CSV_WITH_HIDDEN_LABELS>
 - output_dir: <DATA_VALIDATED_OUTPUT_DIR>
 - from_sample: <ONE_BASED_FIRST_SAMPLE>
@@ -50,7 +50,7 @@ Flow:
 Rules:
 - Use MCP resource reads for the listed `skill://...` resources before calling
   validation tools.
-- Claimed rows expose only source_uid, premise, hypothesis, and masked_label.
+- Claimed rows expose only source_uid, premise, hypothesis, and `label=""`.
 - Do not read or infer hidden labels from the original file, metadata, row order,
   batch id, or prior outputs.
 - Return exactly one canonical name: entailment, neutral, or contradiction.

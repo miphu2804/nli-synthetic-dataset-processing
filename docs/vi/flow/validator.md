@@ -16,7 +16,7 @@ Lớp 0 — prompt refinement tùy chọn trước large-scale generation:
 
 ```text
 fixed labeled calibration dataset
-  -> generate bằng generator skill hiện tại
+  -> generate bằng generator policy đã chọn
   -> đúng ba validator độc lập chấm cùng các row
   -> evaluate_prompt_refinement_round
   -> kappa < 0.85: xem disagreement_rows.csv và sửa prompt
@@ -26,10 +26,10 @@ fixed labeled calibration dataset
 ```
 
 MLflow được operator chạy riêng; backend không tự khởi động MLflow. Mỗi round
-ghi dataset hash, hai prompt version, Fleiss' kappa, verdict files,
+ghi dataset hash, prompt versions, Fleiss' kappa, verdict files,
 disagreements, và bundle decision. Giữ cố định source UID set giữa các round.
-Nếu generator prompt đổi, regenerate đúng UID set đó và ghi round hash mới; nếu
-chỉ validator prompt đổi, reuse generated calibration file. Đọc
+Nếu generator policy đã chọn đổi, regenerate đúng UID set đó và ghi round hash
+mới; nếu chỉ validator prompt đổi, reuse generated calibration file. Đọc
 `skill://prompt_refinement` để chạy đúng flow.
 
 Codex main agent sở hữu MCP calls, prompt edits, và file persistence. Main agent
@@ -59,7 +59,7 @@ Lớp 1 — per-run blind check (một validator model). Đây là main run loop
 ┌──────────────────────────────────────────────────────────┐
 │ claim_next_validation_batch                              │
 │ → source_uid, premise, hypothesis,                       │
-│   masked_label=[MASK]   (expected_label is hidden)       │
+│   label=""   (expected_label is hidden)                  │
 └──────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -197,7 +197,7 @@ Lớp 4 — apply paraphrase (deterministic). Harness paraphrase các hypothesis
   phải final.** Semantic label của các row đã thay đổi phải được revalidate trước
   khi publish.
 - `paraphrase_revalidation_masked.csv` — hàng đợi revalidation, chỉ chứa các row
-  đã thay đổi: `source_uid, premise, hypothesis, masked_label=[MASK]`.
+  đã thay đổi: `source_uid, premise, hypothesis, label=""`.
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
@@ -265,7 +265,7 @@ bằng `1.0`.
 ## Claimed Row Schema
 
 ```csv
-source_uid,premise,hypothesis,masked_label
+source_uid,premise,hypothesis,label
 ```
 
 ## Verdict Schema

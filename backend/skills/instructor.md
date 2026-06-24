@@ -12,9 +12,15 @@ Natural Language Inference (NLI) compares a `premise` and a `hypothesis`:
 | `contradiction` | The hypothesis conflicts with the premise |
 | `neutral` | The hypothesis is neither supported nor contradicted |
 
-This pipeline starts from pre-labeled English NLI pairs. Translate both texts to
-natural Vietnamese, apply one label-compatible adversarial transformation and
-preserve the expected_label.
+This pipeline starts from pre-labeled English NLI pairs. Choose the generation
+policy before processing:
+
+- Use `skill://generator_plain` when the source already contains a valid
+  NLI/adversarial relation, such as ANLI-derived pairs. Translate both texts to
+  natural Vietnamese and preserve the expected_label.
+- Use `skill://generator_adversarial` when the goal is to create a new
+  controlled adversarial Vietnamese NLI variant. Translate both texts, apply one
+  label-compatible transformation, and preserve the expected_label.
 
 Output schema:
 
@@ -68,10 +74,12 @@ Load only the resources needed by the current phase:
 |----------|--------------|
 | `skill://execution` | Before processing. Understand runtime boundaries. |
 | `skill://progress_tracking` | Before starting or resuming a local run. |
-| `skill://generator` | Before generating rows. Learn transformation rules and self-checks. |
+| `skill://generator_plain` | Before translating an already-labeled NLI/adversarial source such as ANLI. |
+| `skill://generator_adversarial` | Before creating a new controlled adversarial variant. |
+| `skill://generator` | Legacy adversarial generator alias. Prefer an explicit generator resource for new runs. |
 | `skill://delegation` | When processing at least 100 assigned rows with subagents. |
 | `skill://aggregator` | Before finalizing a completed local run. |
-| `skill://validator` | Before validating generated rows with masked labels. |
+| `skill://validator` | Before validating generated rows with blank labels. |
 | `skill://prompt_refinement` | Before large-scale generation when prompts need three-model calibration and MLflow versioning. |
 
 ## Optional Prompt Refinement
@@ -96,7 +104,7 @@ automatically.
 ```text
 load execution
   -> load progress_tracking
-  -> load generator
+  -> choose and load generator_plain or generator_adversarial
   -> start_generation_run
   -> calculate_dispatch_plan
   -> claim_next_batch
@@ -131,6 +139,8 @@ must not read the expected_label from the source file directly after the run sta
 ## Guardrails
 
 - Preserve each source label.
+- Load exactly one generation policy for a run unless the user explicitly asks
+  to compare policies.
 - Do not generate text with Python templates.
 - Do not manually edit `.pipeline/runs/{run_id}/progress.jsonl`.
 - Do not let subagents call MCP tools or mutate runtime state.

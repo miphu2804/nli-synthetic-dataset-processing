@@ -2,8 +2,11 @@
 
 This project exposes a local MCP runtime for two main phases:
 
-- **Generator:** create Vietnamese adversarial NLI rows from a labeled source slice.
-- **Validator:** validate generated rows with masked labels and trusted runtime
+- **Generator:** create Vietnamese NLI rows from a labeled source slice. Use
+  `skill://generator_plain` for ANLI-derived rows that already contain an
+  adversarial relation, or `skill://generator_adversarial` when creating a new
+  controlled adversarial variant.
+- **Validator:** validate generated rows with blank labels and trusted runtime
   comparison against the hidden source label.
 
 ## Architecture

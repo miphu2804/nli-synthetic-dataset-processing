@@ -749,7 +749,7 @@ def run_apply_paraphrase(
     revalidation = paraphrased[paraphrased[uid_column].astype(str).isin(changed_uids)][
         [uid_column, "premise", text_column]
     ].copy()
-    revalidation["masked_label"] = "[MASK]"
+    revalidation["label"] = ""
     revalidation.to_csv(revalidation_path, index=False)
 
     return {
@@ -1364,7 +1364,7 @@ def _add_promote_paraphrase_parser(subparsers: argparse._SubParsersAction) -> No
     promote.add_argument(
         "--revalidation-input",
         required=True,
-        help="Masked changed-row queue, e.g. paraphrase_revalidation_masked.csv.",
+        help="Changed-row revalidation queue with blank labels, e.g. paraphrase_revalidation_masked.csv.",
     )
     promote.add_argument(
         "--verdicts-dir",
