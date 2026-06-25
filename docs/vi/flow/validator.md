@@ -241,10 +241,13 @@ output và được ghi vào review artifact.
 MCP wrapper tương đương là `promote_paraphrase_revalidation`; wrapper này chỉ
 gọi cùng logic deterministic của CLI và yêu cầu đúng ba verdict files.
 
-Lớp 6 — final split theo premise. Chỉ chạy sau khi đã có dataset final
-publishable, thường là `promoted_dataset.csv` nếu PMI/paraphrase có rewrite,
-hoặc `validated_dataset.csv` nếu không có row nào cần paraphrase. Split giữ mọi
-hypothesis cùng `premise` trong cùng một tập để tránh leakage giữa train/dev/test.
+Lớp 6 — final grouped-stratified split với premise anti-leakage. Chỉ chạy sau
+khi đã có dataset final publishable, thường là `promoted_dataset.csv` nếu
+PMI/paraphrase có rewrite, hoặc `validated_dataset.csv` nếu không có row nào
+cần paraphrase. Split giữ mọi hypothesis cùng `premise` trong cùng một tập để
+tránh leakage giữa train/dev/test, rồi greedy cân bằng row counts và label
+distribution. Nếu có cột domain/subdomain thì có thể truyền thêm để giữ cả
+distribution đó.
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
@@ -252,18 +255,20 @@ hypothesis cùng `premise` trong cùng một tập để tránh leakage giữa t
 │   --input promoted_dataset.csv                           │
 │   --output-dir data/splits/<run_or_dataset_id>            │
 │   --group-column premise                                 │
+│   --domain-column subdomain   # optional                 │
 └──────────────────────────────────────────────────────────┘
                               │
                               ▼
    train.csv
    dev.csv
    test.csv
-   split_manifest.json  (seed, ratios, row/group counts, label distribution)
+   split_manifest.json  (strategy, seed, ratios, row/group counts,
+                         label distribution, optional domain status/distribution)
 ```
 
-Default ratio là `0.8/0.1/0.1`, seed default `13`. Có thể override bằng
-`--train-ratio`, `--dev-ratio`, `--test-ratio`, và `--seed`; tổng ratio phải
-bằng `1.0`.
+Default ratio là `0.8/0.1/0.1`, seed default `13`, và strategy mặc định là
+grouped-stratified. Có thể override bằng `--train-ratio`, `--dev-ratio`,
+`--test-ratio`, và `--seed`; tổng ratio phải bằng `1.0`.
 
 ## Claimed Row Schema
 

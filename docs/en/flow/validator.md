@@ -246,11 +246,13 @@ publishable output and written to the review artifact.
 The equivalent MCP wrapper is `promote_paraphrase_revalidation`; it calls the
 same deterministic CLI logic and still requires exactly three verdict files.
 
-Layer 6 — final premise-grouped split. Run this only after a publishable final
-dataset exists, usually `promoted_dataset.csv` when PMI/paraphrase rewrote rows,
-or `validated_dataset.csv` when no row needed paraphrasing. The split keeps every
-hypothesis with the same `premise` in the same set to prevent train/dev/test
-leakage.
+Layer 6 — final grouped-stratified split with premise anti-leakage. Run this
+only after a publishable final dataset exists, usually `promoted_dataset.csv`
+when PMI/paraphrase rewrote rows, or `validated_dataset.csv` when no row needed
+paraphrasing. The split keeps every hypothesis with the same `premise` in the
+same set to prevent train/dev/test leakage, then greedily balances row counts
+plus label distribution. If a domain/subdomain column is available, you may pass
+it to preserve that distribution too.
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
@@ -258,18 +260,20 @@ leakage.
 │   --input promoted_dataset.csv                           │
 │   --output-dir data/splits/<run_or_dataset_id>            │
 │   --group-column premise                                 │
+│   --domain-column subdomain   # optional                 │
 └──────────────────────────────────────────────────────────┘
                               │
                               ▼
    train.csv
    dev.csv
    test.csv
-   split_manifest.json  (seed, ratios, row/group counts, label distribution)
+   split_manifest.json  (strategy, seed, ratios, row/group counts,
+                         label distribution, optional domain status/distribution)
 ```
 
-The default ratio is `0.8/0.1/0.1`, with default seed `13`. Override with
-`--train-ratio`, `--dev-ratio`, `--test-ratio`, and `--seed`; the ratio sum must
-be `1.0`.
+The default ratio is `0.8/0.1/0.1`, with default seed `13`, and the default
+strategy is grouped-stratified. Override with `--train-ratio`, `--dev-ratio`,
+`--test-ratio`, and `--seed`; the ratio sum must be `1.0`.
 
 ## Claimed Row Schema
 

@@ -20,6 +20,7 @@ Input:
 - min_joint_count: 3
 - split_seed: 13
 - split_ratios: train=0.8, dev=0.1, test=0.1
+- split_domain_column: <OPTIONAL_DOMAIN_OR_SUBDOMAIN_COLUMN>
 
 MCP resources bắt buộc:
 - skill://instructor
@@ -77,6 +78,7 @@ Task:
      --dev-ratio 0.1
      --test-ratio 0.1
      --seed 13
+     [--domain-column <OPTIONAL_DOMAIN_OR_SUBDOMAIN_COLUMN>]
 7. Report toàn bộ output paths và các row còn cần manual review nếu có.
 
 Rules:
@@ -88,6 +90,8 @@ Rules:
 - Revalidation gate quyết định rewritten rows có được promote không.
 - Split chỉ chạy trên publishable final dataset: promoted_dataset.csv nếu đã
   chạy paraphrase promotion, nếu không thì validated_dataset.csv.
+- Final split mặc định là grouped-stratified và vẫn phải giữ mỗi premise group
+  nằm trọn trong đúng một split.
 - PMI không phải prompt refinement. Không sửa generator hoặc validator prompts ở
   bước này.
 - Nếu deterministic stage fail, dừng và báo blocker thay vì tự patch output.
@@ -106,5 +110,6 @@ Report:
 - paraphrase_revalidation_review.csv nếu có tạo
 - final dataset dùng để split
 - train.csv, dev.csv, test.csv, split_manifest.json
+- split strategy và domain-column status nếu có yêu cầu domain column
 - blockers hoặc unresolved manual review rows
 ```

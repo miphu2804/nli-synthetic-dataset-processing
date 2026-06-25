@@ -21,6 +21,7 @@ Inputs:
 - min_joint_count: 3
 - split_seed: 13
 - split_ratios: train=0.8, dev=0.1, test=0.1
+- split_domain_column: <OPTIONAL_DOMAIN_OR_SUBDOMAIN_COLUMN>
 
 Required MCP resources:
 - skill://instructor
@@ -78,6 +79,7 @@ Task:
      --dev-ratio 0.1
      --test-ratio 0.1
      --seed 13
+     [--domain-column <OPTIONAL_DOMAIN_OR_SUBDOMAIN_COLUMN>]
 7. Report all output paths and any rows left for manual review.
 
 Rules:
@@ -90,6 +92,8 @@ Rules:
 - Revalidation gates rewritten rows before promotion.
 - Split only the publishable final dataset: promoted_dataset.csv if paraphrase
   promotion ran, otherwise validated_dataset.csv.
+- The final split is grouped-stratified by default and still must keep each
+  premise group inside exactly one split.
 - PMI is not prompt refinement. Do not edit generator or validator prompts here.
 - If a deterministic stage fails, stop and report the blocker instead of
   patching outputs by hand.
@@ -108,5 +112,6 @@ Report:
 - paraphrase_revalidation_review.csv if created
 - final dataset used for split
 - train.csv, dev.csv, test.csv, split_manifest.json
+- split strategy plus domain-column status if a domain column was requested
 - blockers or unresolved manual review rows
 ```

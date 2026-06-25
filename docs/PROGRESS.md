@@ -1,3 +1,30 @@
+### [2026-06-25 13:05] — [ValidationIntegrity] Upgrade final split to grouped stratification
+
+**Đã làm:**
+- Nâng split stage cuối từ grouped shuffle theo row target sang grouped-stratified greedy vẫn giữ premise/group anti-leakage.
+- Giữ row ratio là constraint chi phối; label/domain distribution chỉ dùng để cân bằng trong các candidate hợp lý về size.
+- Thêm optional `--domain-column` để cân bằng thêm domain/subdomain khi có dữ liệu usable; thiếu/rỗng thì manifest ghi status và split vẫn chạy.
+- Mở rộng manifest để audit strategy, seed, ratios, global/split label distribution, và domain status/distribution.
+- Thêm regression test chặn lỗi collapse row ratio kiểu `train=1, dev=41, test=38` trên 80 rows / 33 groups.
+- Cập nhật flow/template docs EN/VI cho final split mới.
+
+**Files thay đổi:**
+- `backend/src/utils/dataset_split.py` — modified
+- `backend/src/cli.py` — modified
+- `backend/tests/test_dataset_split.py`, `backend/tests/test_cli.py` — modified
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
+- `docs/en/template/post-validation.md`, `docs/vi/template/post-validation.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Split cuối vẫn assign theo `group_column` nên mọi row cùng premise không thể đi sang nhiều split. Strategy mặc định `grouped-stratified` shuffle group theo seed, ưu tiên group lớn/hiếm, rồi chọn split theo row-progress alignment với target ratios trước khi xét label/domain tie-break. Runtime check trên `data/validated/anli1-100/post/promoted_dataset.csv` ra `train=64, dev=8, test=8` và `premise_cross_split_leaks=0`.
+
+---
+
 ### [2026-06-25 12:25] — [OutputConvention] Align agent templates to data directories
 
 **Đã làm:**
@@ -232,32 +259,3 @@ Input cho `start_validation_run` vẫn phải là dataset có label thật; runt
 
 **Flow explained:**
 Generation runtime vẫn giữ lifecycle MCP cũ (`start_generation_run` → claim/submit → verify/finalize). Khác biệt nằm ở policy markdown agent đọc trước khi transform: `generator_plain` cho ANLI/already-adversarial source để tránh double-adversarial label drift; `generator_adversarial` cho tạo biến thể mới có kiểm soát. Prompt refinement nhận `generator_skill_name` để snapshot đúng policy vào MLflow thay vì luôn hardcode `generator.md`.
-
----
-
-### [2026-06-22 05:45] — [ValidationIntegrity] Add premise-grouped split CLI
-
-**Đã làm:**
-- Thêm utility split deterministic theo `premise`/group column để mọi hypothesis cùng premise không crossing giữa train/dev/test.
-- Thêm CLI `split` với input/output dir, seed, ratio args; ghi `train.csv`, `dev.csv`, `test.csv`, và `split_manifest.json`.
-- Manifest ghi seed, ratios, row/group counts, và label distribution từng split.
-- Thêm tests cho grouping, deterministic seed, small dataset, invalid ratios, và CLI output.
-- Cập nhật validator flow docs EN/VI và status của fix plan 05.
-
-**Files thay đổi:**
-- `backend/src/utils/dataset_split.py` — created
-- `backend/src/cli.py` — modified
-- `backend/tests/test_dataset_split.py` — created
-- `backend/tests/test_cli.py` — modified
-- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
-- `docs/superpowers/plans/fix-05-premise-grouped-split.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None trong chuỗi 5 fix branch đã lập từ issue Markdown.
-
-**Flow explained:**
-Split là stage cuối sau `promoted_dataset.csv` hoặc `validated_dataset.csv` publishable. Thuật toán shuffle premise groups bằng seed cố định, assign theo row targets, rồi backfill split rỗng cho small datasets khi đủ group. Output giữ row order gốc trong từng split và manifest đủ để audit distribution.
-
----

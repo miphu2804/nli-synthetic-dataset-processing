@@ -951,6 +951,7 @@ def run_split(
     output_dir: Path,
     group_column: str,
     label_column: str,
+    domain_column: str | None,
     train_ratio: float,
     dev_ratio: float,
     test_ratio: float,
@@ -961,6 +962,7 @@ def run_split(
         dataframe,
         group_column=group_column,
         label_column=label_column,
+        domain_column=domain_column,
         train_ratio=train_ratio,
         dev_ratio=dev_ratio,
         test_ratio=test_ratio,
@@ -998,6 +1000,8 @@ def run_split(
         "manifest_output": output_paths["manifest"],
         "total_rows": result.manifest["total_rows"],
         "total_groups": result.manifest["total_groups"],
+        "strategy": result.manifest["strategy"],
+        "domain_status": result.manifest["domain"]["status"],
         "train_rows": result.manifest["splits"]["train"]["rows"],
         "dev_rows": result.manifest["splits"]["dev"]["rows"],
         "test_rows": result.manifest["splits"]["test"]["rows"],
@@ -1015,6 +1019,7 @@ def _run_split_command(args: argparse.Namespace, console: Console) -> int:
     console.print(f"[bold]Output dir:[/bold]   {output_dir}")
     console.print(f"[bold]Group column:[/bold] {args.group_column}")
     console.print(f"[bold]Label column:[/bold] {args.label_column}")
+    console.print(f"[bold]Domain column:[/bold] {args.domain_column or '-'}")
     console.print(
         "[bold]Ratios:[/bold]       "
         f"{args.train_ratio}:{args.dev_ratio}:{args.test_ratio}"
@@ -1027,6 +1032,7 @@ def _run_split_command(args: argparse.Namespace, console: Console) -> int:
             output_dir=output_dir,
             group_column=args.group_column,
             label_column=args.label_column,
+            domain_column=args.domain_column,
             train_ratio=args.train_ratio,
             dev_ratio=args.dev_ratio,
             test_ratio=args.test_ratio,
@@ -1039,6 +1045,8 @@ def _run_split_command(args: argparse.Namespace, console: Console) -> int:
     summary = Table(title="Grouped Split Complete")
     summary.add_column("Metric")
     summary.add_column("Value", justify="right")
+    summary.add_row("Strategy", str(result["strategy"]))
+    summary.add_row("Domain status", str(result["domain_status"]))
     summary.add_row("Total rows", str(result["total_rows"]))
     summary.add_row("Total premise groups", str(result["total_groups"]))
     summary.add_row("Train rows", str(result["train_rows"]))
@@ -1408,7 +1416,7 @@ def _add_promote_paraphrase_parser(subparsers: argparse._SubParsersAction) -> No
 def _add_split_parser(subparsers: argparse._SubParsersAction) -> None:
     split = subparsers.add_parser(
         "split",
-        help="Create deterministic train/dev/test splits grouped by premise.",
+        help="Create deterministic grouped-stratified train/dev/test splits.",
     )
     split.add_argument(
         "--input",
@@ -1429,6 +1437,10 @@ def _add_split_parser(subparsers: argparse._SubParsersAction) -> None:
         "--label-column",
         default="label",
         help="Label column used for manifest distributions. Default: label.",
+    )
+    split.add_argument(
+        "--domain-column",
+        help="Optional domain/subdomain column to preserve alongside labels.",
     )
     split.add_argument(
         "--train-ratio",

@@ -916,12 +916,48 @@ class DatasetSplitCommandTest(unittest.TestCase):
         self.output_dir = self.root / "split"
         pd.DataFrame(
             [
-                {"source_uid": "1a", "premise": "p1", "hypothesis": "h1", "label": 0},
-                {"source_uid": "1b", "premise": "p1", "hypothesis": "h2", "label": 1},
-                {"source_uid": "2a", "premise": "p2", "hypothesis": "h3", "label": 0},
-                {"source_uid": "3a", "premise": "p3", "hypothesis": "h4", "label": 1},
-                {"source_uid": "4a", "premise": "p4", "hypothesis": "h5", "label": 2},
-                {"source_uid": "5a", "premise": "p5", "hypothesis": "h6", "label": 2},
+                {
+                    "source_uid": "1a",
+                    "premise": "p1",
+                    "hypothesis": "h1",
+                    "label": 0,
+                    "domain": "tax",
+                },
+                {
+                    "source_uid": "1b",
+                    "premise": "p1",
+                    "hypothesis": "h2",
+                    "label": 1,
+                    "domain": "tax",
+                },
+                {
+                    "source_uid": "2a",
+                    "premise": "p2",
+                    "hypothesis": "h3",
+                    "label": 0,
+                    "domain": "labor",
+                },
+                {
+                    "source_uid": "3a",
+                    "premise": "p3",
+                    "hypothesis": "h4",
+                    "label": 1,
+                    "domain": "labor",
+                },
+                {
+                    "source_uid": "4a",
+                    "premise": "p4",
+                    "hypothesis": "h5",
+                    "label": 2,
+                    "domain": "tax",
+                },
+                {
+                    "source_uid": "5a",
+                    "premise": "p5",
+                    "hypothesis": "h6",
+                    "label": 2,
+                    "domain": "labor",
+                },
             ]
         ).to_csv(self.input_path, index=False)
 
@@ -934,6 +970,7 @@ class DatasetSplitCommandTest(unittest.TestCase):
             output_dir=self.output_dir,
             group_column="premise",
             label_column="label",
+            domain_column="domain",
             train_ratio=0.6,
             dev_ratio=0.2,
             test_ratio=0.2,
@@ -947,6 +984,8 @@ class DatasetSplitCommandTest(unittest.TestCase):
         manifest = json.loads(result["manifest_output"].read_text())
         self.assertEqual(manifest["total_rows"], 6)
         self.assertEqual(manifest["total_groups"], 5)
+        self.assertEqual(manifest["strategy"], "grouped-stratified")
+        self.assertEqual(manifest["domain"]["status"], "used")
 
     def test_main_split_subcommand_exits_zero_and_groups_by_premise(self) -> None:
         exit_code = main(
@@ -962,6 +1001,8 @@ class DatasetSplitCommandTest(unittest.TestCase):
                 "0.2",
                 "--test-ratio",
                 "0.2",
+                "--domain-column",
+                "domain",
                 "--seed",
                 "11",
                 "--quiet",
@@ -982,6 +1023,14 @@ class DatasetSplitCommandTest(unittest.TestCase):
         self.assertTrue(premise_sets["train"].isdisjoint(premise_sets["test"]))
         self.assertTrue(premise_sets["dev"].isdisjoint(premise_sets["test"]))
         self.assertTrue((self.output_dir / "split_manifest.json").exists())
+        manifest = json.loads((self.output_dir / "split_manifest.json").read_text())
+        self.assertEqual(manifest["strategy"], "grouped-stratified")
+        self.assertEqual(manifest["domain"]["status"], "used")
+        self.assertEqual(
+            sum(manifest["splits"]["train"]["label_distribution"].values()),
+            len(splits["train"]),
+        )
+        self.assertIn("domain_distribution", manifest["splits"]["train"])
 
     def test_main_split_fails_on_invalid_ratios(self) -> None:
         exit_code = main(
