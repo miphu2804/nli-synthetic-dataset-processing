@@ -25,7 +25,7 @@ Available validation tools:
 Goal:
 Validate generated Vietnamese NLI rows through blanked labels:
 - input_path: <GENERATED_CSV_WITH_HIDDEN_LABELS>
-- output_dir: <DATA_VALIDATED_OUTPUT_DIR>
+- output_dir: data/validated/<RUN_OR_MODEL_ID>
 - from_sample: <ONE_BASED_FIRST_SAMPLE>
 - to_sample: <ONE_BASED_LAST_SAMPLE_INCLUSIVE>
 - batch_size: 20

@@ -30,7 +30,7 @@ Available generation tools:
 Goal:
 Generate Vietnamese NLI rows from this assigned sample range:
 - input_path: <INPUT_CSV_OR_PARQUET>
-- output_path: <DATA_GENERATED_OUTPUT_CSV>
+- output_path: data/generated/<RUN_OR_DATASET_ID>.csv
 - from_sample: <ONE_BASED_FIRST_SAMPLE>
 - to_sample: <ONE_BASED_LAST_SAMPLE_INCLUSIVE>
 - batch_size: 20

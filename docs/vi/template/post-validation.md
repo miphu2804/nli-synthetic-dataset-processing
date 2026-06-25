@@ -14,8 +14,8 @@ Input:
 - verdicts_dir: <DIR_WITH_EXACTLY_THREE_VALIDATION_VERDICT_FILES>
 - masked_input: <MASKED_VALIDATION_DATASET_USED_BY_VALIDATORS>
 - expected_input: <ORIGINAL_GENERATED_DATASET_WITH_TRUSTED_LABELS>
-- output_dir: <POST_VALIDATION_OUTPUT_DIR>
-- split_output_dir: <FINAL_SPLIT_OUTPUT_DIR>
+- output_dir: data/validated/<RUN_OR_DATASET_ID>
+- split_output_dir: data/splits/<RUN_OR_DATASET_ID>
 - pmi_threshold: 1.0
 - min_joint_count: 3
 - split_seed: 13
@@ -70,7 +70,7 @@ Task:
 6. Chạy final split:
    python -m src.cli split
      --input <final_dataset>
-     --output-dir <FINAL_SPLIT_OUTPUT_DIR>
+     --output-dir data/splits/<RUN_OR_DATASET_ID>
      --group-column premise
      --label-column label
      --train-ratio 0.8

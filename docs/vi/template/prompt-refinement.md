@@ -13,7 +13,7 @@ Input:
 - calibration_source: <FIXED_LABELED_DATASET_OR_SLICE>
 - sample_count: <N>
 - generator_skill_name: <generator_plain_OR_generator_adversarial_OR_generator>
-- output_root: <PROMPT_REFINEMENT_OUTPUT_DIR>
+- output_root: data/prompt-refinement/<SESSION_ID_OR_DATASET_ID>
 - tracking_uri: <MLFLOW_TRACKING_URI>
 - experiment_name: <MLFLOW_EXPERIMENT_NAME>
 - session_id: <OPTIONAL_SESSION_ID>

@@ -212,6 +212,32 @@ class SkillServiceTest(unittest.TestCase):
                 or "không sửa generator hoặc validator prompts" in lower_document
             )
 
+    def test_agent_templates_use_data_output_convention(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        templates = [
+            repository_root / "docs/en/template/generator.md",
+            repository_root / "docs/vi/template/generator.md",
+            repository_root / "docs/en/template/validator.md",
+            repository_root / "docs/vi/template/validator.md",
+            repository_root / "docs/en/template/post-validation.md",
+            repository_root / "docs/vi/template/post-validation.md",
+            repository_root / "docs/en/template/prompt-refinement.md",
+            repository_root / "docs/vi/template/prompt-refinement.md",
+        ]
+        combined = "\n".join(path.read_text(encoding="utf-8") for path in templates)
+
+        self.assertNotIn("outputs/", combined)
+        self.assertNotIn("backend/outputs", combined)
+        self.assertNotIn("DATA_GENERATED_OUTPUT", combined)
+        self.assertNotIn("DATA_VALIDATED_OUTPUT", combined)
+        self.assertNotIn("POST_VALIDATION_OUTPUT_DIR", combined)
+        self.assertNotIn("FINAL_SPLIT_OUTPUT_DIR", combined)
+        self.assertNotIn("PROMPT_REFINEMENT_OUTPUT_DIR", combined)
+        self.assertIn("data/generated/", combined)
+        self.assertIn("data/validated/", combined)
+        self.assertIn("data/splits/", combined)
+        self.assertIn("data/prompt-refinement/", combined)
+
 
 if __name__ == "__main__":
     unittest.main()

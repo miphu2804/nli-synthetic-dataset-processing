@@ -1,3 +1,30 @@
+### [2026-06-25 12:25] — [OutputConvention] Align agent templates to data directories
+
+**Đã làm:**
+- Xoá repo-root artifact directory `outputs/` vừa phát sinh.
+- Đổi generator template output sang `data/generated/<RUN_OR_DATASET_ID>.csv`.
+- Đổi validator template output sang `data/validated/<RUN_OR_MODEL_ID>`.
+- Đổi post-validation template output sang `data/validated/<RUN_OR_DATASET_ID>` và `data/splits/<RUN_OR_DATASET_ID>`.
+- Đổi prompt-refinement template output root sang `data/prompt-refinement/<SESSION_ID_OR_DATASET_ID>`.
+- Thêm test guardrail để agent templates không trôi lại về repo-root `outputs/`.
+
+**Files thay đổi:**
+- `docs/en/template/generator.md`, `docs/vi/template/generator.md` — modified
+- `docs/en/template/validator.md`, `docs/vi/template/validator.md` — modified
+- `docs/en/template/post-validation.md`, `docs/vi/template/post-validation.md` — modified
+- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md` — modified
+- `backend/tests/test_skill_service.py` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** Existing deleted tracked data file `backend/data/validation/validation_masked.csv` vẫn đang là worktree state riêng, không thuộc cleanup này.
+
+**Flow explained:**
+Agent-facing templates giờ dùng `data/...` làm output convention thống nhất. Runtime artifacts không nên ghi vào repo-root `outputs/`; generation, validation, post-validation, split, và prompt-refinement đều có placeholder dưới `data/` để khớp cấu trúc backend/data khi operator nhìn project tree.
+
+---
+
 ### [2026-06-25 12:10] — [PostValidation] Add post-validation orchestration template
 
 **Đã làm:**
@@ -232,29 +259,5 @@ Generation runtime vẫn giữ lifecycle MCP cũ (`start_generation_run` → cla
 
 **Flow explained:**
 Split là stage cuối sau `promoted_dataset.csv` hoặc `validated_dataset.csv` publishable. Thuật toán shuffle premise groups bằng seed cố định, assign theo row targets, rồi backfill split rỗng cho small datasets khi đủ group. Output giữ row order gốc trong từng split và manifest đủ để audit distribution.
-
----
-
-### [2026-06-22 05:20] — [ValidationIntegrity] Expose deterministic MCP wrappers
-
-**Đã làm:**
-- Thêm MCP wrapper `run_consensus_pmi` để gọi cùng contract deterministic của CLI `consensus-pmi` và trả row counts + artifact paths.
-- Thêm MCP wrapper `promote_paraphrase_revalidation` để promote rewrites sau đúng ba verdict files revalidation.
-- Thêm provider tests cho schema không leak `self` và runtime write artifacts cho cả consensus/PMI lẫn paraphrase promotion.
-- Cập nhật validator flow docs EN/VI và status của fix plan 04.
-
-**Files thay đổi:**
-- `backend/src/providers/validation_provider.py` — modified
-- `backend/tests/test_validation_provider.py` — modified
-- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
-- `docs/superpowers/plans/fix-04-deterministic-stage-mcp-wrappers.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** Premise-grouped train/dev/test split vẫn chưa có CLI.
-
-**Flow explained:**
-MCP wrappers chỉ là transport adapters. Chúng không gọi model và không tự suy hidden labels; chúng discover đúng ba verdict files rồi gọi lại function CLI đã được test. `aggregate`, `pmi`, và `apply-paraphrase` vẫn là stage CLI/operator riêng, còn `consensus-pmi` và `promote-paraphrase` có thêm wrapper mỏng vì artifact contract đã ổn định.
 
 ---
