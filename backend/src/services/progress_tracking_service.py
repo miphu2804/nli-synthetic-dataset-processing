@@ -1,4 +1,3 @@
-import hashlib
 import json
 import shutil
 from dataclasses import dataclass, field
@@ -34,7 +33,6 @@ class _VerificationScan:
     """Raw findings collected in a single pass over a run's progress events, before they are judged into a verdict."""
 
     checked_agents: set[str] = field(default_factory=set)
-    broken_hashes: list[dict[str, Any]] = field(default_factory=list)
     seen_done: dict[str, int] = field(default_factory=dict)
     skipped: set[str] = field(default_factory=set)
     missing_batch_files: list[str] = field(default_factory=list)
@@ -105,7 +103,7 @@ class ProgressTrackingService:
         event: str,
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Append an event to the run's progress log, chaining it to the agent's previous event via prev_hash and a per-agent sequence id.
+        """Append an event to the run's progress log with a per-agent sequence id.
 
         Side effects: ensures run directories exist and writes one JSON line to progress.jsonl. Returns the written event.
         """
@@ -113,10 +111,8 @@ class ProgressTrackingService:
         progress_path = self.get_progress_path(run_id)
         events = self.read_events(run_id)
         agent_events = [item for item in events if item["agent"] == agent]
-        previous_hash = "0"
         next_sequence = 0
         if agent_events:
-            previous_hash = self._event_hash(agent_events[-1])
             next_sequence = (
                 max(self._extract_sequence(item["id"], agent) for item in agent_events)
                 + 1
@@ -126,7 +122,6 @@ class ProgressTrackingService:
             "id": f"{agent}-{next_sequence}",
             "event": event,
             "agent": agent,
-            "prev_hash": previous_hash,
         }
         if payload:
             event_payload.update(payload)
@@ -207,7 +202,7 @@ class ProgressTrackingService:
         agent_id: str | None = None,
         require_batch_files: bool = False,
     ) -> ProgressVerificationResponse:
-        """Verify a run's progress log and return a verdict: scans events once, then derives hash-chain breaks, duplicate/overlapping rows, missing batch files, and count mismatches.
+        """Verify a run's progress log and return a verdict for duplicate/overlapping rows, missing batch files, and count mismatches.
 
         When agent_id is given only that agent's events are checked; total_target_rows enables the row-count ceiling check.
         """
@@ -230,7 +225,6 @@ class ProgressTrackingService:
 
         ok = not any(
             [
-                scan.broken_hashes,
                 duplicate_done_source_uids,
                 done_skip_overlap,
                 scan.missing_batch_files,
@@ -241,7 +235,6 @@ class ProgressTrackingService:
             ok=ok,
             run_id=run_id,
             checked_agents=sorted(scan.checked_agents),
-            broken_hashes=scan.broken_hashes,
             duplicate_done_source_uids=duplicate_done_source_uids,
             done_skip_overlap_source_uids=done_skip_overlap,
             missing_batch_files=scan.missing_batch_files,
@@ -257,27 +250,16 @@ class ProgressTrackingService:
     ) -> _VerificationScan:
         """Make one pass over the run's events collecting raw verification findings into a _VerificationScan.
 
-        Checks each agent's per-agent hash chain, tallies row.done/row.skip uids, and (when require_batch_files)
-        records batch.done files that are missing on disk. Events from other agents are skipped when agent_id is set.
+        Tallies row.done/row.skip uids and, when require_batch_files is true,
+        records batch.done files that are missing on disk. Events from other
+        agents are skipped when agent_id is set.
         """
         scan = _VerificationScan()
-        previous_hashes: dict[str, str] = {}
         for event in self.read_events(run_id):
             current_agent = event["agent"]
             if agent_id and current_agent != agent_id:
                 continue
             scan.checked_agents.add(current_agent)
-            expected_hash = previous_hashes.get(current_agent, "0")
-            if event["prev_hash"] != expected_hash:
-                scan.broken_hashes.append(
-                    {
-                        "id": event["id"],
-                        "agent": current_agent,
-                        "expected_prev_hash": expected_hash,
-                        "actual_prev_hash": event["prev_hash"],
-                    }
-                )
-            previous_hashes[current_agent] = self._event_hash(event)
             if event["event"] == "row.done":
                 uid_key = self._uid_key(event["source_uid"])
                 scan.seen_done[uid_key] = scan.seen_done.get(uid_key, 0) + 1
@@ -299,12 +281,6 @@ class ProgressTrackingService:
         if not event_id.startswith(prefix):
             return -1
         return int(event_id[len(prefix) :])
-
-    @staticmethod
-    def _event_hash(event: dict[str, Any]) -> str:
-        """Return the SHA-256 hex digest of the event's compact JSON serialization, used to chain events per agent."""
-        serialized = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
-        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _uid_key(source_uid: str | int) -> str:

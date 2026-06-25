@@ -35,7 +35,7 @@ class GenerationRunServiceTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_hash_chain_verification_detects_tampering(self) -> None:
+    def test_progress_verification_detects_duplicate_done_rows(self) -> None:
         started = self.service.start_generation_run(
             input_path=str(self.input_path),
             output_path=str(self.root / "output.csv"),
@@ -64,14 +64,24 @@ class GenerationRunServiceTest(unittest.TestCase):
 
         progress_path = self.pipeline_dir / "runs" / started.run_id / "progress.jsonl"
         lines = progress_path.read_text(encoding="utf-8").splitlines()
-        payload = json.loads(lines[1])
-        payload["prev_hash"] = "broken"
-        lines[1] = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        self.assertTrue(all("prev_hash" not in json.loads(line) for line in lines))
+        row_done_index, row_done = next(
+            (index, payload)
+            for index, payload in (
+                (index, json.loads(line)) for index, line in enumerate(lines)
+            )
+            if payload["event"] == "row.done"
+        )
+        duplicate = {**row_done, "id": "agent-a-duplicate"}
+        lines.insert(
+            row_done_index + 1,
+            json.dumps(duplicate, ensure_ascii=False, separators=(",", ":")),
+        )
         progress_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         verification = self.service.verify_progress_log(started.run_id)
         self.assertFalse(verification.ok)
-        self.assertTrue(verification.broken_hashes)
+        self.assertEqual(verification.duplicate_done_source_uids, ["1"])
 
     def test_claims_do_not_overlap_and_released_batch_can_be_reclaimed(self) -> None:
         started = self.service.start_generation_run(
@@ -331,9 +341,18 @@ class GenerationRunServiceTest(unittest.TestCase):
         )
         progress_path = self.pipeline_dir / "runs" / started.run_id / "progress.jsonl"
         lines = progress_path.read_text(encoding="utf-8").splitlines()
-        payload = json.loads(lines[1])
-        payload["prev_hash"] = "broken"
-        lines[1] = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        row_done_index, row_done = next(
+            (index, payload)
+            for index, payload in (
+                (index, json.loads(line)) for index, line in enumerate(lines)
+            )
+            if payload["event"] == "row.done"
+        )
+        duplicate = {**row_done, "id": "main-duplicate"}
+        lines.insert(
+            row_done_index + 1,
+            json.dumps(duplicate, ensure_ascii=False, separators=(",", ":")),
+        )
         progress_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "progress verification failed"):

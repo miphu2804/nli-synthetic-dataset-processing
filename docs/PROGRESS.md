@@ -1,3 +1,27 @@
+### [2026-06-25 20:35] — [ProgressTracking] Remove progress hash-chain verification
+
+**Đã làm:**
+- Bỏ hash-chain `prev_hash` khỏi `progress.jsonl` events vì progress log chỉ cần phục vụ resume/audit runtime, không cần giả lập ledger tamper-proof.
+- Bỏ `broken_hashes` khỏi response schema generation/validation progress verification.
+- Giữ `verify_progress_log` và `verify_validation_progress_log`, nhưng chỉ kiểm các invariant thực dụng: duplicate done rows, done/skip overlap, missing batch files, count mismatches, active claims.
+- Đổi tests hash tamper sang duplicate-row và missing-batch-file failure modes.
+
+**Files thay đổi:**
+- `backend/src/services/progress_tracking_service.py` — modified
+- `backend/src/schemas/generation_runtime_schema.py` — modified
+- `backend/src/schemas/validation_runtime_schema.py` — modified
+- `backend/tests/test_generation_run_service.py` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Progress tracking vẫn append JSONL event theo `agent-{sequence}` và vẫn replay state như trước. Verification không còn check cryptographic chain; nó chỉ xác nhận trạng thái pipeline có nhất quán đủ để finalize an toàn. Prompt-refinement dataset hashes không bị đụng vì đó là provenance khác, vẫn hữu ích.
+
+---
+
 ### [2026-06-25 13:05] — [ValidationIntegrity] Upgrade final split to grouped stratification
 
 **Đã làm:**
@@ -232,30 +256,3 @@ Prompt refinement template giờ chỉ giao nhiệm vụ orchestration cho agent
 
 **Flow explained:**
 Input cho `start_validation_run` vẫn phải là dataset có label thật; runtime dùng label đó làm hidden expected label khi submit/finalize. Chỉ payload/file giao cho validator mới có `label` rỗng để tránh lộ đáp án và tránh sentinel `[MASK]`. File `*_validation_masked.csv` giữ tên cũ vì downstream đang dùng tên này, nhưng nội dung masked giờ là blank label.
-
----
-
-### [2026-06-23 19:49] — [GeneratorPolicy] Split plain and adversarial generator skills
-
-**Đã làm:**
-- Thêm `generator_plain.md` cho ANLI/source đã có quan hệ NLI-adversarial: translate/naturalize, giữ relation và label, không thêm adversarial transform mới.
-- Thêm `generator_adversarial.md` cho controlled adversarial generation, giữ rule catalog cũ.
-- Giữ `generator.md` làm legacy adversarial alias để không gãy prompt/harness cũ.
-- Cập nhật `instructor`, `delegation`, README, flow/template docs EN/VI để agent chọn đúng một generation policy.
-- Thêm `generator_skill_name` cho `evaluate_prompt_refinement_round` để MLflow version đúng generator policy được dùng trong calibration.
-- Thêm tests cho skill split, provider schema, và prompt-refinement versioning theo selected generator skill.
-
-**Files thay đổi:**
-- `backend/skills/generator_plain.md` — created
-- `backend/skills/generator_adversarial.md` — created
-- `backend/skills/generator.md`, `backend/skills/instructor.md`, `backend/skills/delegation.md`, `backend/skills/prompt_refinement.md` — modified
-- `backend/src/providers/validation_provider.py`, `backend/src/services/prompt_refinement_service.py` — modified
-- `backend/tests/test_skill_service.py`, `backend/tests/test_validation_provider.py`, `backend/tests/test_prompt_refinement_service.py` — modified
-- `README.md`, `README.vi.md`, `docs/en/*`, `docs/vi/*`, `docs/superpowers/specs/2026-06-19-prompt-refinement-mlflow-design.md` — modified
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Generation runtime vẫn giữ lifecycle MCP cũ (`start_generation_run` → claim/submit → verify/finalize). Khác biệt nằm ở policy markdown agent đọc trước khi transform: `generator_plain` cho ANLI/already-adversarial source để tránh double-adversarial label drift; `generator_adversarial` cho tạo biến thể mới có kiểm soát. Prompt refinement nhận `generator_skill_name` để snapshot đúng policy vào MLflow thay vì luôn hardcode `generator.md`.
