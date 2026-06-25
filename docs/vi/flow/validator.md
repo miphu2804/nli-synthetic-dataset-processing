@@ -19,9 +19,12 @@ fixed labeled calibration dataset
   -> generate bằng generator policy đã chọn
   -> đúng ba validator độc lập chấm cùng các row
   -> evaluate_prompt_refinement_round
-  -> kappa < 0.85: xem disagreement_rows.csv và sửa prompt
+  -> kappa < 0.85: prepare_prompt_refinement_evidence_pack
+  -> prepare_prompt_refinement_editor_tasks
+  -> orchestrator spawn editor subagents từ task payloads
+  -> sửa prompt
   -> kappa >= 0.85: eligible_to_lock
-  -> confirm_lock=true: lock prompt bundle
+  -> confirm_prompt_lock: lock prompt bundle sau approval
   -> bắt đầu large-scale generation
 ```
 

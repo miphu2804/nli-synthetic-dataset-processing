@@ -1,105 +1,145 @@
 # Prompt Refinement Orchestration Template
 
-Use this prompt in Codex when the harness can execute three independent model
-subagents and is connected to MCP server `nli-tools`.
+Use this prompt when Codex is connected to MCP server `nli-tools` and the
+operator has already started the required services.
 
 ```text
 You are the main agent connected to MCP server `nli-tools`.
 
 Goal:
-Calibrate the selected NLI generator policy and validator prompt before
-large-scale generation.
+Run one prompt-refinement round for the selected NLI generation policy and
+validator rubric.
 
 Inputs:
-- calibration_source: <FIXED_SOURCE_DATASET_OR_SLICE>
+- calibration_source: <FIXED_LABELED_DATASET_OR_SLICE>
+- sample_count: <N>
 - generator_skill_name: <generator_plain_OR_generator_adversarial_OR_generator>
-- output_root: outputs/prompt-refinement
-- experiment_name: nli-prompt-calibration
-- validator_models: <THREE_REAL_INDEPENDENT_MODEL_PATHS>
+- output_root: <PROMPT_REFINEMENT_OUTPUT_DIR>
+- tracking_uri: <MLFLOW_TRACKING_URI>
+- experiment_name: <MLFLOW_EXPERIMENT_NAME>
+- session_id: <OPTIONAL_SESSION_ID>
+- round_number: <N>
+- validator_models: <THREE_REAL_INDEPENDENT_MODEL_IDENTIFIERS>
+- max_rounds: <N>
 
-Required resources:
+Required MCP resources:
 - skill://instructor
-- skill://generator_plain or skill://generator_adversarial
-- skill://validator
 - skill://prompt_refinement
+- skill://validator
+- skill://<generator_skill_name>
 
-Main agent responsibilities:
-1. Read all required resources.
-2. Freeze one source_uid set for all rounds.
-3. Generate output_root/round-<NN>/calibration.csv with the chosen generator
-   policy.
-4. Prepare masked rows containing only source_uid, premise, and hypothesis.
-5. Dispatch exactly three validator subagents in parallel, one per real model.
-6. Validate each response and persist one verdict file per model with:
-   source_uid,predicted_label,reason
-   under output_root/round-<NN>/verdicts/<model-id>.csv.
-7. Call evaluate_prompt_refinement_round.
-8. Retrieve disagreement_rows.csv from the MLflow run Artifacts tab and edit
-   the smallest responsible prompt:
-   the chosen generator policy file, backend/skills/validator.md, or both.
-9. Repeat while decision=refine_prompt.
-10. When decision=eligible_to_lock, report the round and ask for confirmation.
-    Call confirm_prompt_lock(lock_run_id=<MLFLOW_RUN_ID>) only after confirmation.
+Task:
+1. Read only the required MCP resources and the provided calibration_source.
+2. Freeze the selected source_uid set for this session.
+3. Create output_root/round-<NN>/calibration.csv with:
+   source_uid,premise,hypothesis,label
+4. Give each validator only masked rows:
+   source_uid,premise,hypothesis
+5. Run exactly three independent validator models/subagents.
+   If three independent models are unavailable, stop and report a blocker.
+6. Save one verdict file per model under:
+   output_root/round-<NN>/verdicts/<model-id>.csv
 
-MCP evaluation call:
+Verdict schema:
+source_uid,predicted_label,reason
+
+Reject a verdict set with missing UID, duplicate UID, invalid label, blank
+reason, or incomplete UID coverage. Retry only the failed model once.
+
+Then call:
 evaluate_prompt_refinement_round(
-  verdicts_dir="outputs/prompt-refinement/round-<NN>/verdicts",
-  calibration_input="outputs/prompt-refinement/round-<NN>/calibration.csv",
+  verdicts_dir="output_root/round-<NN>/verdicts",
+  calibration_input="output_root/round-<NN>/calibration.csv",
   round_number=<NN>,
   change_summary="<PROMPT_CHANGES_TESTED_THIS_ROUND>",
-  tracking_uri="http://127.0.0.1:5000",
-  experiment_name="nli-prompt-calibration",
-  session_id="<OPTIONAL_SESSION_ID_TO_GROUP_ROUNDS>",
+  tracking_uri="<MLFLOW_TRACKING_URI>",
+  experiment_name="<MLFLOW_EXPERIMENT_NAME>",
+  session_id="<OPTIONAL_SESSION_ID>",
   generator_skill_name="<GENERATOR_SKILL_NAME>"
 )
 
-Confirmation call (after eligible_to_lock):
-confirm_prompt_lock(
-  lock_run_id="<MLFLOW_RUN_ID_FROM_ELIGIBLE_ROUND>",
-  tracking_uri="http://127.0.0.1:5000"
-)
+Auto-refine after a failed round:
+1. If decision=eligible_to_lock, stop and report. Do not lock without approval.
+2. If decision=refine_prompt and round_number < max_rounds, call:
+   prepare_prompt_refinement_evidence_pack(
+     verdicts_dir="output_root/round-<NN>/verdicts",
+     calibration_input="output_root/round-<NN>/calibration.csv",
+     output_root="output_root",
+     round_number=<NN>,
+     generator_skill_name="<GENERATOR_SKILL_NAME>",
+     bundle_id="<BUNDLE_ID_FROM_EVALUATION>",
+     mlflow_run_id="<MLFLOW_RUN_ID_FROM_EVALUATION>",
+     generator_prompt_version=<GENERATOR_PROMPT_VERSION>,
+     validator_prompt_version=<VALIDATOR_PROMPT_VERSION>
+   )
+   This creates:
+   output_root/round-<NN>/evidence/
+     disagreement_rows.csv
+     disagreement_calibration_rows.csv
+     round_summary.json
+     current_generator_instructions.md
+     current_validator_instructions.md
+   The evidence pack must summarize all three verdict files, kappa, decision,
+   label distribution, disagreement count, generator_skill_name, prompt
+   versions, and calibration dataset hash. Editors may inspect only this pack.
+3. Call:
+   prepare_prompt_refinement_editor_tasks(
+     evidence_dir="<EVIDENCE_DIR_FROM_PREVIOUS_CALL>"
+   )
+   This returns concrete task payload files for the orchestrator.
+4. Spawn exactly two editor subagents using those task payloads:
+   - validator-rubric reviewer
+   - generator-policy reviewer
+5. Give both editors the same evidence pack. Editors return proposals only
+   using:
+   target: generator | validator | no_change
+   evidence_uids: [...]
+   diagnosis: ...
+   proposed_patch: ...
+   expected_effect: ...
+   risk: ...
+   change_summary: ...
+6. Reject a proposal if it relies on hidden labels as validator-facing
+   evidence, uses PMI, treats one model as ground truth, changes broad policy
+   without source_uid evidence, leaks labels or peer verdicts to validator
+   subagents, asks editors to call MCP or edit files, cannot fit one small
+   change_summary, or tries to weaken the rubric to excuse bad calibration
+   rows.
+7. Selection rules:
+   - Prefer no_change and stop if both proposals point to calibration-row
+     problems.
+   - Prefer the smallest single-target proposal.
+   - Prefer generator-policy changes for semantic ambiguity, unnatural
+     Vietnamese, source-fidelity drift, or label drift.
+   - Prefer validator-rubric changes when generated rows are sound but class
+     boundaries are unclear.
+   - If evidence is mixed, stop and ask the operator.
+8. Apply one instruction change, create round-<NN+1>, preserve the same
+   source_uid set, rerun the three validator models, and call
+   evaluate_prompt_refinement_round again.
+9. Stop on eligible_to_lock, max_rounds, blocker, or no valid proposal.
 
-Subagent contract:
-- Receive only masked rows and the 3-class validator rubric.
-- Return one verdict for every source_uid.
-- Write every reason in Vietnamese.
-- Do not read the labeled input or expected label.
-- Do not see another subagent's output.
-- Do not call MCP tools, edit files, write runtime state, or decide lock status.
-- Do not impersonate another model.
+Rules:
+- Do not read hidden labels outside calibration_source preparation.
+- Validator subagents remain blind. Do not expose labels, expected label
+  values, or peer verdicts to them.
+- Editor subagents are post-failure reviewers. They may inspect labels inside
+  the evidence pack only to diagnose the failed round and return proposals.
+- Validator subagents do not call MCP tools or write runtime state.
+- Editor subagents do not call MCP tools, edit files, write runtime state, run
+  evaluation, or decide lock status.
+- Do not inspect unrelated repository files.
+- Do not edit generator or validator instructions during a round.
+- Do not use PMI in this loop.
+- Do not call confirm_prompt_lock unless explicitly approved.
+- If MCP or MLflow is unavailable, report the blocker; do not start servers.
 
-Failure handling:
-- Reject a verdict set with missing/duplicate UIDs, blank reason, or invalid label.
-- Retry only the failed model once.
-- If it still fails, stop the round; never copy another model's verdict file.
-- If three independent model paths are unavailable, report a blocker instead of
-  claiming Fleiss kappa.
-- If MLflow is unavailable after verdict generation, keep the local files and
-  retry the MCP evaluation without rerunning the models.
-
-Prompt integrity:
-- Do not edit prompt files between subagent dispatch and MCP evaluation.
-- After eligible_to_lock, you can safely edit prompts if you wish to continue
-  refining. The confirmed lock will always reference the exact versions that
-  were evaluated, not the current files.
-- If a generator edit changes calibration text, keep the same source_uid set,
-  report the new hash, and do not describe the kappa delta as a strict same-item
-  comparison.
-
-Report after every round:
-- changed prompt files
-- model identifiers/configuration and verdict file paths
+Report:
+- verdict file paths
 - kappa and decision
-- calibration dataset hash
+- disagreement artifact path if any
 - generator and validator prompt versions
-- bundle ID, MLflow run ID, and run URL
-
-If you provided a `session_id`, MLflow will create a parent run
-`calibration-session-<SESSION_ID>` that aggregates kappa and disagreement
-trends across all rounds. You can inspect the parent run in MLflow UI to see
-the refinement progress as kappa improves and disagreements decrease across
-rounds.
-
-Do not use PMI in this loop. PMI runs after large-scale generation and consensus
-validation.
+- bundle ID
+- MLflow run ID and run URL
+- blockers or unresolved questions
 ```

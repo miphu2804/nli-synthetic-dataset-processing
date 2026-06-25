@@ -62,6 +62,38 @@ class ValidationProviderTest(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_prompt_refinement_evidence_pack_tool_exposes_parameters(self) -> None:
+        async def scenario() -> None:
+            tool = await self.mcp.get_tool("prepare_prompt_refinement_evidence_pack")
+            properties = tool.parameters["properties"]
+
+            for name in (
+                "verdicts_dir",
+                "calibration_input",
+                "output_root",
+                "round_number",
+                "generator_skill_name",
+                "bundle_id",
+                "mlflow_run_id",
+                "generator_prompt_version",
+                "validator_prompt_version",
+            ):
+                self.assertIn(name, properties)
+            self.assertNotIn("self", properties)
+
+        asyncio.run(scenario())
+
+    def test_prompt_refinement_editor_tasks_tool_exposes_parameters(self) -> None:
+        async def scenario() -> None:
+            tool = await self.mcp.get_tool("prepare_prompt_refinement_editor_tasks")
+            properties = tool.parameters["properties"]
+
+            self.assertIn("evidence_dir", properties)
+            self.assertIn("tasks_dir", properties)
+            self.assertNotIn("self", properties)
+
+        asyncio.run(scenario())
+
     def test_deterministic_stage_tools_expose_explicit_parameters(self) -> None:
         async def scenario() -> None:
             consensus = await self.mcp.get_tool("run_consensus_pmi")

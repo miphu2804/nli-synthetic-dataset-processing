@@ -1,3 +1,4 @@
+import json
 import shutil
 import tempfile
 import unittest
@@ -165,6 +166,96 @@ class PromptRefinementServiceTest(unittest.TestCase):
         self.assertIn("without extra adversarial", generator_candidate.template)
         self.assertEqual(run.data.params["generator_skill_name"], "generator_plain")
         self.assertEqual(run.data.params["generator_skill_file"], "generator_plain.md")
+
+    def test_prepare_evidence_pack_writes_editor_inputs(self) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "contradiction"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+        output_root = self.root / "prompt-refinement-output"
+
+        result = self.service.prepare_evidence_pack(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=self.calibration_input,
+            output_root=output_root,
+            round_number=1,
+            generator_skill_name="generator_plain",
+            bundle_id="round-01-test",
+            mlflow_run_id="run-123",
+            generator_prompt_version=2,
+            validator_prompt_version=3,
+        )
+
+        self.assertEqual(result.status, "prepared")
+        self.assertEqual(result.decision, "refine_prompt")
+        self.assertEqual(result.n_disagreements, 1)
+        self.assertEqual(result.models, ["model-a", "model-b", "model-c"])
+
+        evidence_dir = output_root / "round-01" / "evidence"
+        self.assertEqual(Path(result.evidence_dir), evidence_dir)
+        self.assertTrue((evidence_dir / "disagreement_rows.csv").exists())
+        self.assertTrue((evidence_dir / "disagreement_calibration_rows.csv").exists())
+        self.assertTrue((evidence_dir / "current_generator_instructions.md").exists())
+        self.assertTrue((evidence_dir / "current_validator_instructions.md").exists())
+        self.assertTrue((evidence_dir / "round_summary.json").exists())
+
+        disagreement_calibration = pd.read_csv(
+            evidence_dir / "disagreement_calibration_rows.csv"
+        )
+        self.assertEqual(disagreement_calibration["source_uid"].tolist(), ["row-2"])
+        self.assertIn(
+            "without extra adversarial",
+            (evidence_dir / "current_generator_instructions.md").read_text(
+                encoding="utf-8"
+            ),
+        )
+
+        summary = json.loads(
+            (evidence_dir / "round_summary.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(summary["bundle_id"], "round-01-test")
+        self.assertEqual(summary["mlflow_run_id"], "run-123")
+        self.assertEqual(summary["generator_prompt_version"], 2)
+        self.assertEqual(summary["validator_prompt_version"], 3)
+        self.assertEqual(summary["generator_skill_name"], "generator_plain")
+        self.assertEqual(summary["n_disagreements"], 1)
+
+    def test_prepare_editor_tasks_writes_orchestrator_payloads(self) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "contradiction"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+        evidence = self.service.prepare_evidence_pack(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=self.calibration_input,
+            output_root=self.root / "prompt-refinement-output",
+            round_number=1,
+        )
+
+        result = self.service.prepare_editor_tasks(evidence.evidence_dir)
+
+        self.assertEqual(result.status, "prepared")
+        self.assertEqual(len(result.tasks), 2)
+        self.assertEqual(
+            [task.role for task in result.tasks],
+            ["validator-rubric reviewer", "generator-policy reviewer"],
+        )
+        for task in result.tasks:
+            task_text = Path(task.task_path).read_text(encoding="utf-8")
+            self.assertIn("Read only these files", task_text)
+            self.assertIn("disagreement_rows.csv", task_text)
+            self.assertIn("round_summary.json", task_text)
+            self.assertIn("Do not call MCP tools", task_text)
+            self.assertIn("Do not edit files", task_text)
+            self.assertIn("Do not run evaluation", task_text)
+            self.assertIn("Do not return `both`", task_text)
+            self.assertIn("Return exactly this YAML", task_text)
 
     def test_confirmed_eligible_round_sets_locked_aliases(self) -> None:
         self._write_verdicts(

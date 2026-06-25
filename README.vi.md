@@ -42,9 +42,11 @@ Mở `http://127.0.0.1:5000`, sau đó yêu cầu agent đọc
 `skill://prompt_refinement`. Agent phải dùng cùng một calibration dataset, thu
 đúng ba file verdict độc lập, rồi gọi `evaluate_prompt_refinement_round`.
 
-- Fleiss' kappa `< 0.85`: sửa prompt và chạy vòng tiếp theo.
+- Fleiss' kappa `< 0.85`: gọi `prepare_prompt_refinement_evidence_pack`, rồi
+  `prepare_prompt_refinement_editor_tasks`, spawn editor subagents từ task
+  payloads, sửa prompt, rồi chạy vòng tiếp theo.
 - Fleiss' kappa `>= 0.85`: prompt đủ điều kiện lock.
-- Chỉ gán alias `locked` khi gọi lại với `confirm_lock=true`.
+- Chỉ gán alias `locked` khi gọi `confirm_prompt_lock` sau approval rõ ràng.
 
 PMI không nằm trong refinement loop. PMI chạy sau generation và validation để
 phát hiện artifact token cần paraphrase.

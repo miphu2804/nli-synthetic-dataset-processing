@@ -1,3 +1,136 @@
+### [2026-06-25 11:40] — [PromptRefinement] Add MCP evidence and editor-task helpers
+
+**Đã làm:**
+- Thêm service method tạo failed-round evidence pack cho prompt refinement.
+- Expose MCP tool `prepare_prompt_refinement_evidence_pack`.
+- Expose MCP tool `prepare_prompt_refinement_editor_tasks` để orchestrator lấy
+  concrete payloads rồi spawn hai editor subagents.
+- Evidence pack ghi `disagreement_rows.csv`, `disagreement_calibration_rows.csv`, `round_summary.json`, và snapshot current generator/validator instructions.
+- Cập nhật templates, skill, instructor, README, validator flow docs, và feature plan để dùng tool mới thay vì chỉ mô tả future MCP.
+- Thêm tests cho service output và MCP tool schema.
+
+**Files thay đổi:**
+- `backend/src/services/prompt_refinement_service.py` — modified
+- `backend/src/providers/validation_provider.py` — modified
+- `backend/src/schemas/validation_runtime_schema.py` — modified
+- `backend/tests/test_prompt_refinement_service.py` — modified
+- `backend/tests/test_validation_provider.py` — modified
+- `backend/skills/prompt_refinement.md`, `backend/skills/instructor.md` — modified
+- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md` — modified
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
+- `README.md`, `README.vi.md` — modified
+- `docs/superpowers/plans/prompt-refinement-editor-candidates.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** Backend vẫn không spawn validator/editor subagents và không auto-edit prompt; phần đó thuộc main agent/harness.
+
+**Flow explained:**
+Sau khi `evaluate_prompt_refinement_round` trả `decision=refine_prompt`, main agent gọi `prepare_prompt_refinement_evidence_pack` để backend build deterministic evidence pack từ calibration/verdict files và current prompt instructions. Sau đó main agent gọi `prepare_prompt_refinement_editor_tasks` để lấy hai task payload files, spawn editor subagents từ payload đó, chọn/apply một change, rerun validators, gọi evaluation round tiếp theo, và chỉ lock sau approval.
+
+---
+
+### [2026-06-25 11:05] — [PromptRefinement] Independent pass for editor-candidate guardrails
+
+**Đã làm:**
+- Review lại plan `prompt-refinement-editor-candidates` và đối chiếu các template EN/VI hiện có.
+- Làm rõ ranh giới blind/non-blind: validator subagents phải luôn blind, editor subagents chỉ review failed round và chỉ trả proposal.
+- Bổ sung test coverage cho template leakage guardrails và xác nhận main templates chỉ nêu đúng hai editor roles.
+- Giữ nguyên backend runtime/service/schema; không đụng `backend/data/validation/validation_masked.csv`.
+
+**Files thay đổi:**
+- `docs/en/template/prompt-refinement.md` — modified
+- `docs/vi/template/prompt-refinement.md` — modified
+- `docs/en/template/prompt-refinement-editor-validator-rubric.md` — modified
+- `docs/en/template/prompt-refinement-editor-generator-policy.md` — modified
+- `docs/vi/template/prompt-refinement-editor-validator-rubric.md` — modified
+- `docs/vi/template/prompt-refinement-editor-generator-policy.md` — modified
+- `backend/tests/test_skill_service.py` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None trong scope template/test của feature này.
+
+**Flow explained:**
+Prompt-refinement loop vẫn do main agent điều phối. Validator subagents chỉ nhận masked rows và không thấy label hay peer verdict. Sau khi kappa fail, editor subagents mới được review evidence pack có label để chẩn đoán failed round, nhưng output của họ vẫn chỉ là proposal nhỏ nhất cho một target duy nhất; main agent mới là bên chọn, apply, rerun validators, và gọi `evaluate_prompt_refinement_round`.
+
+---
+
+### [2026-06-25 00:15] — [PromptRefinement] Add editor-candidate auto-refine templates
+
+**Đã làm:**
+- Thêm 2 editor templates EN cho validator-rubric reviewer và generator-policy reviewer.
+- Thêm 2 editor templates VI mirror cho cùng hai vai trò.
+- Cập nhật prompt-refinement templates EN/VI với auto-refine loop sau `decision=refine_prompt`.
+- Thêm evidence-pack convention `output_root/round-<NN>/evidence/`.
+- Giữ rule: editor subagents chỉ trả proposal, không gọi MCP, không sửa file, không ghi runtime state, không evaluate, không lock.
+- Cập nhật `skill://prompt_refinement` để mô tả evidence-pack, hai editor roles, proposal schema, và selection rules giống template.
+- Thêm test coverage cho editor workflow và editor-template guardrails.
+
+**Files thay đổi:**
+- `docs/en/template/prompt-refinement-editor-validator-rubric.md` — created
+- `docs/en/template/prompt-refinement-editor-generator-policy.md` — created
+- `docs/vi/template/prompt-refinement-editor-validator-rubric.md` — created
+- `docs/vi/template/prompt-refinement-editor-generator-policy.md` — created
+- `docs/en/template/prompt-refinement.md` — modified
+- `docs/vi/template/prompt-refinement.md` — modified
+- `backend/skills/prompt_refinement.md` — modified
+- `backend/tests/test_skill_service.py` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None for editor-template guardrails. Backend auto-loop/spawn tooling remains intentionally out of scope.
+
+**Flow explained:**
+Khi một prompt-refinement round fail kappa, main agent tạo evidence pack từ artifacts của round đó, spawn đúng hai editor subagents để review validator rubric và generator policy, rồi chọn proposal nhỏ nhất có evidence tốt. Editor agents không được mutate state; main agent vẫn sở hữu apply, rerun validators, gọi `evaluate_prompt_refinement_round`, và xin approval trước khi lock.
+
+---
+
+### [2026-06-24 22:47] — [PromptRefinement] Remove local git commit logging from MLflow rounds
+
+**Đã làm:**
+- Bỏ param `git_commit` khỏi MLflow round logging vì không phải provenance ổn định giữa các máy/operator.
+- Xoá helper `_git_commit()` và import `subprocess` không còn dùng.
+
+**Files thay đổi:**
+- `backend/src/services/prompt_refinement_service.py` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Prompt refinement provenance giờ dựa vào artifact thật của round: calibration dataset hash, prompt registry versions, prompt bundle, verdict files, disagreement rows, model names, kappa và decision. Local git commit không còn được log vì mỗi operator có thể chạy từ checkout khác và tự commit thay đổi nếu cần.
+
+---
+
+### [2026-06-24 22:02] — [PromptRefinement] Generalize agent template and reduce filesystem leakage
+
+**Đã làm:**
+- Rút gọn prompt-refinement templates EN/VI thành template tổng quát với placeholders.
+- Bỏ repo/path cụ thể và bỏ hướng dẫn agent tự start MLflow/server.
+- Thêm guard MCP-first: chỉ đọc required resources, calibration_source được cung cấp, và không inspect file repo không liên quan.
+- Điều chỉnh `skill://prompt_refinement` để nói theo instruction/resource thay vì hardcode file path như `backend/skills/validator.md`.
+
+**Files thay đổi:**
+- `docs/en/template/prompt-refinement.md` — modified
+- `docs/vi/template/prompt-refinement.md` — modified
+- `backend/skills/prompt_refinement.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Prompt refinement template giờ chỉ giao nhiệm vụ orchestration cho agent: dùng MCP resources, tạo calibration/verdict artifacts từ input đã cung cấp, gọi `evaluate_prompt_refinement_round`, và báo blocker nếu MCP/MLflow unavailable. Việc khởi động backend/MLflow thuộc operator, không nằm trong prompt dán cho agent.
+
+---
+
 ### [2026-06-24 00:00] — [ValidationIntegrity] Blank validator label payloads
 
 **Đã làm:**
@@ -122,123 +255,5 @@ MCP wrappers chỉ là transport adapters. Chúng không gọi model và không 
 
 **Flow explained:**
 `consensus-pmi` không đổi rule consensus hay PMI. Nó chỉ gom hai bước đã có vào một entrypoint có output convention rõ, giúp handoff biết corpus đã có đủ artifacts trước khi paraphrase.
-
----
-
-### [2026-06-22 04:35] — [ValidationIntegrity] Add paraphrase promotion CLI
-
-**Đã làm:**
-- Thêm utility `promote_revalidated_paraphrases()` để promote only rewrites được 2/3 revalidation verdicts giữ đúng trusted label.
-- Thêm CLI `promote-paraphrase` nhận `paraphrased_dataset.csv`, `paraphrase_revalidation_masked.csv`, 3 verdict files, và trusted labels; xuất promoted dataset, revalidation votes, review/discard artifact.
-- Thêm unit tests cho accept/reject/missing UID/duplicate UID/invalid label và CLI tests cho output + exact 3 verdict files.
-- Cập nhật validator flow docs EN/VI và status của fix plan 02.
-
-**Files thay đổi:**
-- `backend/src/utils/validation_aggregation/promotion.py` — created
-- `backend/src/utils/validation_aggregation/__init__.py` — modified
-- `backend/src/cli.py` — modified
-- `backend/tests/test_validation_aggregation.py` — modified
-- `backend/tests/test_cli.py` — modified
-- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
-- `docs/superpowers/plans/fix-02-paraphrase-revalidation-promotion.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** MCP wrappers vẫn chưa expose stage này; làm sau khi artifact convention ổn định.
-
-**Flow explained:**
-`apply-paraphrase` vẫn chỉ tạo candidate và changed-row queue. `promote-paraphrase` là gate deterministic tiếp theo: aggregate đúng 3 verdict files trên changed rows, giữ rewrite có decision `keep`, loại `review/discard` khỏi publishable output, và ghi review artifact để người duyệt xử lý.
-
----
-
-### [2026-06-22 04:08] — [Planning] Add ordered fix branch notes
-
-**Đã làm:**
-- Tạo 5 Markdown plan theo thứ tự nhánh fix: prompt lock/current HEAD, paraphrase revalidation promotion, persisted consensus/PMI artifacts, deterministic-stage MCP wrappers, premise-grouped split.
-- Mỗi file nêu rõ problem, verified evidence, scope, out-of-scope, acceptance criteria, và verification command.
-
-**Files thay đổi:**
-- `docs/superpowers/plans/fix-01-prompt-lock-current-head.md` — created
-- `docs/superpowers/plans/fix-02-paraphrase-revalidation-promotion.md` — created
-- `docs/superpowers/plans/fix-03-persist-consensus-pmi-artifacts.md` — created
-- `docs/superpowers/plans/fix-04-deterministic-stage-mcp-wrappers.md` — created
-- `docs/superpowers/plans/fix-05-premise-grouped-split.md` — created
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** Chưa implement các fix; đây là handoff plan cho từng branch.
-
-**Flow explained:**
-Thứ tự fix đề xuất là: lock/rerun prompt trước khi generation lớn; đóng revalidation/promotion trước khi expose MCP wrapper; xác lập artifact output convention cho consensus/PMI; cuối cùng mới split dataset đã promoted. MCP wrappers phụ thuộc vào CLI/service contract đã ổn định, nên không nên làm trước revalidation/promotion.
-
----
-
-### [2026-06-20 16:00] — [PromptRefinement] Hard-khoá provenance + lock bundle (codex round 4)
-
-**Đã làm:**
-- Review flow refinement + MLflow tracing cùng codex CLI (gpt-5.5 xhigh). Triage 7 finding theo threat model local single-operator; chốt làm các mục thật/rẻ.
-- Skill: thêm section "Round Integrity (prompt provenance)" — cấm sửa `generator.md`/`validator.md` giữa lúc dispatch subagent và `evaluate_round`; nói rõ MLflow Prompt Registry đã version sẵn nên không giữ file `.md` version song song thủ công.
-- `confirm_prompt_lock`: thay `_parse_prompt_version` → `_parse_prompt_uri(uri, expected_name)` validate đúng dạng `prompts:/<name>/<version>` bằng regex + version ≥ 1 (chặn URI tamper/malformed lock nhầm prompt/version).
-- `confirm_prompt_lock`: 2 lệnh set `locked` alias không còn độc lập âm thầm — nếu lệnh validator fail sau generator → raise RuntimeError báo bundle inconsistent (re-run idempotent để sửa).
-- Đảo thứ tự: set parent `session_locked` TRƯỚC child `lock_confirmed` (tránh báo confirmed khi session vẫn reuse được).
-- Tên prompt rút thành constant `GENERATOR_PROMPT_NAME`/`VALIDATOR_PROMPT_NAME`.
-- Thêm 2 test: parse URI malformed (8 ca) + partial locked-alias write raise & repairable. Tổng 18/18 pass. Codex round cuối: clean, no remaining bug.
-
-**Files thay đổi:**
-- `backend/skills/prompt_refinement.md` — modified (+16, section provenance)
-- `backend/src/services/prompt_refinement_service.py` — modified (constants, _parse_prompt_uri regex, atomic-ish lock, reorder markers)
-- `backend/tests/test_prompt_refinement_service.py` — modified (+2 tests)
-
-**Blockers:** None
-
-**Còn lại:** Các finding concurrency/interleaving (#4 race _resolve_session_run, #6 snapshot input files) cố ý KHÔNG làm — không xảy ra trong flow tuần tự local single-operator; fix sẽ thêm complexity vô ích.
-
-**Flow explained:**
-Layer 0 calibration: 3 verdict files → Fleiss kappa → register gen/val prompt vào MLflow Prompt Registry → 1 run/round (params+metrics+artifacts) → optional parent session run gom kappa trend → kappa≥0.85 = eligible_to_lock → `confirm_prompt_lock(lock_run_id)` set alias `locked` đúng version đã evaluate (đọc từ run params, KHÔNG đăng ký version mới). Lock-by-reference cho phép sửa file sau khi eligible mà vẫn khoá đúng version đã kappa-verified.
-
----
-
-### [2026-06-19 22:30] — [Utils] Split validation_aggregation into a package
-
-**Đã làm:**
-- Tách `validation_aggregation.py` (653 dòng, 5 trách nhiệm) thành package cùng tên, giữ nguyên import path → không đụng call site (`cli.py`, `prompt_refinement_service.py`, tests).
-- Module theo capability: `model_labels.py` (nạp/merge nhãn — nền chia sẻ), `voting.py` (vote consensus), `agreement.py` (Fleiss' kappa), `dataset_builders.py` (keep/review), `pmi.py` (PMI artifact + paraphrase, self-contained).
-- `__init__.py` re-export 8 hàm public (`__all__`). Đồ thị import 1 chiều, không cycle.
-- Verify: tập 20 def top-level giống hệt bản cũ; body hàm verbatim (diff chỉ là dòng nối import do black); `126 passed`; smoke import 8 hàm ok; isort/black sạch.
-
-**Files thay đổi:**
-- `backend/src/utils/validation_aggregation.py` — deleted
-- `backend/src/utils/validation_aggregation/{__init__,model_labels,voting,agreement,dataset_builders,pmi}.py` — created
-
-**Blockers:** None
-
-**Còn lại:** None. `nli_labels.py` (30) + `validation_masking.py` (51) giữ nguyên (nhỏ, cohesive).
-
-**Flow explained:**
-Chỉ tổ chức lại, không đổi behavior. Dùng package + re-export thay vì sửa import ở 3 nơi → rủi ro thấp nhất, an toàn nhờ `test_validation_aggregation.py` + `test_cli.py`. Nhánh `refactor/validation-aggregation-split` tách từ `staging`.
-
----
-
-### [2026-06-19 22:10] — [MCPProvider] Self-registering ToolProvider (unify tool registration)
-
-**Đã làm:**
-- Tạo base `ToolProvider`: `register(mcp)` tự quét method gắn `@tool` (marker `__fastmcp__`) và gọi `mcp.add_tool` — bỏ toàn bộ list `add_tool` thủ công.
-- Đưa `sample_range_to_offset_limit` (1-based → 0-based, có guard `to_sample >= from_sample`) lên base làm bản dùng chung.
-- Migrate cả 3 provider (generation, validation, dispatch_planning) sang kế thừa `ToolProvider`; xoá 2 bản copy `_sample_range_to_offset_limit` (validation trước đó thiếu guard).
-- Thay 18 dòng `mcp.add_tool(...)` rải rác bằng `provider.register(mcp)` ở mỗi `register_*_tools`. `main.py` không đổi.
-- Verify độc lập: `126 passed`; smoke `list_tools()` = 32 tool (đúng baseline), đủ 18/18 tool; isort/black sạch.
-
-**Files thay đổi:**
-- `backend/src/providers/base.py` — created
-- `backend/src/providers/generation_provider.py`, `validation_provider.py`, `dispatch_planning_provider.py` — modified
-
-**Blockers:** None
-
-**Còn lại:** Trục 2 (composition root cho service) — đã quyết KHÔNG làm vì service stateless (YAGNI). Plan kế: refactor tách `validation_aggregation.py` (653 dòng, 5 trách nhiệm).
-
-**Flow explained:**
-Service = business logic; Provider = hợp đồng MCP (tên/mô tả/schema tham số) + dịch biên 1-based→0-based + `.model_dump`. Phần phân mảnh thật là "đăng ký": mỗi tool phải vừa viết method `@tool` vừa nhớ thêm `mcp.add_tool` — quên là tool biến mất im lặng. `ToolProvider.register` quét `__fastmcp__` (đã verify FastMCP 3.3.1 giữ marker khi bind method) nên thêm tool mới chỉ cần 1 method. Phần forward (`self._service.x().model_dump`) giống hình dạng giữa gen/val nhưng gọi service khác → cố ý không gom.
 
 ---

@@ -1,6 +1,6 @@
 import hashlib
+import json
 import re
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -9,6 +9,9 @@ import pandas as pd
 from mlflow import MlflowClient
 from src.schemas.validation_runtime_schema import (
     PromptLockConfirmationResponse,
+    PromptRefinementEditorTask,
+    PromptRefinementEditorTasksResponse,
+    PromptRefinementEvidencePackResponse,
     PromptRefinementRoundResponse,
 )
 from src.utils.nli_labels import require_canonical_label
@@ -21,6 +24,13 @@ DATASET_SUFFIXES = {".csv", ".parquet"}
 VERDICT_COLUMNS = {"source_uid", "predicted_label", "reason"}
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 SKILL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+EVIDENCE_PACK_FILES = (
+    "disagreement_rows.csv",
+    "disagreement_calibration_rows.csv",
+    "round_summary.json",
+    "current_generator_instructions.md",
+    "current_validator_instructions.md",
+)
 
 
 class PromptRefinementService:
@@ -187,6 +197,191 @@ class PromptRefinementService:
             mlflow_run_url=run_url,
             n_disagreements=n_disagreements,
             mlflow_session_run_id=session_run_id,
+        )
+
+    def prepare_evidence_pack(
+        self,
+        verdicts_dir: str | Path,
+        calibration_input: str | Path,
+        output_root: str | Path,
+        round_number: int,
+        generator_skill_name: str = "generator",
+        bundle_id: str | None = None,
+        mlflow_run_id: str | None = None,
+        generator_prompt_version: int | None = None,
+        validator_prompt_version: int | None = None,
+    ) -> PromptRefinementEvidencePackResponse:
+        """Write a local evidence pack for post-failure editor subagents."""
+        if round_number < 1:
+            raise ValueError("round_number must be at least 1.")
+        if not SKILL_NAME_PATTERN.fullmatch(generator_skill_name):
+            raise ValueError(
+                "generator_skill_name may only contain letters, digits, '_' or '-'."
+            )
+
+        verdict_paths = self._discover_verdicts(Path(verdicts_dir))
+        model_label_paths = {path.stem: path for path in verdict_paths}
+        kappa_result = compute_fleiss_kappa(model_label_paths)
+        calibration_path = Path(calibration_input)
+        dataset_hash, sample_count, _uid_set_hash = self._validate_calibration_input(
+            calibration_path,
+            verdict_paths[0],
+        )
+        calibration = self._read_table(calibration_path).copy()
+        uid_column = self._uid_column(calibration)
+        calibration["source_uid"] = calibration[uid_column].astype(str)
+        kappa = float(kappa_result["kappa"])
+        decision = self._decision(kappa)
+        disagreements = self._build_disagreement_rows(model_label_paths)
+        disagreement_uids = set(disagreements["source_uid"].astype(str))
+        disagreement_calibration = calibration[
+            calibration["source_uid"].isin(disagreement_uids)
+        ].reset_index(drop=True)
+
+        evidence_dir = Path(output_root) / f"round-{round_number:02d}" / "evidence"
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+
+        disagreement_rows_path = evidence_dir / "disagreement_rows.csv"
+        disagreement_calibration_rows_path = (
+            evidence_dir / "disagreement_calibration_rows.csv"
+        )
+        generator_instructions_path = evidence_dir / "current_generator_instructions.md"
+        validator_instructions_path = evidence_dir / "current_validator_instructions.md"
+        round_summary_path = evidence_dir / "round_summary.json"
+
+        disagreements.to_csv(disagreement_rows_path, index=False)
+        disagreement_calibration.to_csv(
+            disagreement_calibration_rows_path,
+            index=False,
+        )
+        generator_text = self._read_skill(f"{generator_skill_name}.md")
+        validator_text = self._read_skill("validator.md")
+        generator_instructions_path.write_text(generator_text, encoding="utf-8")
+        validator_instructions_path.write_text(validator_text, encoding="utf-8")
+
+        summary = {
+            "round_number": round_number,
+            "decision": decision,
+            "kappa": kappa,
+            "threshold": KAPPA_THRESHOLD,
+            "n_items": int(kappa_result["n_items"]),
+            "n_raters": int(kappa_result["n_raters"]),
+            "n_disagreements": int(len(disagreements)),
+            "calibration_dataset_sha256": dataset_hash,
+            "sample_count": sample_count,
+            "label_distribution": self._label_distribution(calibration),
+            "models": self._model_summaries(model_label_paths),
+            "generator_skill_name": generator_skill_name,
+            "bundle_id": bundle_id,
+            "mlflow_run_id": mlflow_run_id,
+            "generator_prompt_version": generator_prompt_version,
+            "validator_prompt_version": validator_prompt_version,
+            "artifacts": {
+                "disagreement_rows": str(disagreement_rows_path),
+                "disagreement_calibration_rows": str(
+                    disagreement_calibration_rows_path
+                ),
+                "current_generator_instructions": str(generator_instructions_path),
+                "current_validator_instructions": str(validator_instructions_path),
+            },
+        }
+        round_summary_path.write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        return PromptRefinementEvidencePackResponse(
+            status="prepared",
+            evidence_dir=str(evidence_dir),
+            disagreement_rows_path=str(disagreement_rows_path),
+            disagreement_calibration_rows_path=str(disagreement_calibration_rows_path),
+            round_summary_path=str(round_summary_path),
+            generator_instructions_path=str(generator_instructions_path),
+            validator_instructions_path=str(validator_instructions_path),
+            decision=decision,
+            kappa=kappa,
+            n_disagreements=int(len(disagreements)),
+            calibration_dataset_sha256=dataset_hash,
+            models=sorted(model_label_paths),
+        )
+
+    def prepare_editor_tasks(
+        self,
+        evidence_dir: str | Path,
+        tasks_dir: str | Path | None = None,
+    ) -> PromptRefinementEditorTasksResponse:
+        """Write concrete editor-subagent task payloads for the harness."""
+        evidence_path = Path(evidence_dir)
+        if not evidence_path.is_dir():
+            raise FileNotFoundError(f"Evidence directory not found: {evidence_path}")
+        missing = [
+            name for name in EVIDENCE_PACK_FILES if not (evidence_path / name).exists()
+        ]
+        if missing:
+            raise ValueError(
+                "Evidence pack is missing required files: " + ", ".join(missing)
+            )
+
+        output_dir = (
+            Path(tasks_dir) if tasks_dir is not None else evidence_path / "tasks"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        task_specs = [
+            (
+                "validator-rubric reviewer",
+                "validator",
+                output_dir / "validator_rubric_reviewer_task.md",
+                self._editor_task_text(
+                    role="validator-rubric reviewer",
+                    target="validator",
+                    evidence_dir=evidence_path,
+                    focus=(
+                        "unclear entailment / neutral / contradiction boundaries in "
+                        "the validator rubric"
+                    ),
+                    no_change=(
+                        "generated text ambiguity, calibration label drift, bad "
+                        "calibration rows, or generator policy issues"
+                    ),
+                ),
+            ),
+            (
+                "generator-policy reviewer",
+                "generator",
+                output_dir / "generator_policy_reviewer_task.md",
+                self._editor_task_text(
+                    role="generator-policy reviewer",
+                    target="generator",
+                    evidence_dir=evidence_path,
+                    focus=(
+                        "generated hypothesis ambiguity, unnatural Vietnamese, "
+                        "semantic drift, label drift, or source-fidelity problems"
+                    ),
+                    no_change=(
+                        "validator rubric ambiguity or bad calibration rows requiring "
+                        "operator judgment"
+                    ),
+                ),
+            ),
+        ]
+
+        tasks = []
+        for role, target, path, text in task_specs:
+            path.write_text(text, encoding="utf-8")
+            tasks.append(
+                PromptRefinementEditorTask(
+                    role=role,
+                    target=target,
+                    task_path=str(path),
+                    evidence_dir=str(evidence_path),
+                )
+            )
+
+        return PromptRefinementEditorTasksResponse(
+            status="prepared",
+            evidence_dir=str(evidence_path),
+            tasks_dir=str(output_dir),
+            tasks=tasks,
         )
 
     def confirm_prompt_lock(
@@ -403,6 +598,97 @@ class PromptRefinementService:
         return digest, len(calibration), uid_set_hash
 
     @staticmethod
+    def _uid_column(dataframe: pd.DataFrame) -> str:
+        if "source_uid" in dataframe.columns:
+            return "source_uid"
+        if "uid" in dataframe.columns:
+            return "uid"
+        raise ValueError("Dataset must contain source_uid or uid.")
+
+    @staticmethod
+    def _label_distribution(dataframe: pd.DataFrame) -> dict[str, int]:
+        if "label" not in dataframe.columns:
+            raise ValueError("Calibration dataset must contain label.")
+        labels = dataframe["label"].apply(require_canonical_label)
+        return {
+            str(label): int(count) for label, count in labels.value_counts().items()
+        }
+
+    @staticmethod
+    def _model_summaries(model_label_paths: dict[str, Path]) -> list[dict]:
+        summaries = []
+        for model, path in sorted(model_label_paths.items()):
+            dataframe = PromptRefinementService._read_table(path)
+            labels = dataframe["predicted_label"].apply(require_canonical_label)
+            summaries.append(
+                {
+                    "model": model,
+                    "path": str(path),
+                    "n_rows": int(len(dataframe)),
+                    "label_distribution": {
+                        str(label): int(count)
+                        for label, count in labels.value_counts().items()
+                    },
+                }
+            )
+        return summaries
+
+    @staticmethod
+    def _editor_task_text(
+        role: str,
+        target: str,
+        evidence_dir: Path,
+        focus: str,
+        no_change: str,
+    ) -> str:
+        return f"""You are a {role} editor subagent.
+
+Goal:
+Review the failed prompt-refinement round and return one proposal only.
+
+Evidence:
+- Directory: {evidence_dir}
+- Read only these files:
+  - disagreement_rows.csv
+  - disagreement_calibration_rows.csv
+  - round_summary.json
+  - current_generator_instructions.md
+  - current_validator_instructions.md
+
+Scope:
+- Focus on {focus}.
+- Propose `{target}` changes only.
+- Return `no_change` if evidence points to {no_change}.
+- If both generator policy and validator rubric might be implicated, explain the
+  ambiguity and still return `no_change`.
+
+Rules:
+- Inspect only the evidence files listed above.
+- Do not call MCP tools.
+- Do not edit files.
+- Do not write runtime state.
+- Do not run evaluation.
+- Do not decide lock status.
+- Do not use PMI as evidence.
+- Do not treat one validator model as ground truth.
+- Do not propose broad rewrites without source_uid evidence.
+- Do not expose labels or expected label values to validator subagents.
+- Do not turn labeled evidence into validator-facing examples or instructions.
+- Do not return `both` as the target.
+
+Return exactly this YAML:
+
+target: {target} | no_change
+evidence_uids:
+  - "<source_uid>"
+diagnosis: "<why the failed round disagreed>"
+proposed_patch: "<minimal instruction change or no_change>"
+expected_effect: "<how this should improve agreement>"
+risk: "<possible overfit or label drift risk>"
+change_summary: "<short summary for evaluate_prompt_refinement_round>"
+"""
+
+    @staticmethod
     def _resolve_experiment(
         client: MlflowClient,
         experiment_name: str,
@@ -514,7 +800,6 @@ class PromptRefinementService:
             "calibration_dataset_sha256": dataset_hash,
             "sample_count": sample_count,
             "model_names": ",".join(sorted(model_label_paths)),
-            "git_commit": self._git_commit(),
         }
         for key, value in params.items():
             client.log_param(run_id, key, value)
@@ -591,15 +876,3 @@ class PromptRefinementService:
         if path.suffix.lower() == ".parquet":
             return pd.read_parquet(path)
         return pd.read_csv(path)
-
-    def _git_commit(self) -> str:
-        try:
-            return subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=self._skills_dir.parent,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            return "unknown"

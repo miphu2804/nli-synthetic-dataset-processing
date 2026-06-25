@@ -139,6 +139,35 @@ class PromptRefinementRoundResponse(BaseModel):
     mlflow_session_run_id: str | None = None
 
 
+class PromptRefinementEvidencePackResponse(BaseModel):
+    status: Literal["prepared"]
+    evidence_dir: str
+    disagreement_rows_path: str
+    disagreement_calibration_rows_path: str
+    round_summary_path: str
+    generator_instructions_path: str
+    validator_instructions_path: str
+    decision: Literal["refine_prompt", "eligible_to_lock"]
+    kappa: float
+    n_disagreements: int
+    calibration_dataset_sha256: str
+    models: list[str]
+
+
+class PromptRefinementEditorTask(BaseModel):
+    role: Literal["validator-rubric reviewer", "generator-policy reviewer"]
+    target: Literal["validator", "generator"]
+    task_path: str
+    evidence_dir: str
+
+
+class PromptRefinementEditorTasksResponse(BaseModel):
+    status: Literal["prepared"]
+    evidence_dir: str
+    tasks_dir: str
+    tasks: list[PromptRefinementEditorTask]
+
+
 class PromptLockConfirmationResponse(BaseModel):
     decision: Literal["lock_prompt"]
     bundle_id: str

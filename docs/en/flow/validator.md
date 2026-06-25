@@ -20,9 +20,12 @@ fixed labeled calibration dataset
   -> generate with the selected generator policy
   -> exactly three independent validators judge the same rows
   -> evaluate_prompt_refinement_round
-  -> kappa < 0.85: inspect disagreement_rows.csv and refine prompts
+  -> kappa < 0.85: prepare_prompt_refinement_evidence_pack
+  -> prepare_prompt_refinement_editor_tasks
+  -> orchestrator spawns editor subagents from task payloads
+  -> refine prompts
   -> kappa >= 0.85: eligible_to_lock
-  -> confirm_lock=true: lock the prompt bundle
+  -> confirm_prompt_lock: lock the prompt bundle after approval
   -> start large-scale generation
 ```
 

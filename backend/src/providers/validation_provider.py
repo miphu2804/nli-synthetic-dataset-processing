@@ -268,6 +268,107 @@ class ValidationToolProvider(ToolProvider):
         ).model_dump(mode="json")
 
     @tool(
+        name="prepare_prompt_refinement_evidence_pack",
+        description=(
+            "Build the local evidence pack for editor subagents after a prompt "
+            "refinement round returns refine_prompt. This does not spawn agents, "
+            "edit prompts, or call MLflow."
+        ),
+    )
+    def prepare_prompt_refinement_evidence_pack(
+        self,
+        verdicts_dir: Annotated[
+            str,
+            Field(
+                description=(
+                    "Directory containing exactly three CSV or Parquet verdict files."
+                )
+            ),
+        ],
+        calibration_input: Annotated[
+            str,
+            Field(description="Calibration CSV or Parquet used by the failed round."),
+        ],
+        output_root: Annotated[
+            str,
+            Field(
+                description="Prompt refinement output root containing round folders."
+            ),
+        ],
+        round_number: Annotated[
+            int,
+            Field(ge=1, description="One-based failed refinement round number."),
+        ],
+        generator_skill_name: Annotated[
+            str,
+            Field(description="Generator skill stem used by the failed round."),
+        ] = "generator",
+        bundle_id: Annotated[
+            str | None,
+            Field(description="Optional bundle id returned by the evaluation round."),
+        ] = None,
+        mlflow_run_id: Annotated[
+            str | None,
+            Field(
+                description="Optional MLflow run id returned by the evaluation round."
+            ),
+        ] = None,
+        generator_prompt_version: Annotated[
+            int | None,
+            Field(description="Optional generator prompt version from the round."),
+        ] = None,
+        validator_prompt_version: Annotated[
+            int | None,
+            Field(description="Optional validator prompt version from the round."),
+        ] = None,
+    ) -> dict[str, Any]:
+        return self._prompt_refinement_service.prepare_evidence_pack(
+            verdicts_dir=verdicts_dir,
+            calibration_input=calibration_input,
+            output_root=output_root,
+            round_number=round_number,
+            generator_skill_name=generator_skill_name,
+            bundle_id=bundle_id,
+            mlflow_run_id=mlflow_run_id,
+            generator_prompt_version=generator_prompt_version,
+            validator_prompt_version=validator_prompt_version,
+        ).model_dump(mode="json")
+
+    @tool(
+        name="prepare_prompt_refinement_editor_tasks",
+        description=(
+            "Create concrete task payload files for the two prompt-refinement "
+            "editor subagents. The orchestrator reads these payloads and spawns "
+            "the subagents; the backend does not spawn agents."
+        ),
+    )
+    def prepare_prompt_refinement_editor_tasks(
+        self,
+        evidence_dir: Annotated[
+            str,
+            Field(
+                description=(
+                    "Evidence directory created by "
+                    "prepare_prompt_refinement_evidence_pack."
+                )
+            ),
+        ],
+        tasks_dir: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional output directory for editor task payloads. Defaults "
+                    "to <evidence_dir>/tasks."
+                )
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        return self._prompt_refinement_service.prepare_editor_tasks(
+            evidence_dir=evidence_dir,
+            tasks_dir=tasks_dir,
+        ).model_dump(mode="json")
+
+    @tool(
         name="confirm_prompt_lock",
         description=(
             "Lock the exact prompt bundle of a previously eligible refinement "

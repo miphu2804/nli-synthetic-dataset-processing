@@ -22,7 +22,8 @@ The main agent owns orchestration and all trusted state:
 - dispatch exactly three validator subagents in parallel;
 - validate responses and persist one verdict file per model;
 - call `evaluate_prompt_refinement_round`;
-- inspect disagreements, edit prompt skills, and decide whether to confirm lock.
+- inspect disagreements, propose the smallest responsible instruction change,
+  and decide whether to request lock confirmation.
 
 Each subagent is a stateless validator. Give it only `source_uid`, `premise`,
 `hypothesis`, the 3-class rubric, and its output path identity. It must return
@@ -32,7 +33,7 @@ Subagent rules:
 
 - Do not read the labeled calibration file or expected label.
 - Do not see another subagent's verdicts or reasons.
-- Do not call MCP tools, edit prompt files, write runtime state, or decide to
+- Do not call MCP tools, edit instructions, write runtime state, or decide to
   lock.
 - Do not impersonate a different model. Three subagents using one model are not
   three-model agreement.
@@ -63,18 +64,17 @@ successful model's verdict file.
 
 | Decision | Action |
 |----------|--------|
-| `refine_prompt` | Inspect `disagreement_rows.csv`, edit the responsible skill, then repeat on the same calibration dataset. |
-| `eligible_to_lock` | Report the candidate versions. Continue refining or explicitly confirm the lock. |
+| `refine_prompt` | Build the evidence pack, collect two editor proposals, choose the responsible instruction change, then repeat on the same calibration dataset. |
+| `eligible_to_lock` | Report the candidate versions. Continue refining or request explicit lock confirmation. |
 
 Fleiss' kappa below `0.85` means refine. Kappa at least `0.85` is eligible to
 lock; it does not lock automatically. To lock an eligible round, call
 `confirm_prompt_lock(lock_run_id=<mlflow_run_id>)` where mlflow_run_id is the
 run ID of the eligible round you wish to lock.
 
-Locking uses the exact prompt versions from the evaluated round, not the
-current files. This means you can safely edit prompt files after an
-`eligible_to_lock` result; the confirmed lock will still reference the correct
-versions that were kappa-verified.
+Locking uses the exact prompt versions from the evaluated round, not whichever
+instructions are current later. This means later edits do not change what an
+approved lock references.
 
 When a generator change regenerates calibration text, treat the result as a new
 round with the same source UID set but different item content. Report the new
@@ -82,27 +82,117 @@ hash and do not present the kappa delta as a strict same-item comparison.
 
 ## Round Integrity (prompt provenance)
 
-Within a single round, the chosen generator policy file and `validator.md` must
-stay byte-identical from the moment you dispatch the validator subagents until
-`evaluate_prompt_refinement_round` returns. Kappa is computed on verdicts
-produced by the prompts as they were at dispatch time, while the tool registers
-the prompt files as they are on disk at evaluation time. Editing either file
-mid-round makes the registered MLflow prompt version diverge from the prompts
-that actually produced the verdicts.
+Within a single round, the chosen generator policy instructions and validator
+rubric must stay byte-identical from the moment you dispatch the validator
+subagents until `evaluate_prompt_refinement_round` returns. Kappa is computed
+on verdicts produced by the instructions as they were at dispatch time, while
+the tool registers the instructions visible to the MCP server at evaluation
+time. Editing either instruction mid-round makes the registered MLflow prompt
+version diverge from the prompts that actually produced the verdicts.
 
-If you need to change a prompt, finish (or abandon) the current round first, then
-edit and run a new round. Do not keep parallel hand-managed `.md` version copies:
-MLflow's Prompt Registry already versions every generator and validator prompt on
-each evaluation (`nli-generator` / `nli-validator` vN), so on-disk version copies are
+If you need to change a prompt, finish or abandon the current round first, then
+run a new round. Do not keep parallel hand-managed prompt-version copies:
+MLflow's Prompt Registry already versions every generator and validator prompt
+on each evaluation (`nli-generator` / `nli-validator` vN), so manual copies are
 redundant and provide no extra provenance safety.
+
+## Failed-Round Editor Workflow
+
+When `evaluate_prompt_refinement_round` returns `decision=refine_prompt`, the
+main agent owns the next step. Do not ask validator subagents to revise
+instructions. Call `prepare_prompt_refinement_evidence_pack` to build exactly:
+
+```text
+output_root/round-<NN>/evidence/
+  disagreement_rows.csv
+  disagreement_calibration_rows.csv
+  round_summary.json
+  current_generator_instructions.md
+  current_validator_instructions.md
+```
+
+The evidence pack is the only material editor subagents may inspect. It should
+summarize the three verdict files, kappa, decision, label distribution,
+disagreement count, generator skill name, prompt versions, and calibration
+dataset hash.
+
+MCP helper call:
+
+```text
+prepare_prompt_refinement_evidence_pack(
+  verdicts_dir="output_root/round-<NN>/verdicts",
+  calibration_input="output_root/round-<NN>/calibration.csv",
+  output_root="output_root",
+  round_number=<NN>,
+  generator_skill_name="<GENERATOR_SKILL_NAME>",
+  bundle_id="<BUNDLE_ID_FROM_EVALUATION>",
+  mlflow_run_id="<MLFLOW_RUN_ID_FROM_EVALUATION>",
+  generator_prompt_version=<GENERATOR_PROMPT_VERSION>,
+  validator_prompt_version=<VALIDATOR_PROMPT_VERSION>
+)
+```
+
+Then call `prepare_prompt_refinement_editor_tasks(evidence_dir=<EVIDENCE_DIR>)`.
+This writes two concrete task payloads for the harness/orchestrator to pass to
+subagents. The backend still does not spawn agents, call model APIs, edit
+instructions, or run the next round.
+
+Run exactly two editor subagents:
+
+- validator-rubric reviewer;
+- generator-policy reviewer.
+
+Each editor returns only a proposal, never file edits or MCP calls:
+
+```yaml
+target: generator | validator | no_change
+evidence_uids:
+  - "<source_uid>"
+diagnosis: "<why the failed round disagreed>"
+proposed_patch: "<minimal instruction change or no_change>"
+expected_effect: "<how this should improve agreement>"
+risk: "<possible overfit or label drift risk>"
+change_summary: "<short summary for evaluate_prompt_refinement_round>"
+```
+
+If an editor thinks both prompts might be implicated, it should explain the
+ambiguity and still return `no_change`. Editors do not return `both`.
+
+Reject a proposal if it:
+
+- relies on hidden labels as validator-facing evidence;
+- uses PMI as prompt-refinement evidence;
+- treats one model as ground truth;
+- changes broad policy without source_uid evidence;
+- would expose labels or peer verdicts to validator subagents;
+- asks editors to call MCP tools or edit files;
+- cannot be summarized in one small `change_summary`;
+- tries to weaken the rubric to excuse bad calibration rows.
+
+Selection rules:
+
+- Prefer `no_change` and stop if both proposals point to calibration-row
+  problems.
+- Prefer the smallest single-target proposal.
+- Prefer generator-policy changes when rows are semantically ambiguous,
+  unnatural, source-drifting, or label-drifting.
+- Prefer validator-rubric changes when generated rows are sound but class
+  boundaries are unclear.
+- If evidence is mixed, stop and ask the operator.
+
+After choosing one proposal, apply one instruction change, preserve the same
+source UID set, rerun the three validator subagents, and call
+`evaluate_prompt_refinement_round` again. Stop when the latest decision is
+`eligible_to_lock`, when `max_rounds` is reached in the active harness, when no
+valid proposal remains, or when an external blocker prevents another round.
 
 ## Choose What to Edit
 
-- Edit the chosen generator policy file when disagreements come from ambiguous,
-  unnatural, or logically incorrect generated hypotheses.
-- Edit `backend/skills/validator.md` when disagreements come from unclear
-  distinctions between entailment, neutral, and contradiction.
-- Edit both only when the disagreement evidence supports both causes.
+- Change the chosen generator policy instructions when disagreements come from
+  ambiguous, unnatural, or logically incorrect generated hypotheses.
+- Change the validator rubric when disagreements come from unclear distinctions
+  between entailment, neutral, and contradiction.
+- Change both only when the disagreement evidence supports both causes.
 - Change the smallest instruction needed and describe it in `change_summary`.
 
 Do not use PMI as a prompt-refinement trigger. PMI belongs to post-generation
@@ -125,10 +215,10 @@ calibration set. Confirming a lock finalizes the session's parent run.
 
 ## Report
 
-Return the changed prompt files, kappa, decision, calibration dataset hash,
-generator and validator prompt versions, model identifiers, bundle ID, MLflow
-run ID, and run URL. Retrieve `disagreement_rows.csv` from that run's MLflow
-Artifacts tab when refinement is required. If `session_id` was provided, view
-the trend on the parent `calibration-session-*` run in MLflow UI: inspect
-`fleiss_kappa` and `n_disagreements` metrics over steps to see refinement
-progress.
+Return the proposed or changed instructions, kappa, decision, calibration
+dataset hash, generator and validator prompt versions, model identifiers,
+bundle ID, MLflow run ID, and run URL. Retrieve `disagreement_rows.csv` from
+that run's MLflow Artifacts tab when refinement is required. If `session_id`
+was provided, view the trend on the parent `calibration-session-*` run in
+MLflow UI: inspect `fleiss_kappa` and `n_disagreements` metrics over steps to
+see refinement progress.
