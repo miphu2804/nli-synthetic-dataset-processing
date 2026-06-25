@@ -1,3 +1,28 @@
+### [2026-06-25 12:10] — [PostValidation] Add post-validation orchestration template
+
+**Đã làm:**
+- Thêm post-validation template EN/VI cho consensus + PMI, optional paraphrase, revalidation promotion, và final split.
+- Template dùng MCP `run_consensus_pmi` và `promote_paraphrase_revalidation`.
+- Template giữ `apply-paraphrase` và `split` là deterministic CLI stages.
+- Ghi rõ revalidation queue có `label=""` nên không gọi `start_validation_run`; orchestrator dispatch đúng ba validator subagents trực tiếp trên masked queue.
+- Cập nhật README EN/VI và test coverage cho template contract.
+
+**Files thay đổi:**
+- `docs/en/template/post-validation.md` — created
+- `docs/vi/template/post-validation.md` — created
+- `README.md`, `README.vi.md` — modified
+- `backend/tests/test_skill_service.py` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** Split vẫn là CLI stage, chưa có MCP wrapper riêng.
+
+**Flow explained:**
+Sau three-model validation, agent dùng `run_consensus_pmi` để tạo consensus/PMI artifacts. Nếu không có flagged rows thì split trực tiếp `validated_dataset.csv`. Nếu có flagged rows thì agent rewrite chỉ các hypothesis bị PMI flag, chạy `apply-paraphrase`, revalidate changed rows bằng ba validator subagents, promote bằng `promote_paraphrase_revalidation`, rồi split publishable dataset cuối cùng.
+
+---
+
 ### [2026-06-25 11:40] — [PromptRefinement] Add MCP evidence and editor-task helpers
 
 **Đã làm:**
@@ -231,29 +256,5 @@ Split là stage cuối sau `promoted_dataset.csv` hoặc `validated_dataset.csv`
 
 **Flow explained:**
 MCP wrappers chỉ là transport adapters. Chúng không gọi model và không tự suy hidden labels; chúng discover đúng ba verdict files rồi gọi lại function CLI đã được test. `aggregate`, `pmi`, và `apply-paraphrase` vẫn là stage CLI/operator riêng, còn `consensus-pmi` và `promote-paraphrase` có thêm wrapper mỏng vì artifact contract đã ổn định.
-
----
-
-### [2026-06-22 04:55] — [ValidationIntegrity] Add consensus PMI command
-
-**Đã làm:**
-- Thêm CLI `consensus-pmi` để chạy aggregate + PMI trong một bước và persist `validation_votes.csv`, `validated_dataset.csv`, `review_dataset.csv`, `pmi_artifact_tokens.csv`, `pmi_flagged_rows.csv`.
-- Thêm default output convention `data/validated/<expected-input-stem>` khi operator không truyền `--output-dir`.
-- Thêm tests cho default path, function output, và subcommand noninteractive.
-- Cập nhật validator flow docs EN/VI và status của fix plan 03.
-
-**Files thay đổi:**
-- `backend/src/cli.py` — modified
-- `backend/tests/test_cli.py` — modified
-- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
-- `docs/superpowers/plans/fix-03-persist-consensus-pmi-artifacts.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** Chưa expose qua MCP; command này vẫn là operator-run deterministic stage.
-
-**Flow explained:**
-`consensus-pmi` không đổi rule consensus hay PMI. Nó chỉ gom hai bước đã có vào một entrypoint có output convention rõ, giúp handoff biết corpus đã có đủ artifacts trước khi paraphrase.
 
 ---

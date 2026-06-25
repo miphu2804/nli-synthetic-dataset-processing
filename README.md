@@ -129,4 +129,5 @@ requires an explicit `confirm_prompt_lock` call.
 | Progress tracking | [docs/en/flow/progress-tracking.md](docs/en/flow/progress-tracking.md) | `Runtime state and cleanup` |
 | Generator template | [docs/en/template/generator.md](docs/en/template/generator.md) | `Harness prompt` |
 | Validator template | [docs/en/template/validator.md](docs/en/template/validator.md) | `Harness prompt` |
+| Post-validation template | [docs/en/template/post-validation.md](docs/en/template/post-validation.md) | `Consensus, PMI, paraphrase promotion, split prompt` |
 | Prompt refinement template | [docs/en/template/prompt-refinement.md](docs/en/template/prompt-refinement.md) | `Main-agent/subagent orchestration prompt` |

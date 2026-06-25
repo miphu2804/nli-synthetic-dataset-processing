@@ -178,6 +178,40 @@ class SkillServiceTest(unittest.TestCase):
                 or "reviewer sau failed round" in document.lower()
             )
 
+    def test_post_validation_templates_cover_pmi_revalidation_and_split(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        documents = [
+            (repository_root / "docs/en/template/post-validation.md").read_text(
+                encoding="utf-8"
+            ),
+            (repository_root / "docs/vi/template/post-validation.md").read_text(
+                encoding="utf-8"
+            ),
+        ]
+
+        for document in documents:
+            lower_document = document.lower()
+            self.assertIn("run_consensus_pmi", document)
+            self.assertIn("promote_paraphrase_revalidation", document)
+            self.assertIn("python -m src.cli apply-paraphrase", document)
+            self.assertIn("python -m src.cli split", document)
+            self.assertIn("pmi_flagged_rows.csv", document)
+            self.assertIn("paraphrase_revalidation_masked.csv", document)
+            self.assertIn("revalidation_verdicts", document)
+            self.assertIn("validated_dataset.csv", document)
+            self.assertIn("promoted_dataset.csv", document)
+            self.assertIn("split_manifest.json", document)
+            self.assertTrue(
+                "do not call start_validation_run" in lower_document
+                or "không gọi start_validation_run" in lower_document
+            )
+            self.assertIn("deterministic", lower_document)
+            self.assertIn("pmi", lower_document)
+            self.assertTrue(
+                "do not edit generator or validator prompts" in lower_document
+                or "không sửa generator hoặc validator prompts" in lower_document
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
