@@ -75,7 +75,7 @@ class GenerationToolProvider(ToolProvider):
         name="claim_next_batch",
         description=(
             "Claim the next local batch. The main agent calls this sequentially before "
-            "delegating text transformation to stateless workers."
+            "delegating text transformation to stateless subagents."
         ),
     )
     def claim_next_batch(self, run_id: str, agent_id: str) -> dict[str, Any]:

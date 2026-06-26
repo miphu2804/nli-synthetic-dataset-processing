@@ -112,7 +112,7 @@ explicit `confirm_prompt_lock` call.
 | `skill://generator_plain` | Plain translation/naturalization for already-labeled NLI sources |
 | `skill://generator_adversarial` | Controlled adversarial generation rules and self-checks |
 | `skill://generator` | Legacy adversarial generator alias |
-| `skill://delegation` | Stateless parallel worker prompt |
+| `skill://delegation` | Stateless subagent prompt |
 | `skill://progress_tracking` | Local audit, resume and cleanup |
 | `skill://execution` | Runtime ownership boundaries |
 | `skill://aggregator` | Finalize behavior |

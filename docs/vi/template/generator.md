@@ -43,10 +43,7 @@ Flow:
    - skill://generator_plain hoặc skill://generator_adversarial, khớp với
      generation_policy
 2. Call start_generation_run with from_sample and to_sample.
-3. Compute dispatch locally if using subagents:
-   - assigned_samples = to_sample - from_sample + 1
-   - total_batches = ceil(assigned_samples / batch_size)
-   - keep at most 10 active worker slots unless the operator sets a lower cap
+3. Tự quyết định có dùng subagent hay chạy tuần tự.
 4. Loop:
    - claim_next_batch
    - transform each claimed row according to the chosen generation policy
@@ -65,6 +62,8 @@ Rules:
   adversarial/NLI.
 - Use `generator_adversarial` chỉ khi mục tiêu explicit là tạo biến thể
   adversarial mới có kiểm soát.
+- Harness tự quyết định có spawn bao nhiêu subagent. Không suy ra worker count
+  từ rule backend.
 - Only MCP runtime tools write progress.
 - Subagents, if used, return JSON only and never call MCP tools.
 - Batch CSV artifacts are runtime files under data/batches/{run_id}; finalize

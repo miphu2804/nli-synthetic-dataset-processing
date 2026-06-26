@@ -1,3 +1,26 @@
+### [2026-06-26 20:01] — [DispatchPlanning] Remove worker-count guidance from generator templates
+
+**Đã làm:**
+- Bỏ công thức `assigned_samples`, `total_batches`, và worker cap khỏi generator flow/template EN/VI.
+- Đổi wording còn sót từ `parallel worker` sang `subagent` để không ám chỉ backend có worker model.
+- Giữ nguyên runtime claim/submit/finalize; chỉ bỏ guidance tính toán worker ở lớp docs/prompt.
+
+**Files thay đổi:**
+- `README.md` — modified
+- `backend/src/providers/generation_provider.py` — modified
+- `docs/en/flow/generator.md`, `docs/vi/flow/generator.md` — modified
+- `docs/en/template/generator.md`, `docs/vi/template/generator.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Generator runtime không có khái niệm worker count nữa ở cả code lẫn template. Agent có thể chạy tuần tự hoặc tự spawn bao nhiêu subagent tùy context, nhưng backend chỉ biết các mutation có state thật: `start_generation_run`, `claim_next_batch`, `submit_batch_result`, `verify_progress_log`, `finalize_generation_run`.
+
+---
+
 ### [2026-06-26 19:44] — [DispatchPlanning] Remove redundant dispatch planning tool
 
 **Đã làm:**
@@ -262,24 +285,5 @@ Prompt-refinement loop vẫn do main agent điều phối. Validator subagents c
 
 **Flow explained:**
 Khi một prompt-refinement round fail kappa, main agent tạo evidence pack từ artifacts của round đó, spawn đúng hai editor subagents để review validator rubric và generator policy, rồi chọn proposal nhỏ nhất có evidence tốt. Editor agents không được mutate state; main agent vẫn sở hữu apply, rerun validators, gọi `evaluate_prompt_refinement_round`, và xin approval trước khi lock.
-
----
-
-### [2026-06-24 22:47] — [PromptRefinement] Remove local git commit logging from MLflow rounds
-
-**Đã làm:**
-- Bỏ param `git_commit` khỏi MLflow round logging vì không phải provenance ổn định giữa các máy/operator.
-- Xoá helper `_git_commit()` và import `subprocess` không còn dùng.
-
-**Files thay đổi:**
-- `backend/src/services/prompt_refinement_service.py` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Prompt refinement provenance dựa vào artifact thật của round: prompt registry versions, prompt bundle, verdict files, disagreement rows, model names, kappa và decision. Local git commit không còn được log vì mỗi operator có thể chạy từ checkout khác và tự commit thay đổi nếu cần.
 
 ---

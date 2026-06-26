@@ -43,10 +43,7 @@ Flow:
    - skill://generator_plain or skill://generator_adversarial, matching
      generation_policy
 2. Call start_generation_run with from_sample and to_sample.
-3. Compute dispatch locally if using subagents:
-   - assigned_samples = to_sample - from_sample + 1
-   - total_batches = ceil(assigned_samples / batch_size)
-   - keep at most 10 active worker slots unless the operator sets a lower cap
+3. Decide locally whether to use subagents or stay sequential.
 4. Loop:
    - claim_next_batch
    - transform each claimed row according to the chosen generation policy
@@ -64,6 +61,8 @@ Rules:
 - Use `generator_plain` for ANLI-derived or already-adversarial NLI source rows.
 - Use `generator_adversarial` only when creating a new controlled adversarial
   variant is the explicit goal.
+- The harness decides if and how many subagents to spawn. Do not derive a
+  worker count from backend rules.
 - Only MCP runtime tools write progress.
 - Subagents, if used, return JSON only and never call MCP tools.
 - Batch CSV artifacts are runtime files under data/batches/{run_id}; finalize
