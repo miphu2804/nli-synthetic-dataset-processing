@@ -13,11 +13,11 @@ from src.services.prompt_refinement.evaluator import (
     KAPPA_THRESHOLD,
     PromptRefinementEvaluator,
 )
-from src.services.prompt_refinement.evidence_pack import (
-    PromptRefinementEvidencePackWriter,
-)
 from src.services.prompt_refinement.locking import PromptRefinementLockService
 from src.services.prompt_refinement.mlflow_store import PromptRefinementMlflowStore
+from src.services.prompt_refinement.review_artifacts import (
+    PromptRefinementReviewArtifactsWriter,
+)
 
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 SKILL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -31,7 +31,7 @@ class PromptRefinementService:
         self._evaluator = PromptRefinementEvaluator()
         self._lock_service = PromptRefinementLockService()
         self._mlflow_store = PromptRefinementMlflowStore()
-        self._evidence_writer = PromptRefinementEvidencePackWriter()
+        self._review_artifacts_writer = PromptRefinementReviewArtifactsWriter()
 
     def evaluate_round(
         self,
@@ -113,7 +113,7 @@ class PromptRefinementService:
         evaluation = self._evaluator.evaluate_inputs(verdicts_dir, calibration_input)
         generator_text = self._read_skill(f"{generator_skill_name}.md")
         validator_text = self._read_skill("validator.md")
-        return self._evidence_writer.write_evidence_pack(
+        return self._review_artifacts_writer.write_review_artifacts(
             evaluation,
             output_root=output_root,
             round_number=round_number,

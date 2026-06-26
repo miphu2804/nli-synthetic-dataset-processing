@@ -1,3 +1,25 @@
+### [2026-06-27 00:20] — [PromptRefinement] Rename evidence-pack internals to review artifacts
+
+**Đã làm:**
+- Đổi internal module `evidence_pack.py` thành `review_artifacts.py` để naming gần domain review hơn.
+- Đổi class `PromptRefinementEvidencePackWriter` thành `PromptRefinementReviewArtifactsWriter`.
+- Đổi internal writer method `write_evidence_pack(...)` thành `write_review_artifacts(...)`.
+- Giữ nguyên public service/MCP contract `prepare_prompt_refinement_evidence_pack` để không vỡ caller hiện có.
+
+**Files thay đổi:**
+- `backend/src/services/prompt_refinement/review_artifacts.py` — created (moved from `evidence_pack.py`)
+- `backend/src/services/prompt_refinement/service.py` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** Public API và docs vẫn dùng từ `evidence pack`; nếu muốn thống nhất naming hoàn toàn thì sẽ là một vòng contract change riêng.
+
+**Flow explained:**
+Prompt-refinement vẫn expose cùng workflow/tool như cũ, nhưng naming nội bộ giờ phản ánh đúng hơn việc module này chỉ ghi các artifact phục vụ failed-round review. Nhờ đó service facade đọc tự nhiên hơn: evaluate -> log round -> write review artifacts -> confirm lock.
+
+---
+
 ### [2026-06-27 00:05] — [PromptRefinement] Split MLflow get/create helpers
 
 **Đã làm:**
@@ -241,30 +263,5 @@ Split cuối vẫn assign theo `group_column` nên mọi row cùng premise khôn
 
 **Flow explained:**
 Agent-facing templates giờ dùng `data/...` làm output convention thống nhất. Runtime artifacts không nên ghi vào repo-root `outputs/`; generation, validation, post-validation, split, và prompt-refinement đều có placeholder dưới `data/` để khớp cấu trúc backend/data khi operator nhìn project tree.
-
----
-
-### [2026-06-25 12:10] — [PostValidation] Add post-validation orchestration template
-
-**Đã làm:**
-- Thêm post-validation template EN/VI cho consensus + PMI, optional paraphrase, revalidation promotion, và final split.
-- Template dùng MCP `run_consensus_pmi` và `promote_paraphrase_revalidation`.
-- Template giữ `apply-paraphrase` và `split` là deterministic CLI stages.
-- Ghi rõ revalidation queue có `label=""` nên không gọi `start_validation_run`; orchestrator dispatch đúng ba validator subagents trực tiếp trên masked queue.
-- Cập nhật README EN/VI và test coverage cho template contract.
-
-**Files thay đổi:**
-- `docs/en/template/post-validation.md` — created
-- `docs/vi/template/post-validation.md` — created
-- `README.md`, `README.vi.md` — modified
-- `backend/tests/test_skill_service.py` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** Split vẫn là CLI stage, chưa có MCP wrapper riêng.
-
-**Flow explained:**
-Sau three-model validation, agent dùng `run_consensus_pmi` để tạo consensus/PMI artifacts. Nếu không có flagged rows thì split trực tiếp `validated_dataset.csv`. Nếu có flagged rows thì agent rewrite chỉ các hypothesis bị PMI flag, chạy `apply-paraphrase`, revalidate changed rows bằng ba validator subagents, promote bằng `promote_paraphrase_revalidation`, rồi split publishable dataset cuối cùng.
 
 ---

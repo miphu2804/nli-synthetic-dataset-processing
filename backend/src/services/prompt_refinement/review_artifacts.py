@@ -10,10 +10,10 @@ from src.schemas.prompt_refinement_schema import (
 from src.services.prompt_refinement.evaluator import KAPPA_THRESHOLD
 
 
-class PromptRefinementEvidencePackWriter:
-    """Write local evidence files for prompt-refinement editor review."""
+class PromptRefinementReviewArtifactsWriter:
+    """Write local review artifacts for prompt-refinement editor review."""
 
-    def write_evidence_pack(
+    def write_review_artifacts(
         self,
         evaluation: PromptRoundEvaluation,
         *,
