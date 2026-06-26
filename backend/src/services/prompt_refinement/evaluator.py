@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 from src.schemas.prompt_refinement_schema import PromptRoundEvaluation
-from src.utils.nli_labels import require_supported_nli_label
+from src.utils.nli_labels import to_label_name
 from src.utils.validation_aggregation import compute_fleiss_kappa
 
 KAPPA_THRESHOLD = 0.85
@@ -118,7 +118,7 @@ class PromptRefinementEvaluator:
     def label_distribution(dataframe: pd.DataFrame) -> dict[str, int]:
         if "label" not in dataframe.columns:
             raise ValueError("Calibration dataset must contain label.")
-        labels = dataframe["label"].apply(require_supported_nli_label)
+        labels = dataframe["label"].apply(to_label_name)
         return {
             str(label): int(count) for label, count in labels.value_counts().items()
         }
@@ -128,7 +128,7 @@ class PromptRefinementEvaluator:
         summaries = []
         for model, path in sorted(model_label_paths.items()):
             dataframe = cls.read_table(path)
-            labels = dataframe["predicted_label"].apply(require_supported_nli_label)
+            labels = dataframe["predicted_label"].apply(to_label_name)
             summaries.append(
                 {
                     "model": model,
@@ -156,7 +156,7 @@ class PromptRefinementEvaluator:
             # Normalize labels so equivalent numeric/named forms (e.g. 0 and
             # "entailment") count as agreement, matching compute_fleiss_kappa.
             dataframe["predicted_label"] = dataframe["predicted_label"].apply(
-                require_supported_nli_label
+                to_label_name
             )
             dataframe = dataframe.rename(
                 columns={

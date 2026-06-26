@@ -6,8 +6,8 @@ validator. **Lớp 0** tùy chọn calibrate generator và validator prompt trư
 large-scale generation. Corpus sau đó đi qua bốn lớp: blind validation per-run,
 cross-model consensus, artifact flagging, và apply paraphrase kèm semantic
 revalidation. Trusted runtime validate và normalize chặt chẽ cả hai phía
-(`src/utils/nli_labels.py: require_supported_nli_label`) — chỉ chấp nhận `0/1/2` và
-các supported label name `entailment`/`neutral`/`contradiction`; giá trị khác đều raise
+(`src/utils/nli_labels.py: to_label_name`) — chỉ chấp nhận `0/1/2` và
+các label name `entailment`/`neutral`/`contradiction`; giá trị khác đều raise
 trước khi ghi output.
 
 ## State Machine
@@ -301,7 +301,7 @@ source_uid,<model>_label...,expected_label,agree_count,decision
 
 - Chỉ dùng `premise`, `hypothesis`, và rubric; tuyệt đối không suy hidden label
   từ row order, metadata, batch id, hoặc prior outputs.
-- Trả về một trong 3 supported label name (`entailment`|`neutral`|`contradiction`);
+- Trả về một trong 3 label name (`entailment`|`neutral`|`contradiction`);
   runtime tự map sang numeric id. `reason` là tiếng Việt và không được để trống.
 - `accepted` (per-run, một model) và `decision` (cross-model consensus) là hai lớp
   khác nhau: `accepted` = một model này có khớp `expected_label` không; `decision`

@@ -53,7 +53,7 @@ Rules:
 - Claimed rows expose only source_uid, premise, hypothesis, and `label=""`.
 - Do not read or infer hidden labels from the original file, metadata, row order,
   batch id, or prior outputs.
-- Return exactly one supported label name: entailment, neutral, or contradiction.
+- Return exactly one label name: entailment, neutral, or contradiction.
 - Finalize writes validation_results.csv and cleans both .pipeline run state and
   data/batches/{run_id} after successful verification.
 ```

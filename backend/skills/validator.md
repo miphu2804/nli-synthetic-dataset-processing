@@ -32,8 +32,8 @@ Return one verdict per claimed `source_uid`:
 ```
 
 This is a **3-class** task. Return `predicted_label` as exactly one of three
-canonical names — `entailment`, `neutral`, or `contradiction`. Do not return
-numeric ids; the server maps the canonical name onto the run's numeric label
+label names — `entailment`, `neutral`, or `contradiction`. Do not return
+numeric ids; the server maps the label name onto the run's numeric label
 space (0 = entailment, 1 = neutral, 2 = contradiction).
 
 > Note: this project uses 3 classes, unlike the binary ViLegalNLI paper. The
@@ -56,7 +56,7 @@ Assign the label by judging the logical relation:
 | `neutral` | The hypothesis is plausible but the premise neither proves nor contradicts it (insufficient support). |
 | `contradiction` | The hypothesis conflicts with, negates, or violates the premise. |
 
-Never invent extra labels. The server maps the canonical name onto the run's
+Never invent extra labels. The server maps the label name onto the run's
 numeric ids when needed.
 
 ## Checks

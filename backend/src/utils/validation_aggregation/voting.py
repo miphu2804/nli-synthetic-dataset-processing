@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
-from src.utils.nli_labels import require_supported_nli_label
+from src.utils.nli_labels import to_label_name
 from src.utils.validation_aggregation.model_labels import (
     SOURCE_UID_COLUMN,
     _merge_model_labels,
@@ -49,7 +49,7 @@ def build_validation_vote_table(
         source_uid = row[SOURCE_UID_COLUMN]
         uid_key = str(source_uid)
         expected_label_raw = expected_labels[uid_key]
-        expected = require_supported_nli_label(expected_label_raw)
+        expected = to_label_name(expected_label_raw)
         agree_count = sum(1 for column in label_columns if row[column] == expected)
         decision = _classify_decision(agree_count, min_agreement)
         vote_rows.append(

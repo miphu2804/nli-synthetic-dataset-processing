@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 from src.schemas.generation_runtime_schema import RunProgressSnapshot
-from src.utils.nli_labels import require_supported_nli_label
+from src.utils.nli_labels import to_label_name
 
 
 class MaskedValidationRow(BaseModel):
@@ -26,7 +26,7 @@ class ValidatorVerdict(BaseModel):
     @field_validator("predicted_label", mode="before")
     @classmethod
     def _normalize_label(cls, value: object) -> str:
-        return require_supported_nli_label(value)  # type: ignore[arg-type]
+        return to_label_name(value)  # type: ignore[arg-type]
 
 
 class ValidationRunManifest(BaseModel):

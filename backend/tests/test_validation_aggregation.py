@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
-from src.utils.nli_labels import require_supported_nli_label
+from src.utils.nli_labels import to_label_name
 from src.utils.validation_aggregation import (
     apply_paraphrases,
     attach_masked_text,
@@ -20,26 +20,26 @@ from src.utils.validation_aggregation import (
 
 class RequireCanonicalLabelTest(unittest.TestCase):
     def test_accepts_numeric_forms(self) -> None:
-        self.assertEqual(require_supported_nli_label(0), "entailment")
-        self.assertEqual(require_supported_nli_label("1"), "neutral")
-        self.assertEqual(require_supported_nli_label(2), "contradiction")
+        self.assertEqual(to_label_name(0), "entailment")
+        self.assertEqual(to_label_name("1"), "neutral")
+        self.assertEqual(to_label_name(2), "contradiction")
 
-    def test_accepts_supported_label_names(self) -> None:
-        self.assertEqual(require_supported_nli_label("entailment"), "entailment")
-        self.assertEqual(require_supported_nli_label("neutral"), "neutral")
-        self.assertEqual(require_supported_nli_label("contradiction"), "contradiction")
+    def test_accepts_label_names(self) -> None:
+        self.assertEqual(to_label_name("entailment"), "entailment")
+        self.assertEqual(to_label_name("neutral"), "neutral")
+        self.assertEqual(to_label_name("contradiction"), "contradiction")
 
     def test_rejects_unknown_label(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
-            require_supported_nli_label("garbage")
+            to_label_name("garbage")
 
     def test_rejects_non_entailment(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
-            require_supported_nli_label("non-entailment")
+            to_label_name("non-entailment")
 
     def test_rejects_empty_string(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
-            require_supported_nli_label("")
+            to_label_name("")
 
 
 class InvalidLabelAggregationTest(unittest.TestCase):
