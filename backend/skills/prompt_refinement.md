@@ -217,7 +217,7 @@ calibration set. Confirming a lock finalizes the session's parent run.
 
 Return the proposed or changed instructions, kappa, decision, calibration
 dataset hash, generator and validator prompt versions, model identifiers,
-bundle ID, MLflow run ID, and run URL. Retrieve `disagreement_rows.csv` from
+bundle ID, and MLflow run ID. Retrieve `disagreement_rows.csv` from
 that run's MLflow Artifacts tab when refinement is required. If `session_id`
 was provided, view the trend on the parent `calibration-session-*` run in
 MLflow UI: inspect `fleiss_kappa` and `n_disagreements` metrics over steps to

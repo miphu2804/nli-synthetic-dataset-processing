@@ -135,6 +135,6 @@ Report:
 - disagreement artifact path if any
 - generator and validator prompt versions
 - bundle ID
-- MLflow run ID and run URL
+- MLflow run ID
 - blockers or unresolved questions
 ```

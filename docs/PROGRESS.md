@@ -1,3 +1,75 @@
+### [2026-06-27 00:05] — [PromptRefinement] Split MLflow get/create helpers
+
+**Đã làm:**
+- Bỏ pattern `resolve_*` trong `prompt_refinement/mlflow_store.py` để tránh helper vừa đọc vừa có thể tạo side effect.
+- Tách flow experiment thành `_get_experiment_by_name(...)` và `_create_experiment(...)`.
+- Tách flow session run thành `_get_active_session_run(...)` và `_create_session_run(...)`.
+- Giữ orchestration get-or-create ở `log_evaluated_round(...)` để branch logic nhìn thấy ngay tại use case chính.
+
+**Files thay đổi:**
+- `backend/src/services/prompt_refinement/mlflow_store.py` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** Naming trong các module khác như `evidence_pack` và một số `extract/build` helpers vẫn có thể tinh chỉnh tiếp, nhưng chưa đổi trong vòng này để giữ scope hẹp.
+
+**Flow explained:**
+Prompt-refinement MLflow round logging giờ explicit hơn: code trước hết thử lấy experiment/session run hiện có, nếu chưa có mới gọi create path tương ứng. Helper không còn giấu side effect dưới tên `resolve`, nên nhìn vào `log_evaluated_round(...)` là thấy ngay chỗ nào chỉ đọc và chỗ nào có thể mutate MLflow state.
+
+---
+
+### [2026-06-26 22:35] — [PromptRefinement] Drop MLflow run URL from responses
+
+**Đã làm:**
+- Bỏ `mlflow_run_url` khỏi prompt-refinement response schema cho cả evaluate-round và lock-confirmation path.
+- Xoá `build_run_url` khỏi shared MLflow support vì feature không còn trả UI link.
+- Giữ lại MLflow identifiers thật sự cần cho flow: `mlflow_run_id`, `mlflow_session_run_id`, `bundle_id`, prompt versions.
+- Đồng bộ template/skill text để report chỉ còn MLflow run ID thay vì run URL.
+
+**Files thay đổi:**
+- `backend/src/schemas/prompt_refinement_schema.py` — modified
+- `backend/src/services/prompt_refinement/mlflow_support.py` — modified
+- `backend/src/services/prompt_refinement/mlflow_store.py` — modified
+- `backend/src/services/prompt_refinement/locking.py` — modified
+- `backend/src/services/prompt_refinement/service.py` — modified
+- `backend/skills/prompt_refinement.md` — modified
+- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** Prompt-refinement vẫn còn vài tên thiên về orchestration như `evidence_pack`; chưa đổi trong vòng này để giữ scope hẹp.
+
+**Flow explained:**
+Prompt-refinement giờ chỉ expose MLflow identifiers để operator hoặc automation tự truy cập qua API/UI khi cần. Feature code không còn ghép browser URL presentation string, nên lock/evaluate responses gọn hơn và ít dính UI concern hơn.
+
+---
+
+### [2026-06-26 22:15] — [PromptRefinement] Extract prompt lock service
+
+**Đã làm:**
+- Tách `confirm_prompt_lock` khỏi `mlflow_store.py` sang module riêng `locking.py`.
+- Tạo `mlflow_support.py` để share MLflow client setup và prompt-name constants giữa round logging với lock flow.
+- Đổi `PromptRefinementService` sang compose `PromptRefinementLockService` thay vì để `PromptRefinementMlflowStore` ôm cả logging lẫn locking.
+- Giữ nguyên MCP/provider/service API và verify lại regression suite của prompt refinement.
+
+**Files thay đổi:**
+- `backend/src/services/prompt_refinement/locking.py` — created
+- `backend/src/services/prompt_refinement/mlflow_support.py` — created
+- `backend/src/services/prompt_refinement/mlflow_store.py` — modified
+- `backend/src/services/prompt_refinement/service.py` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** `mlflow_store.py` vẫn còn là module round-logging khá dày; vòng sau có thể tách tiếp registration/logging steps nếu cần. Nếu tiếp tục tối giản contract, có thể bỏ hẳn URL presentation concern khỏi prompt-refinement response.
+
+**Flow explained:**
+Prompt-refinement giờ tách lock path ra rõ hơn: `PromptRefinementService.confirm_prompt_lock()` chỉ delegate sang `PromptRefinementLockService`, module này chịu trách nhiệm load eligible run, validate exact evaluated prompt URIs/versions, set `locked` aliases, và mark session/run state. `PromptRefinementMlflowStore` chỉ còn ownership cho evaluate-round logging/register/candidate alias, nên boundary giữa `round logging` và `lock confirmation` rõ hơn mà không đổi public contract.
+
+---
+
 ### [2026-06-26 20:01] — [DispatchPlanning] Remove worker-count guidance from generator templates
 
 **Đã làm:**
@@ -194,96 +266,5 @@ Agent-facing templates giờ dùng `data/...` làm output convention thống nh�
 
 **Flow explained:**
 Sau three-model validation, agent dùng `run_consensus_pmi` để tạo consensus/PMI artifacts. Nếu không có flagged rows thì split trực tiếp `validated_dataset.csv`. Nếu có flagged rows thì agent rewrite chỉ các hypothesis bị PMI flag, chạy `apply-paraphrase`, revalidate changed rows bằng ba validator subagents, promote bằng `promote_paraphrase_revalidation`, rồi split publishable dataset cuối cùng.
-
----
-
-### [2026-06-25 11:40] — [PromptRefinement] Add MCP evidence and editor-task helpers
-
-**Đã làm:**
-- Thêm service method tạo failed-round evidence pack cho prompt refinement.
-- Expose MCP tool `prepare_prompt_refinement_evidence_pack`.
-- Expose MCP tool `prepare_prompt_refinement_editor_tasks` để orchestrator lấy
-  concrete payloads rồi spawn hai editor subagents.
-- Evidence pack ghi `disagreement_rows.csv`, `disagreement_calibration_rows.csv`, `round_summary.json`, và snapshot current generator/validator instructions.
-- Cập nhật templates, skill, instructor, README, validator flow docs, và feature plan để dùng tool mới thay vì chỉ mô tả future MCP.
-- Thêm tests cho service output và MCP tool schema.
-
-**Files thay đổi:**
-- `backend/src/services/prompt_refinement_service.py` — modified
-- `backend/src/providers/validation_provider.py` — modified
-- `backend/src/schemas/validation_runtime_schema.py` — modified
-- `backend/tests/test_prompt_refinement_service.py` — modified
-- `backend/tests/test_validation_provider.py` — modified
-- `backend/skills/prompt_refinement.md`, `backend/skills/instructor.md` — modified
-- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md` — modified
-- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
-- `README.md`, `README.vi.md` — modified
-- `docs/superpowers/plans/prompt-refinement-editor-candidates.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** Backend vẫn không spawn validator/editor subagents và không auto-edit prompt; phần đó thuộc main agent/harness.
-
-**Flow explained:**
-Sau khi `evaluate_prompt_refinement_round` trả `decision=refine_prompt`, main agent gọi `prepare_prompt_refinement_evidence_pack` để backend build deterministic evidence pack từ calibration/verdict files và current prompt instructions. Sau đó main agent gọi `prepare_prompt_refinement_editor_tasks` để lấy hai task payload files, spawn editor subagents từ payload đó, chọn/apply một change, rerun validators, gọi evaluation round tiếp theo, và chỉ lock sau approval.
-
----
-
-### [2026-06-25 11:05] — [PromptRefinement] Independent pass for editor-candidate guardrails
-
-**Đã làm:**
-- Review lại plan `prompt-refinement-editor-candidates` và đối chiếu các template EN/VI hiện có.
-- Làm rõ ranh giới blind/non-blind: validator subagents phải luôn blind, editor subagents chỉ review failed round và chỉ trả proposal.
-- Bổ sung test coverage cho template leakage guardrails và xác nhận main templates chỉ nêu đúng hai editor roles.
-- Giữ nguyên backend runtime/service/schema; không đụng `backend/data/validation/validation_masked.csv`.
-
-**Files thay đổi:**
-- `docs/en/template/prompt-refinement.md` — modified
-- `docs/vi/template/prompt-refinement.md` — modified
-- `docs/en/template/prompt-refinement-editor-validator-rubric.md` — modified
-- `docs/en/template/prompt-refinement-editor-generator-policy.md` — modified
-- `docs/vi/template/prompt-refinement-editor-validator-rubric.md` — modified
-- `docs/vi/template/prompt-refinement-editor-generator-policy.md` — modified
-- `backend/tests/test_skill_service.py` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None trong scope template/test của feature này.
-
-**Flow explained:**
-Prompt-refinement loop vẫn do main agent điều phối. Validator subagents chỉ nhận masked rows và không thấy label hay peer verdict. Sau khi kappa fail, editor subagents mới được review evidence pack có label để chẩn đoán failed round, nhưng output của họ vẫn chỉ là proposal nhỏ nhất cho một target duy nhất; main agent mới là bên chọn, apply, rerun validators, và gọi `evaluate_prompt_refinement_round`.
-
----
-
-### [2026-06-25 00:15] — [PromptRefinement] Add editor-candidate auto-refine templates
-
-**Đã làm:**
-- Thêm 2 editor templates EN cho validator-rubric reviewer và generator-policy reviewer.
-- Thêm 2 editor templates VI mirror cho cùng hai vai trò.
-- Cập nhật prompt-refinement templates EN/VI với auto-refine loop sau `decision=refine_prompt`.
-- Thêm evidence-pack convention `output_root/round-<NN>/evidence/`.
-- Giữ rule: editor subagents chỉ trả proposal, không gọi MCP, không sửa file, không ghi runtime state, không evaluate, không lock.
-- Cập nhật `skill://prompt_refinement` để mô tả evidence-pack, hai editor roles, proposal schema, và selection rules giống template.
-- Thêm test coverage cho editor workflow và editor-template guardrails.
-
-**Files thay đổi:**
-- `docs/en/template/prompt-refinement-editor-validator-rubric.md` — created
-- `docs/en/template/prompt-refinement-editor-generator-policy.md` — created
-- `docs/vi/template/prompt-refinement-editor-validator-rubric.md` — created
-- `docs/vi/template/prompt-refinement-editor-generator-policy.md` — created
-- `docs/en/template/prompt-refinement.md` — modified
-- `docs/vi/template/prompt-refinement.md` — modified
-- `backend/skills/prompt_refinement.md` — modified
-- `backend/tests/test_skill_service.py` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None for editor-template guardrails. Backend auto-loop/spawn tooling remains intentionally out of scope.
-
-**Flow explained:**
-Khi một prompt-refinement round fail kappa, main agent tạo evidence pack từ artifacts của round đó, spawn đúng hai editor subagents để review validator rubric và generator policy, rồi chọn proposal nhỏ nhất có evidence tốt. Editor agents không được mutate state; main agent vẫn sở hữu apply, rerun validators, gọi `evaluate_prompt_refinement_round`, và xin approval trước khi lock.
 
 ---

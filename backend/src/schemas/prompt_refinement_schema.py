@@ -25,7 +25,6 @@ class PromptRoundEvaluation:
 @dataclass(frozen=True)
 class PromptBundleRegistration:
     run_id: str
-    run_url: str | None
     session_run_id: str | None
     bundle_id: str
     generator_prompt_version: int
@@ -43,7 +42,6 @@ class PromptRefinementRoundResponse(BaseModel):
     validator_prompt_version: int
     bundle_id: str
     mlflow_run_id: str
-    mlflow_run_url: str | None = None
     n_disagreements: int
     mlflow_session_run_id: str | None = None
 
@@ -70,4 +68,3 @@ class PromptLockConfirmationResponse(BaseModel):
     kappa: float
     threshold: float
     mlflow_run_id: str
-    mlflow_run_url: str | None = None

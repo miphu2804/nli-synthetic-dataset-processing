@@ -132,6 +132,6 @@ Report:
 - disagreement artifact path nếu có
 - generator và validator prompt versions
 - bundle ID
-- MLflow run ID và run URL
+- MLflow run ID
 - blockers hoặc câu hỏi còn mở
 ```

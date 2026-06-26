@@ -16,6 +16,7 @@ from src.services.prompt_refinement.evaluator import (
 from src.services.prompt_refinement.evidence_pack import (
     PromptRefinementEvidencePackWriter,
 )
+from src.services.prompt_refinement.locking import PromptRefinementLockService
 from src.services.prompt_refinement.mlflow_store import PromptRefinementMlflowStore
 
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -28,6 +29,7 @@ class PromptRefinementService:
     def __init__(self, skills_dir: Path = Path("skills")) -> None:
         self._skills_dir = skills_dir
         self._evaluator = PromptRefinementEvaluator()
+        self._lock_service = PromptRefinementLockService()
         self._mlflow_store = PromptRefinementMlflowStore()
         self._evidence_writer = PromptRefinementEvidencePackWriter()
 
@@ -87,7 +89,6 @@ class PromptRefinementService:
             validator_prompt_version=registration.validator_prompt_version,
             bundle_id=registration.bundle_id,
             mlflow_run_id=registration.run_id,
-            mlflow_run_url=registration.run_url,
             n_disagreements=evaluation.n_disagreements,
             mlflow_session_run_id=registration.session_run_id,
         )
@@ -130,7 +131,7 @@ class PromptRefinementService:
         lock_run_id: str,
         tracking_uri: str = app_config.MLFLOW_URL,
     ) -> PromptLockConfirmationResponse:
-        return self._mlflow_store.confirm_prompt_lock(lock_run_id, tracking_uri)
+        return self._lock_service.confirm_prompt_lock(lock_run_id, tracking_uri)
 
     @staticmethod
     def _validate_round_args(round_number: int, change_summary: str) -> None:
