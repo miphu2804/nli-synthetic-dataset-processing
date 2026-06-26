@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
-from src.utils.nli_labels import require_canonical_label
+from src.utils.nli_labels import require_supported_nli_label
 from src.utils.validation_aggregation import (
     apply_paraphrases,
     attach_masked_text,
@@ -20,26 +20,26 @@ from src.utils.validation_aggregation import (
 
 class RequireCanonicalLabelTest(unittest.TestCase):
     def test_accepts_numeric_forms(self) -> None:
-        self.assertEqual(require_canonical_label(0), "entailment")
-        self.assertEqual(require_canonical_label("1"), "neutral")
-        self.assertEqual(require_canonical_label(2), "contradiction")
+        self.assertEqual(require_supported_nli_label(0), "entailment")
+        self.assertEqual(require_supported_nli_label("1"), "neutral")
+        self.assertEqual(require_supported_nli_label(2), "contradiction")
 
-    def test_accepts_canonical_names(self) -> None:
-        self.assertEqual(require_canonical_label("entailment"), "entailment")
-        self.assertEqual(require_canonical_label("neutral"), "neutral")
-        self.assertEqual(require_canonical_label("contradiction"), "contradiction")
+    def test_accepts_supported_label_names(self) -> None:
+        self.assertEqual(require_supported_nli_label("entailment"), "entailment")
+        self.assertEqual(require_supported_nli_label("neutral"), "neutral")
+        self.assertEqual(require_supported_nli_label("contradiction"), "contradiction")
 
     def test_rejects_unknown_label(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
-            require_canonical_label("garbage")
+            require_supported_nli_label("garbage")
 
     def test_rejects_non_entailment(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
-            require_canonical_label("non-entailment")
+            require_supported_nli_label("non-entailment")
 
     def test_rejects_empty_string(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported NLI label"):
-            require_canonical_label("")
+            require_supported_nli_label("")
 
 
 class InvalidLabelAggregationTest(unittest.TestCase):
@@ -972,7 +972,7 @@ class ComputeFleissKappaTest(unittest.TestCase):
     def test_perfect_agreement_returns_kappa_one(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            # Mix numeric and string forms that canonicalize equal.
+            # Mix numeric and string forms that normalize equal.
             paths = self._write(
                 root,
                 {

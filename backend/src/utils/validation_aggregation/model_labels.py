@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 
 import pandas as pd
-from src.utils.nli_labels import require_canonical_label
+from src.utils.nli_labels import require_supported_nli_label
 
 SOURCE_UID_COLUMN = "source_uid"
 PREDICTED_LABEL_COLUMN = "predicted_label"
@@ -57,7 +57,7 @@ def _read_model_label_column(model_name: str, path: str | Path) -> pd.DataFrame:
         raise ValueError(f"Model '{model_name}' contains rows with a blank reason.")
 
     dataframe[PREDICTED_LABEL_COLUMN] = dataframe[PREDICTED_LABEL_COLUMN].apply(
-        require_canonical_label
+        require_supported_nli_label
     )
     label_column = f"{_normalize_model_name(model_name)}_label"
     return dataframe[[SOURCE_UID_COLUMN, PREDICTED_LABEL_COLUMN]].rename(

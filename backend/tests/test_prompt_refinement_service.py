@@ -26,7 +26,7 @@ class PromptRefinementServiceTest(unittest.TestCase):
             encoding="utf-8",
         )
         (self.skills_dir / "validator.md").write_text(
-            "# Validator\nAssign one canonical label.\n", encoding="utf-8"
+            "# Validator\nAssign one supported NLI label.\n", encoding="utf-8"
         )
         self.calibration_input = self.root / "calibration.csv"
         pd.DataFrame(
@@ -436,7 +436,7 @@ class PromptRefinementServiceTest(unittest.TestCase):
         )
 
     def test_mixed_numeric_and_named_labels_agree(self) -> None:
-        # Equivalent numeric/named labels must canonicalize to agreement so the
+        # Equivalent numeric/named labels must normalize to agreement so the
         # disagreement count matches kappa.
         for model, labels in {
             "model-a": [0, 1],

@@ -284,7 +284,7 @@ class ProgressTrackingService:
 
     @staticmethod
     def _uid_key(source_uid: str | int) -> str:
-        """Return the canonical string key for a source_uid so int/str values compare consistently."""
+        """Return the normalized string key for a source_uid so int/str values compare consistently."""
         return str(source_uid)
 
     @staticmethod

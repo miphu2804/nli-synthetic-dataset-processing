@@ -7,8 +7,8 @@ validator prompts before large-scale generation. The generated corpus then
 passes through four layers: per-run blind validation, cross-model consensus,
 artifact flagging, and paraphrase application plus semantic revalidation. The
 trusted runtime normalizes and strictly validates both sides
-(`src/utils/nli_labels.py: require_canonical_label`) so only `0/1/2` and the
-canonical names `entailment`/`neutral`/`contradiction` are accepted; any other
+(`src/utils/nli_labels.py: require_supported_nli_label`) so only `0/1/2` and the
+supported label names `entailment`/`neutral`/`contradiction` are accepted; any other
 value raises before writing output.
 
 ## State Machine
@@ -78,7 +78,7 @@ Layer 1 — per-run blind check (one validator model). This is the main run loop
 │ submit_validation_result            [deterministic]      │
 │ predicted_label validated at schema boundary;            │
 │ runtime joins hidden expected_label, then computes       │
-│ accepted = canonical(pred) == canonical(expected)        │
+│ accepted = normalize(pred) == normalize(expected)        │
 └──────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -123,7 +123,7 @@ CLI enforces exactly three files and rejects more or fewer.
 ┌──────────────────────────────────────────────────────────┐
 │ python -m src.cli aggregate                              │
 │   --verdicts-dir  --masked-input  --expected-input       │
-│ agree_count = #models where canonical(pred)==canonical(exp)│
+│ agree_count = #models where normalize(pred)==normalize(exp)│
 └──────────────────────────────────────────────────────────┘
                               │
      ┌────────────┼────────────┐
@@ -170,7 +170,7 @@ validated/kept rows:
 ```
 
 The operator can run Layer 2 + Layer 3 with one command to persist all artifacts
-to a canonical output directory:
+to a standard output directory:
 
 ```bash
 python -m src.cli consensus-pmi \
@@ -306,7 +306,7 @@ source_uid,<model>_label...,expected_label,agree_count,decision
 
 - Use only `premise`, `hypothesis`, and the rubric; never infer the hidden label
   from row order, metadata, batch id, or prior outputs.
-- Return one of the 3 canonical names (`entailment`|`neutral`|`contradiction`);
+- Return one of the 3 supported label names (`entailment`|`neutral`|`contradiction`);
   the runtime maps to numeric ids. `reason` is Vietnamese and must be non-blank.
 - `accepted` (per-run, single model) and `decision` (cross-model consensus) are
   different layers: `accepted` = does this one model match `expected_label`;

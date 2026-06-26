@@ -16,7 +16,6 @@ class PromptRoundEvaluation:
     calibration_path: Path
     sample_count: int
     calibration: pd.DataFrame
-    calibration_uid_column: str
     disagreements: pd.DataFrame
     n_disagreements: int
     label_distribution: dict[str, int]

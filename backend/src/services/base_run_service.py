@@ -359,7 +359,7 @@ class BaseRunService:
 
     @staticmethod
     def _uid_key(source_uid):
-        """Return a canonical string key for a source UID."""
+        """Return a normalized string key for a source UID."""
         return str(source_uid)
 
     @staticmethod

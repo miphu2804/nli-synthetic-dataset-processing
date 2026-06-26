@@ -1,7 +1,10 @@
 from collections import Counter
 from pathlib import Path
 
-from src.utils.nli_labels import CANONICAL_LABEL_NAMES_IN_ORDER, require_canonical_label
+from src.utils.nli_labels import (
+    SUPPORTED_NLI_LABELS_IN_ORDER,
+    require_supported_nli_label,
+)
 from src.utils.validation_aggregation.model_labels import _merge_model_labels
 
 
@@ -23,11 +26,11 @@ def compute_fleiss_kappa(
         raise ValueError("Fleiss' Kappa requires at least 1 item.")
 
     item_labels = [
-        [require_canonical_label(row[column]) for column in label_columns]
+        [require_supported_nli_label(row[column]) for column in label_columns]
         for _, row in merged.iterrows()
     ]
     if categories is None:
-        categories = list(CANONICAL_LABEL_NAMES_IN_ORDER)
+        categories = list(SUPPORTED_NLI_LABELS_IN_ORDER)
     categories = _resolve_kappa_categories(item_labels, categories)
     kappa, per_category_proportion = _fleiss_kappa_from_counts(
         item_labels, categories, n_raters

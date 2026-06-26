@@ -20,7 +20,7 @@ from src.services.base_run_service import BaseRunService
 from src.services.dataset_reader_service import DatasetReaderService
 from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
 from src.services.progress_tracking_service import ProgressTrackingService
-from src.utils.nli_labels import require_canonical_label
+from src.utils.nli_labels import require_supported_nli_label
 from src.utils.validation_masking import build_masked_validation_dataset
 
 FINAL_ROW_COUNT_ERROR = (
@@ -391,13 +391,13 @@ class ValidationRunService(BaseRunService):
 
     @staticmethod
     def _labels_match(expected_label, predicted_label):
-        """Return True if expected and predicted labels are equal after canonicalization.
+        """Return True if expected and predicted labels match after normalization.
 
         Raises ValueError if expected_label is not a valid NLI label.
         """
-        return require_canonical_label(expected_label) == require_canonical_label(
-            predicted_label
-        )
+        return require_supported_nli_label(
+            expected_label
+        ) == require_supported_nli_label(predicted_label)
 
     @staticmethod
     def _count_acceptance(rows):

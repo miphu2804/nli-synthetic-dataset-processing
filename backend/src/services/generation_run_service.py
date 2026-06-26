@@ -391,5 +391,5 @@ class GenerationRunService(BaseRunService):
 
     @staticmethod
     def _label_key(label):
-        """Return a canonical string key for a label."""
+        """Return a normalized string key for a label."""
         return str(label)

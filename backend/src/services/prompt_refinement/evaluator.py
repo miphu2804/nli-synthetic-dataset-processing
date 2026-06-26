@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 from src.schemas.prompt_refinement_schema import PromptRoundEvaluation
-from src.utils.nli_labels import require_canonical_label
+from src.utils.nli_labels import require_supported_nli_label
 from src.utils.validation_aggregation import compute_fleiss_kappa
 
 KAPPA_THRESHOLD = 0.85
@@ -29,14 +29,13 @@ class PromptRefinementEvaluator:
         (
             sample_count,
             calibration,
-            uid_column,
         ) = self.validate_calibration_input(calibration_path, verdict_paths[0])
         kappa = float(kappa_result["kappa"])
         disagreements = self.build_disagreement_rows(model_label_paths)
 
         calibration_with_source_uid = calibration.copy()
         calibration_with_source_uid["source_uid"] = calibration_with_source_uid[
-            uid_column
+            "source_uid"
         ].astype(str)
 
         return PromptRoundEvaluation(
@@ -48,7 +47,6 @@ class PromptRefinementEvaluator:
             calibration_path=calibration_path,
             sample_count=sample_count,
             calibration=calibration_with_source_uid,
-            calibration_uid_column=uid_column,
             disagreements=disagreements,
             n_disagreements=len(disagreements),
             label_distribution=(
@@ -90,24 +88,20 @@ class PromptRefinementEvaluator:
         cls,
         calibration_path: Path,
         verdict_path: Path,
-    ) -> tuple[int, pd.DataFrame, str]:
+    ) -> tuple[int, pd.DataFrame]:
         if not calibration_path.exists():
             raise FileNotFoundError(
                 f"Calibration dataset not found: {calibration_path}"
             )
         calibration = cls.read_table(calibration_path)
-        uid_column = (
-            "source_uid"
-            if "source_uid" in calibration.columns
-            else "uid" if "uid" in calibration.columns else None
-        )
-        if uid_column is None or "label" not in calibration.columns:
-            raise ValueError(
-                "Calibration dataset must contain source_uid or uid, plus label."
-            )
-        if calibration[uid_column].isnull().any():
+        if (
+            "source_uid" not in calibration.columns
+            or "label" not in calibration.columns
+        ):
+            raise ValueError("Calibration dataset must contain source_uid and label.")
+        if calibration["source_uid"].isnull().any():
             raise ValueError("Calibration dataset contains null source UID values.")
-        calibration_uids = calibration[uid_column].astype(str)
+        calibration_uids = calibration["source_uid"].astype(str)
         if calibration_uids.duplicated().any():
             raise ValueError(
                 "Calibration dataset contains duplicate source UID values."
@@ -118,21 +112,13 @@ class PromptRefinementEvaluator:
             raise ValueError(
                 "Calibration dataset source UIDs must match verdict source UIDs."
             )
-        return len(calibration), calibration, uid_column
-
-    @staticmethod
-    def uid_column(dataframe: pd.DataFrame) -> str:
-        if "source_uid" in dataframe.columns:
-            return "source_uid"
-        if "uid" in dataframe.columns:
-            return "uid"
-        raise ValueError("Dataset must contain source_uid or uid.")
+        return len(calibration), calibration
 
     @staticmethod
     def label_distribution(dataframe: pd.DataFrame) -> dict[str, int]:
         if "label" not in dataframe.columns:
             raise ValueError("Calibration dataset must contain label.")
-        labels = dataframe["label"].apply(require_canonical_label)
+        labels = dataframe["label"].apply(require_supported_nli_label)
         return {
             str(label): int(count) for label, count in labels.value_counts().items()
         }
@@ -142,7 +128,7 @@ class PromptRefinementEvaluator:
         summaries = []
         for model, path in sorted(model_label_paths.items()):
             dataframe = cls.read_table(path)
-            labels = dataframe["predicted_label"].apply(require_canonical_label)
+            labels = dataframe["predicted_label"].apply(require_supported_nli_label)
             summaries.append(
                 {
                     "model": model,
@@ -167,10 +153,10 @@ class PromptRefinementEvaluator:
             dataframe = cls.read_table(path)[
                 ["source_uid", "predicted_label", "reason"]
             ].copy()
-            # Canonicalize labels so equivalent numeric/named forms (e.g. 0 and
+            # Normalize labels so equivalent numeric/named forms (e.g. 0 and
             # "entailment") count as agreement, matching compute_fleiss_kappa.
             dataframe["predicted_label"] = dataframe["predicted_label"].apply(
-                require_canonical_label
+                require_supported_nli_label
             )
             dataframe = dataframe.rename(
                 columns={
