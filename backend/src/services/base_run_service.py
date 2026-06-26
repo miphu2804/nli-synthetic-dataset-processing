@@ -4,6 +4,8 @@ from uuid import uuid4
 
 import pandas as pd
 
+DEFAULT_BATCH_SIZE = 20
+
 
 class BaseRunService:
     """Shared run-lifecycle helpers reused by the generation and validation services.

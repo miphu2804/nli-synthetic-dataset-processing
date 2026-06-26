@@ -13,8 +13,8 @@ from src.cli import (
 from src.cli import run_consensus_pmi as run_consensus_pmi_stage
 from src.cli import run_promote_paraphrase as run_promote_paraphrase_stage
 from src.providers.base import ToolProvider
+from src.services.base_run_service import DEFAULT_BATCH_SIZE
 from src.services.dataset_reader_service import DatasetReaderService
-from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
 from src.services.progress_tracking_service import ProgressTrackingService
 from src.services.prompt_refinement import PromptRefinementService
 from src.services.validation_run_service import ValidationRunService
@@ -70,7 +70,7 @@ class ValidationToolProvider(ToolProvider):
         batch_size: Annotated[
             int,
             Field(ge=1, description="Rows returned by each claim. Default: 20."),
-        ] = DEFAULT_GENERATION_BATCH_SIZE,
+        ] = DEFAULT_BATCH_SIZE,
         agent_id: Annotated[
             str,
             Field(description="Progress writer identifier. Use main for normal runs."),

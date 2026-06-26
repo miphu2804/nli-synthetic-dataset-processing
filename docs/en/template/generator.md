@@ -18,7 +18,6 @@ Available MCP resources:
 
 Available generation tools:
 - start_generation_run
-- calculate_dispatch_plan
 - claim_next_batch
 - submit_batch_result
 - get_run_progress
@@ -44,7 +43,10 @@ Flow:
    - skill://generator_plain or skill://generator_adversarial, matching
      generation_policy
 2. Call start_generation_run with from_sample and to_sample.
-3. Call calculate_dispatch_plan for the assigned sample count.
+3. Compute dispatch locally if using subagents:
+   - assigned_samples = to_sample - from_sample + 1
+   - total_batches = ceil(assigned_samples / batch_size)
+   - keep at most 10 active worker slots unless the operator sets a lower cap
 4. Loop:
    - claim_next_batch
    - transform each claimed row according to the chosen generation policy

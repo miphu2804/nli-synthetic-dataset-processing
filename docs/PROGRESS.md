@@ -1,3 +1,36 @@
+### [2026-06-26 19:44] — [DispatchPlanning] Remove redundant dispatch planning tool
+
+**Đã làm:**
+- Xoá service/router/provider/schema/test riêng cho `calculate_dispatch_plan` vì tool chỉ bọc phép tính agent có thể tự làm.
+- Gỡ registration MCP tool và REST route `/api/dispatch-plan/calculate` khỏi app wiring.
+- Chuyển default batch size `20` sang shared run lifecycle constant để generation/validation không phụ thuộc dispatch module.
+- Cập nhật generator flow/templates EN/VI và project overview để agent tự tính batch/worker khi dùng subagents.
+
+**Files thay đổi:**
+- `backend/src/main.py` — modified
+- `backend/src/providers/__init__.py`, `backend/src/services/__init__.py`, `backend/src/schemas/__init__.py` — modified
+- `backend/src/services/base_run_service.py`, `backend/src/services/generation_run_service.py`, `backend/src/services/validation_run_service.py` — modified
+- `backend/src/providers/generation_provider.py`, `backend/src/providers/validation_provider.py` — modified
+- `backend/src/services/dispatch_planning_service.py` — deleted
+- `backend/src/routers/dispatch_plan_router.py` — deleted
+- `backend/src/providers/dispatch_planning_provider.py` — deleted
+- `backend/src/schemas/dispatch_plan_schema.py` — deleted
+- `backend/tests/test_dispatch_planning_service.py`, `backend/tests/test_dispatch_plan_router.py` — deleted
+- `backend/tests/test_generation_provider.py` — modified
+- `docs/en/flow/generator.md`, `docs/vi/flow/generator.md` — modified
+- `docs/en/template/generator.md`, `docs/vi/template/generator.md` — modified
+- `docs/en/project-overview.md`, `docs/vi/project-overview.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Dispatch planning không còn là backend-owned runtime contract. Agent vẫn dùng `start_generation_run` để tạo run và `claim_next_batch` để lấy batch thật; nếu muốn chạy subagents song song thì agent tự tính `assigned_samples = to_sample - from_sample + 1`, `total_batches = ceil(assigned_samples / batch_size)`, rồi giữ số worker trong cap operator cho phép. Backend chỉ giữ các tool có side effect/runtime state: start, claim, submit, verify, finalize.
+
+---
+
 ### [2026-06-26 10:39] — [PromptRefinement] Split prompt-refinement service modules
 
 **Đã làm:**
@@ -250,24 +283,3 @@ Khi một prompt-refinement round fail kappa, main agent tạo evidence pack t�
 Prompt refinement provenance dựa vào artifact thật của round: prompt registry versions, prompt bundle, verdict files, disagreement rows, model names, kappa và decision. Local git commit không còn được log vì mỗi operator có thể chạy từ checkout khác và tự commit thay đổi nếu cần.
 
 ---
-
-### [2026-06-24 22:02] — [PromptRefinement] Generalize agent template and reduce filesystem leakage
-
-**Đã làm:**
-- Rút gọn prompt-refinement templates EN/VI thành template tổng quát với placeholders.
-- Bỏ repo/path cụ thể và bỏ hướng dẫn agent tự start MLflow/server.
-- Thêm guard MCP-first: chỉ đọc required resources, calibration_source được cung cấp, và không inspect file repo không liên quan.
-- Điều chỉnh `skill://prompt_refinement` để nói theo instruction/resource thay vì hardcode file path như `backend/skills/validator.md`.
-
-**Files thay đổi:**
-- `docs/en/template/prompt-refinement.md` — modified
-- `docs/vi/template/prompt-refinement.md` — modified
-- `backend/skills/prompt_refinement.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Prompt refinement template giờ chỉ giao nhiệm vụ orchestration cho agent: dùng MCP resources, tạo calibration/verdict artifacts từ input đã cung cấp, gọi `evaluate_prompt_refinement_round`, và báo blocker nếu MCP/MLflow unavailable. Việc khởi động backend/MLflow thuộc operator, không nằm trong prompt dán cho agent.

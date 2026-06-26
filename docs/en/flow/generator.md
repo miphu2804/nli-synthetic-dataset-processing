@@ -23,7 +23,7 @@ START
   -> start_generation_run(from_sample, to_sample)
        creates .pipeline/runs/{run_id}
        creates data/batches/{run_id}
-  -> calculate_dispatch_plan
+  -> compute batch count / worker count if using subagents
   -> claim_next_batch
   -> transform claimed rows
   -> self-check generated rows
@@ -55,4 +55,7 @@ source_uid,premise,hypothesis,label
   to compare policies.
 - Do not generate hypothesis text with Python templates.
 - Only MCP runtime tools write progress.
+- Dispatch planning is agent-owned: total_batches = ceil(assigned samples /
+  batch_size), and concurrent workers should stay within the operator-approved
+  cap.
 - Subagents may transform already-claimed rows but must return JSON only.

@@ -9,7 +9,6 @@ from src.schemas.dataset_writer_schema import (
     DatasetWriteRequest,
     DatasetWriteResponse,
 )
-from src.schemas.dispatch_plan_schema import DispatchPlanRequest, DispatchPlanResponse
 from src.schemas.drive_schema import (
     BrowseDriveFilesResponse,
     DriveAuthCompleteResponse,
@@ -66,8 +65,6 @@ __all__ = [
     "DatasetOutputConfig",
     "DatasetWriteRequest",
     "DatasetWriteResponse",
-    "DispatchPlanRequest",
-    "DispatchPlanResponse",
     "ClaimNextBatchResponse",
     "FinalizeGenerationRunResponse",
     "GeneratedRow",

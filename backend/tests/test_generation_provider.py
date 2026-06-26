@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 from fastmcp import FastMCP
-from src.providers import register_dispatch_planning_tools, register_generation_tools
+from src.providers import register_generation_tools
 
 
 class GenerationProviderTest(unittest.TestCase):
@@ -24,7 +24,6 @@ class GenerationProviderTest(unittest.TestCase):
         ).to_csv(self.input_path, index=False)
         self.mcp = FastMCP("test-mcp")
         register_generation_tools(self.mcp, self.pipeline_dir)
-        register_dispatch_planning_tools(self.mcp)
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -48,19 +47,6 @@ class GenerationProviderTest(unittest.TestCase):
             self.assertIn("to_sample", tool.parameters["properties"])
             self.assertNotIn("row_offset", tool.parameters["properties"])
             self.assertNotIn("row_limit", tool.parameters["properties"])
-
-        asyncio.run(scenario())
-
-    def test_calculate_dispatch_plan_tool_returns_adaptive_worker_count(self) -> None:
-        async def scenario() -> None:
-            result = await self.mcp.call_tool(
-                "calculate_dispatch_plan",
-                {"samples": 100},
-            )
-
-            self.assertEqual(result.structured_content["batch_size"], 20)
-            self.assertEqual(result.structured_content["total_batches"], 5)
-            self.assertEqual(result.structured_content["parallel_workers"], 5)
 
         asyncio.run(scenario())
 

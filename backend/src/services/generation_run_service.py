@@ -15,10 +15,9 @@ from src.schemas.generation_runtime_schema import (
     StartGenerationRunResponse,
     SubmitBatchResultResponse,
 )
-from src.services.base_run_service import BaseRunService
+from src.services.base_run_service import DEFAULT_BATCH_SIZE, BaseRunService
 from src.services.dataset_reader_service import DatasetReaderService
 from src.services.dataset_writer_service import DatasetWriterService
-from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
 from src.services.progress_tracking_service import ProgressTrackingService
 
 FINAL_ROW_COUNT_ERROR = (
@@ -51,7 +50,7 @@ class GenerationRunService(BaseRunService):
         output_path: str | None = None,
         row_offset: int = 0,
         row_limit: int | None = None,
-        batch_size: int = DEFAULT_GENERATION_BATCH_SIZE,
+        batch_size: int = DEFAULT_BATCH_SIZE,
         agent_id: str = "main",
     ) -> StartGenerationRunResponse:
         """Create a generation run, persist its settings, and append the run.start event."""

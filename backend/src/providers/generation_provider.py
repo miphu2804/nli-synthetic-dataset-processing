@@ -5,9 +5,9 @@ from fastmcp import FastMCP
 from fastmcp.tools import tool
 from pydantic import Field
 from src.providers.base import ToolProvider
+from src.services.base_run_service import DEFAULT_BATCH_SIZE
 from src.services.dataset_reader_service import DatasetReaderService
 from src.services.dataset_writer_service import DatasetWriterService
-from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
 from src.services.generation_run_service import GenerationRunService
 from src.services.progress_tracking_service import ProgressTrackingService
 
@@ -52,7 +52,7 @@ class GenerationToolProvider(ToolProvider):
         batch_size: Annotated[
             int,
             Field(ge=1, description="Rows returned by each claim. Default: 20."),
-        ] = DEFAULT_GENERATION_BATCH_SIZE,
+        ] = DEFAULT_BATCH_SIZE,
         agent_id: Annotated[
             str,
             Field(description="Progress writer identifier. Use main for normal runs."),

@@ -23,7 +23,7 @@ START
   -> start_generation_run(from_sample, to_sample)
        tạo .pipeline/runs/{run_id}
        tạo data/batches/{run_id}
-  -> calculate_dispatch_plan
+  -> tự tính số batch / số worker nếu dùng subagents
   -> claim_next_batch
   -> transform claimed rows
   -> self-check generated rows
@@ -55,4 +55,6 @@ source_uid,premise,hypothesis,label
   policy.
 - Không generate hypothesis text bằng Python templates.
 - Chỉ MCP runtime tools được ghi progress.
+- Dispatch planning thuộc agent: total_batches = ceil(assigned samples /
+  batch_size), và số worker đồng thời phải nằm trong cap operator cho phép.
 - Subagents có thể transform rows đã claim nhưng chỉ được trả JSON.

@@ -16,9 +16,8 @@ from src.schemas.validation_runtime_schema import (
     ValidationRunManifest,
     ValidatorVerdict,
 )
-from src.services.base_run_service import BaseRunService
+from src.services.base_run_service import DEFAULT_BATCH_SIZE, BaseRunService
 from src.services.dataset_reader_service import DatasetReaderService
-from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
 from src.services.progress_tracking_service import ProgressTrackingService
 from src.utils.nli_labels import to_label_name
 from src.utils.validation_masking import build_masked_validation_dataset
@@ -59,7 +58,7 @@ class ValidationRunService(BaseRunService):
         output_dir: str | None = None,
         row_offset: int = 0,
         row_limit: int | None = None,
-        batch_size: int = DEFAULT_GENERATION_BATCH_SIZE,
+        batch_size: int = DEFAULT_BATCH_SIZE,
         agent_id: str = "main",
     ) -> StartValidationRunResponse:
         """Create a validation run, persist its settings, and append the validation.start event."""

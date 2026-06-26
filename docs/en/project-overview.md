@@ -25,7 +25,6 @@ MCP server:
 nli-data-processing-mcp-server
   Generation:
     start_generation_run
-    calculate_dispatch_plan
     claim_next_batch
     submit_batch_result
     verify_progress_log
