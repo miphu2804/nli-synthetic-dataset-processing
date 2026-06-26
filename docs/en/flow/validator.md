@@ -21,8 +21,7 @@ fixed labeled calibration dataset
   -> exactly three independent validators judge the same rows
   -> evaluate_prompt_refinement_round
   -> kappa < 0.85: prepare_prompt_refinement_evidence_pack
-  -> prepare_prompt_refinement_editor_tasks
-  -> orchestrator spawns editor subagents from task payloads
+  -> orchestrator spawns editor subagents with static editor templates
   -> refine prompts
   -> kappa >= 0.85: eligible_to_lock
   -> confirm_prompt_lock: lock the prompt bundle after approval
@@ -30,11 +29,11 @@ fixed labeled calibration dataset
 ```
 
 Start MLflow separately; the backend never starts it automatically. Each round
-records the calibration dataset hash, prompt versions, Fleiss' kappa,
-verdict files, disagreements, and the bundle decision. Freeze the same source
-UID set across rounds. If the selected generator policy changes, regenerate
-that UID set and record the new round hash; if only the validator prompt
-changes, reuse the same generated calibration file. Read
+records the prompt versions, Fleiss' kappa, verdict files, disagreements, and
+the bundle decision. Keep the same calibration source UID set across comparable
+rounds by operator convention. If the selected generator policy changes,
+regenerate that UID set; if only the validator prompt changes, reuse the same
+generated calibration file. Read
 `skill://prompt_refinement` for the agent procedure.
 
 The Codex main agent owns MCP calls, prompt edits, and file persistence. It

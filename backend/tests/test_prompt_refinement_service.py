@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 from mlflow import MlflowClient
 from mlflow.exceptions import MlflowException
-from src.services.prompt_refinement_service import PromptRefinementService
+from src.services.prompt_refinement import PromptRefinementService
 
 
 class PromptRefinementServiceTest(unittest.TestCase):
@@ -222,40 +222,6 @@ class PromptRefinementServiceTest(unittest.TestCase):
         self.assertEqual(summary["validator_prompt_version"], 3)
         self.assertEqual(summary["generator_skill_name"], "generator_plain")
         self.assertEqual(summary["n_disagreements"], 1)
-
-    def test_prepare_editor_tasks_writes_orchestrator_payloads(self) -> None:
-        self._write_verdicts(
-            {
-                "model-a": ["entailment", "neutral"],
-                "model-b": ["entailment", "contradiction"],
-                "model-c": ["entailment", "neutral"],
-            }
-        )
-        evidence = self.service.prepare_evidence_pack(
-            verdicts_dir=self.verdicts_dir,
-            calibration_input=self.calibration_input,
-            output_root=self.root / "prompt-refinement-output",
-            round_number=1,
-        )
-
-        result = self.service.prepare_editor_tasks(evidence.evidence_dir)
-
-        self.assertEqual(result.status, "prepared")
-        self.assertEqual(len(result.tasks), 2)
-        self.assertEqual(
-            [task.role for task in result.tasks],
-            ["validator-rubric reviewer", "generator-policy reviewer"],
-        )
-        for task in result.tasks:
-            task_text = Path(task.task_path).read_text(encoding="utf-8")
-            self.assertIn("Read only these files", task_text)
-            self.assertIn("disagreement_rows.csv", task_text)
-            self.assertIn("round_summary.json", task_text)
-            self.assertIn("Do not call MCP tools", task_text)
-            self.assertIn("Do not edit files", task_text)
-            self.assertIn("Do not run evaluation", task_text)
-            self.assertIn("Do not return `both`", task_text)
-            self.assertIn("Return exactly this YAML", task_text)
 
     def test_confirmed_eligible_round_sets_locked_aliases(self) -> None:
         self._write_verdicts(
@@ -545,7 +511,7 @@ class PromptRefinementServiceTest(unittest.TestCase):
         with self.assertRaises(MlflowException):
             client.get_prompt_version_by_alias("nli-generator", "locked")
 
-    def test_session_rejects_different_calibration_uid_set(self) -> None:
+    def test_session_allows_different_calibration_uid_set(self) -> None:
         self._write_verdicts(
             {
                 "model-a": ["entailment", "neutral"],
@@ -564,7 +530,8 @@ class PromptRefinementServiceTest(unittest.TestCase):
             session_id="sess-001",
         )
 
-        # Round 2 with a completely different source UID set must be rejected.
+        # Round 2 can use a different source UID set. Each round still validates
+        # that its verdicts and calibration input contain the same UIDs.
         other_calibration = self.root / "calibration2.csv"
         pd.DataFrame(
             [
@@ -596,17 +563,18 @@ class PromptRefinementServiceTest(unittest.TestCase):
                 ]
             ).to_csv(self.verdicts_dir / f"{model}.csv", index=False)
 
-        with self.assertRaisesRegex(ValueError, "anchored to a different"):
-            self.service.evaluate_round(
-                verdicts_dir=self.verdicts_dir,
-                calibration_input=other_calibration,
-                round_number=2,
-                change_summary="Round 2 wrong set.",
-                tracking_uri=self.tracking_uri,
-                experiment_name="test-calibration",
-                artifact_root=self.artifact_root,
-                session_id="sess-001",
-            )
+        result = self.service.evaluate_round(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=other_calibration,
+            round_number=2,
+            change_summary="Round 2 different set.",
+            tracking_uri=self.tracking_uri,
+            experiment_name="test-calibration",
+            artifact_root=self.artifact_root,
+            session_id="sess-001",
+        )
+
+        self.assertEqual(result.mlflow_session_run_id is not None, True)
 
     def test_lock_terminates_session_run(self) -> None:
         self._write_verdicts(
@@ -676,7 +644,7 @@ class PromptRefinementServiceTest(unittest.TestCase):
             session_id=session_id,
         )
 
-    def test_legacy_unanchored_session_is_backfilled_and_guarded(self) -> None:
+    def test_existing_session_can_be_reused(self) -> None:
         client = MlflowClient(
             tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
         )
@@ -692,18 +660,13 @@ class PromptRefinementServiceTest(unittest.TestCase):
             },
         )
 
-        # First reuse back-fills the anchor.
-        self._eval_session(round_number=1, uids=["a", "b"], session_id="legacy")
-        self.assertEqual(
-            client.get_run(legacy.info.run_id).data.tags.get(
-                "calibration_uid_set_sha256"
-            )
-            is not None,
-            True,
+        first = self._eval_session(round_number=1, uids=["a", "b"], session_id="legacy")
+        second = self._eval_session(
+            round_number=2, uids=["x", "y"], session_id="legacy"
         )
-        # A later different UID set is now rejected.
-        with self.assertRaisesRegex(ValueError, "anchored to a different"):
-            self._eval_session(round_number=2, uids=["x", "y"], session_id="legacy")
+
+        self.assertEqual(first.mlflow_session_run_id, legacy.info.run_id)
+        self.assertEqual(second.mlflow_session_run_id, legacy.info.run_id)
 
     def test_finalized_session_rejects_new_rounds(self) -> None:
         result = self._eval_session(
@@ -818,7 +781,7 @@ class PromptRefinementServiceTest(unittest.TestCase):
             result.validator_prompt_version,
         )
 
-    def test_legacy_session_with_existing_rounds_rejected(self) -> None:
+    def test_existing_session_with_existing_rounds_can_be_reused(self) -> None:
         client = MlflowClient(
             tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
         )
@@ -833,15 +796,16 @@ class PromptRefinementServiceTest(unittest.TestCase):
                 "run_type": "calibration_session",
             },
         )
-        # A pre-existing child round, with the parent left unanchored.
+        # A pre-existing child round does not block reuse.
         client.create_run(
             experiment_id=experiment_id,
             run_name="prompt-refinement-round-01",
             tags={"mlflow.parentRunId": legacy.info.run_id},
         )
 
-        with self.assertRaisesRegex(ValueError, "already has rounds"):
-            self._eval_session(round_number=1, uids=["a", "b"], session_id="old")
+        result = self._eval_session(round_number=1, uids=["a", "b"], session_id="old")
+
+        self.assertEqual(result.mlflow_session_run_id, legacy.info.run_id)
 
 
 if __name__ == "__main__":

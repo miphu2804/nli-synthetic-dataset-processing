@@ -29,6 +29,7 @@ backend/data/*
 CLAUDE.md
 CODEX.md
 docs/handoff.md
+docs/superpowers/*
 
 # Frontend
 node_modules/

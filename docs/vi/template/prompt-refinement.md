@@ -80,16 +80,11 @@ Auto-refine sau failed round:
      current_validator_instructions.md
    Evidence pack phải tóm tắt đủ ba verdict files, kappa, decision, label
    distribution, disagreement count, generator_skill_name, prompt versions, và
-   calibration dataset hash. Editors chỉ được inspect pack này.
-3. Gọi:
-   prepare_prompt_refinement_editor_tasks(
-     evidence_dir="<EVIDENCE_DIR_FROM_PREVIOUS_CALL>"
-   )
-   Tool này trả concrete task payload files để orchestrator dùng.
-4. Spawn đúng hai editor subagents bằng các task payload đó:
+   calibration sample count. Editors chỉ được inspect pack này.
+3. Spawn đúng hai editor subagents bằng static editor templates:
    - validator-rubric reviewer
    - generator-policy reviewer
-5. Đưa cùng evidence pack cho cả hai editors. Editors chỉ trả proposals theo
+4. Đưa cùng evidence pack cho cả hai editors. Editors chỉ trả proposals theo
    schema:
    target: generator | validator | no_change
    evidence_uids: [...]

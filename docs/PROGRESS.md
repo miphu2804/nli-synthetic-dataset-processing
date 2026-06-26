@@ -1,3 +1,45 @@
+### [2026-06-26 10:39] — [PromptRefinement] Split prompt-refinement service modules
+
+**Đã làm:**
+- Tách `PromptRefinementService` monolith thành package `backend/src/services/prompt_refinement/` theo trách nhiệm: evaluator, MLflow store, evidence pack, locking, facade.
+- Xoá shim `backend/src/services/prompt_refinement_service.py` vì dependency nội bộ đã chuyển sang package import.
+- Đổi MCP provider và service tests sang import `PromptRefinementService` từ `src.services.prompt_refinement`.
+- Đổi default MLflow tracking URI, experiment name, và artifact root từ hardcode trong service/provider sang `app_config.MLFLOW_*`.
+- Xoá backend editor-task prompt generator; harness dùng static editor templates với evidence directory.
+- Tách contract/schema của prompt-refinement sang `prompt_refinement_schema.py`, gồm evaluation, MLflow registration và response DTOs.
+- Bỏ calibration dataset/UID-set hash khỏi refinement contract, response, MLflow params/tags/artifacts và evidence summary.
+- Không thêm backend auto-refinement loop, không spawn subagents, không đụng generation/validation runtime/PMI/split.
+
+**Files thay đổi:**
+- `backend/src/services/prompt_refinement/__init__.py` — created
+- `backend/src/services/prompt_refinement/evaluator.py` — created
+- `backend/src/services/prompt_refinement/mlflow_store.py` — created
+- `backend/src/services/prompt_refinement/evidence_pack.py` — created
+- `backend/src/services/prompt_refinement/editor_tasks.py` — deleted
+- `backend/src/services/prompt_refinement/locking.py` — created
+- `backend/src/services/prompt_refinement/service.py` — created
+- `backend/src/services/prompt_refinement_service.py` — deleted
+- `backend/src/app_config.py` — modified
+- `backend/src/providers/validation_provider.py` — modified
+- `backend/src/services/prompt_refinement/locking.py` — modified
+- `backend/src/schemas/prompt_refinement_schema.py` — created
+- `backend/src/schemas/validation_runtime_schema.py` — modified
+- `backend/tests/test_prompt_refinement_service.py` — modified
+- `backend/tests/test_validation_provider.py` — modified
+- `backend/tests/test_skill_service.py` — modified
+- `backend/skills/instructor.md`, `backend/skills/prompt_refinement.md` — modified
+- `README.md`, `README.vi.md`, `docs/en/*`, `docs/vi/*` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Prompt-refinement backend giờ là facade mỏng: `evaluator.py` giữ verdict discovery, calibration checks, kappa/disagreement evidence; `mlflow_store.py` giữ prompt registry/run/session/candidate-alias side effects; `evidence_pack.py` chỉ ghi failed-round evidence files; `locking.py` chỉ lock exact prompt versions từ eligible MLflow run. `prompt_refinement_schema.py` là nơi sở hữu các data contract của refinement: `PromptRoundEvaluation`, `PromptBundleRegistration`, và các response DTOs; `validation_runtime_schema.py` chỉ còn validation-run schema. Refinement không còn ghi hash field; session grouping chỉ chặn reuse sau khi finalized/locked, còn việc giữ cùng calibration UID set giữa comparable rounds là operator convention. Public import nội bộ là `src.services.prompt_refinement.PromptRefinementService`; không còn wrapper file cùng cấp trong `services/`. Default MLflow URL, experiment name, và artifact root nằm ở `app_config.MLFLOW_*` nhưng các tool/service vẫn nhận override. Backend chỉ chuẩn bị evaluation/evidence/lock; editor subagent prompts thuộc harness/static templates, không còn API tool tạo task payload.
+
+---
+
 ### [2026-06-25 20:35] — [ProgressTracking] Remove progress hash-chain verification
 
 **Đã làm:**
@@ -18,7 +60,7 @@
 **Còn lại:** None
 
 **Flow explained:**
-Progress tracking vẫn append JSONL event theo `agent-{sequence}` và vẫn replay state như trước. Verification không còn check cryptographic chain; nó chỉ xác nhận trạng thái pipeline có nhất quán đủ để finalize an toàn. Prompt-refinement dataset hashes không bị đụng vì đó là provenance khác, vẫn hữu ích.
+Progress tracking vẫn append JSONL event theo `agent-{sequence}` và vẫn replay state như trước. Verification không còn check cryptographic chain; nó chỉ xác nhận trạng thái pipeline có nhất quán đủ để finalize an toàn.
 
 ---
 
@@ -207,7 +249,7 @@ Khi một prompt-refinement round fail kappa, main agent tạo evidence pack t�
 **Còn lại:** None
 
 **Flow explained:**
-Prompt refinement provenance giờ dựa vào artifact thật của round: calibration dataset hash, prompt registry versions, prompt bundle, verdict files, disagreement rows, model names, kappa và decision. Local git commit không còn được log vì mỗi operator có thể chạy từ checkout khác và tự commit thay đổi nếu cần.
+Prompt refinement provenance dựa vào artifact thật của round: prompt registry versions, prompt bundle, verdict files, disagreement rows, model names, kappa và decision. Local git commit không còn được log vì mỗi operator có thể chạy từ checkout khác và tự commit thay đổi nếu cần.
 
 ---
 
@@ -231,28 +273,3 @@ Prompt refinement provenance giờ dựa vào artifact thật của round: calib
 
 **Flow explained:**
 Prompt refinement template giờ chỉ giao nhiệm vụ orchestration cho agent: dùng MCP resources, tạo calibration/verdict artifacts từ input đã cung cấp, gọi `evaluate_prompt_refinement_round`, và báo blocker nếu MCP/MLflow unavailable. Việc khởi động backend/MLflow thuộc operator, không nằm trong prompt dán cho agent.
-
----
-
-### [2026-06-24 00:00] — [ValidationIntegrity] Blank validator label payloads
-
-**Đã làm:**
-- Đổi validator-facing payload từ `masked_label=[MASK]` sang cột `label` có giá trị rỗng.
-- Giữ trusted input/runtime vẫn cần expected `label` thật để chấm `predicted_label`.
-- Đổi apply-paraphrase revalidation queue sang `source_uid,premise,hypothesis,label` với label rỗng.
-- Đổi promotion check để reject mọi label thật trong revalidation queue, nhưng chấp nhận ô trống/NaN khi đọc CSV.
-- Cập nhật validator skill, provider descriptions, docs/templates EN/VI, và tests theo contract mới.
-
-**Files thay đổi:**
-- `backend/src/utils/validation_masking.py`, `backend/src/schemas/validation_runtime_schema.py`, `backend/src/services/validation_run_service.py` — modified
-- `backend/src/cli.py`, `backend/src/providers/validation_provider.py`, `backend/src/utils/validation_aggregation/promotion.py` — modified
-- `backend/skills/validator.md`, `backend/skills/instructor.md` — modified
-- `backend/tests/*validation*`, `backend/tests/test_cli.py`, `backend/tests/test_skill_service.py` — modified
-- `docs/en/*`, `docs/vi/*`, `docs/PROGRESS.md` — modified
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Input cho `start_validation_run` vẫn phải là dataset có label thật; runtime dùng label đó làm hidden expected label khi submit/finalize. Chỉ payload/file giao cho validator mới có `label` rỗng để tránh lộ đáp án và tránh sentinel `[MASK]`. File `*_validation_masked.csv` giữ tên cũ vì downstream đang dùng tên này, nhưng nội dung masked giờ là blank label.

@@ -81,16 +81,11 @@ Auto-refine after a failed round:
      current_validator_instructions.md
    The evidence pack must summarize all three verdict files, kappa, decision,
    label distribution, disagreement count, generator_skill_name, prompt
-   versions, and calibration dataset hash. Editors may inspect only this pack.
-3. Call:
-   prepare_prompt_refinement_editor_tasks(
-     evidence_dir="<EVIDENCE_DIR_FROM_PREVIOUS_CALL>"
-   )
-   This returns concrete task payload files for the orchestrator.
-4. Spawn exactly two editor subagents using those task payloads:
+   versions, and calibration sample count. Editors may inspect only this pack.
+3. Spawn exactly two editor subagents with the static editor templates:
    - validator-rubric reviewer
    - generator-policy reviewer
-5. Give both editors the same evidence pack. Editors return proposals only
+4. Give both editors the same evidence pack. Editors return proposals only
    using:
    target: generator | validator | no_change
    evidence_uids: [...]

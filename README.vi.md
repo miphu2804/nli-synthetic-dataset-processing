@@ -43,8 +43,8 @@ Mở `http://127.0.0.1:5000`, sau đó yêu cầu agent đọc
 đúng ba file verdict độc lập, rồi gọi `evaluate_prompt_refinement_round`.
 
 - Fleiss' kappa `< 0.85`: gọi `prepare_prompt_refinement_evidence_pack`, rồi
-  `prepare_prompt_refinement_editor_tasks`, spawn editor subagents từ task
-  payloads, sửa prompt, rồi chạy vòng tiếp theo.
+  harness spawn editor subagents bằng static editor templates và evidence
+  directory, sửa prompt, rồi chạy vòng tiếp theo.
 - Fleiss' kappa `>= 0.85`: prompt đủ điều kiện lock.
 - Chỉ gán alias `locked` khi gọi `confirm_prompt_lock` sau approval rõ ràng.
 

@@ -132,10 +132,10 @@ prepare_prompt_refinement_evidence_pack(
 )
 ```
 
-Then call `prepare_prompt_refinement_editor_tasks(evidence_dir=<EVIDENCE_DIR>)`.
-This writes two concrete task payloads for the harness/orchestrator to pass to
-subagents. The backend still does not spawn agents, call model APIs, edit
-instructions, or run the next round.
+Then the harness/orchestrator runs editor subagents with the static editor
+templates in `docs/*/template/prompt-refinement-editor-*.md`, passing only the
+evidence directory. The backend does not create editor prompts, spawn agents,
+call model APIs, edit instructions, or run the next round.
 
 Run exactly two editor subagents:
 

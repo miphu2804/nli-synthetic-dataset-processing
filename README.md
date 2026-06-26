@@ -99,10 +99,10 @@ uv run mlflow server \
 Open `http://127.0.0.1:5000`, then ask the agent to read
 `skill://prompt_refinement`. The agent collects exactly three independent
 verdict files and calls `evaluate_prompt_refinement_round`. Kappa below `0.85`
-means call `prepare_prompt_refinement_evidence_pack`, then
-`prepare_prompt_refinement_editor_tasks`, spawn the editor subagents from those
-task payloads, and refine. Kappa at least `0.85` is eligible to lock and still
-requires an explicit `confirm_prompt_lock` call.
+means call `prepare_prompt_refinement_evidence_pack`, then the harness spawns
+editor subagents with the static editor templates and evidence directory before
+refining. Kappa at least `0.85` is eligible to lock and still requires an
+explicit `confirm_prompt_lock` call.
 
 ## Resources (MCP server: `nli-tools`)
 

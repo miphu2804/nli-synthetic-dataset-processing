@@ -4,6 +4,7 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from fastmcp.tools import tool
 from pydantic import Field
+from src.app_config import app_config
 from src.cli import (
     build_verdict_candidates,
     default_consensus_output_dir,
@@ -15,7 +16,7 @@ from src.providers.base import ToolProvider
 from src.services.dataset_reader_service import DatasetReaderService
 from src.services.dispatch_planning_service import DEFAULT_GENERATION_BATCH_SIZE
 from src.services.progress_tracking_service import ProgressTrackingService
-from src.services.prompt_refinement_service import PromptRefinementService
+from src.services.prompt_refinement import PromptRefinementService
 from src.services.validation_run_service import ValidationRunService
 
 
@@ -230,11 +231,11 @@ class ValidationToolProvider(ToolProvider):
         tracking_uri: Annotated[
             str,
             Field(description="MLflow tracking and prompt registry URI."),
-        ] = "http://127.0.0.1:5000",
+        ] = app_config.MLFLOW_URL,
         experiment_name: Annotated[
             str,
             Field(description="MLflow experiment used for prompt calibration rounds."),
-        ] = "nli-prompt-calibration",
+        ] = app_config.MLFLOW_EXPERIMENT_NAME,
         session_id: Annotated[
             str | None,
             Field(
@@ -335,40 +336,6 @@ class ValidationToolProvider(ToolProvider):
         ).model_dump(mode="json")
 
     @tool(
-        name="prepare_prompt_refinement_editor_tasks",
-        description=(
-            "Create concrete task payload files for the two prompt-refinement "
-            "editor subagents. The orchestrator reads these payloads and spawns "
-            "the subagents; the backend does not spawn agents."
-        ),
-    )
-    def prepare_prompt_refinement_editor_tasks(
-        self,
-        evidence_dir: Annotated[
-            str,
-            Field(
-                description=(
-                    "Evidence directory created by "
-                    "prepare_prompt_refinement_evidence_pack."
-                )
-            ),
-        ],
-        tasks_dir: Annotated[
-            str | None,
-            Field(
-                description=(
-                    "Optional output directory for editor task payloads. Defaults "
-                    "to <evidence_dir>/tasks."
-                )
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        return self._prompt_refinement_service.prepare_editor_tasks(
-            evidence_dir=evidence_dir,
-            tasks_dir=tasks_dir,
-        ).model_dump(mode="json")
-
-    @tool(
         name="confirm_prompt_lock",
         description=(
             "Lock the exact prompt bundle of a previously eligible refinement "
@@ -386,7 +353,7 @@ class ValidationToolProvider(ToolProvider):
         tracking_uri: Annotated[
             str,
             Field(description="MLflow tracking and prompt registry URI."),
-        ] = "http://127.0.0.1:5000",
+        ] = app_config.MLFLOW_URL,
     ) -> dict[str, Any]:
         return self._prompt_refinement_service.confirm_prompt_lock(
             lock_run_id=lock_run_id,

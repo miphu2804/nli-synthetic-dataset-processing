@@ -20,8 +20,7 @@ fixed labeled calibration dataset
   -> đúng ba validator độc lập chấm cùng các row
   -> evaluate_prompt_refinement_round
   -> kappa < 0.85: prepare_prompt_refinement_evidence_pack
-  -> prepare_prompt_refinement_editor_tasks
-  -> orchestrator spawn editor subagents từ task payloads
+  -> orchestrator spawn editor subagents bằng static editor templates
   -> sửa prompt
   -> kappa >= 0.85: eligible_to_lock
   -> confirm_prompt_lock: lock prompt bundle sau approval
@@ -29,10 +28,10 @@ fixed labeled calibration dataset
 ```
 
 MLflow được operator chạy riêng; backend không tự khởi động MLflow. Mỗi round
-ghi dataset hash, prompt versions, Fleiss' kappa, verdict files,
-disagreements, và bundle decision. Giữ cố định source UID set giữa các round.
-Nếu generator policy đã chọn đổi, regenerate đúng UID set đó và ghi round hash
-mới; nếu chỉ validator prompt đổi, reuse generated calibration file. Đọc
+ghi prompt versions, Fleiss' kappa, verdict files, disagreements, và bundle
+decision. Giữ cố định source UID set giữa các round bằng quy ước operator khi
+các round cần so sánh trực tiếp. Nếu generator policy đã chọn đổi, regenerate
+đúng UID set đó; nếu chỉ validator prompt đổi, reuse generated calibration file. Đọc
 `skill://prompt_refinement` để chạy đúng flow.
 
 Codex main agent sở hữu MCP calls, prompt edits, và file persistence. Main agent

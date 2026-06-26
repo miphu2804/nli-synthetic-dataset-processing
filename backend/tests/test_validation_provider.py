@@ -83,14 +83,11 @@ class ValidationProviderTest(unittest.TestCase):
 
         asyncio.run(scenario())
 
-    def test_prompt_refinement_editor_tasks_tool_exposes_parameters(self) -> None:
+    def test_prompt_refinement_editor_tasks_tool_is_not_backend_owned(self) -> None:
         async def scenario() -> None:
-            tool = await self.mcp.get_tool("prepare_prompt_refinement_editor_tasks")
-            properties = tool.parameters["properties"]
+            tool_names = {tool.name for tool in await self.mcp.list_tools()}
 
-            self.assertIn("evidence_dir", properties)
-            self.assertIn("tasks_dir", properties)
-            self.assertNotIn("self", properties)
+            self.assertNotIn("prepare_prompt_refinement_editor_tasks", tool_names)
 
         asyncio.run(scenario())
 
