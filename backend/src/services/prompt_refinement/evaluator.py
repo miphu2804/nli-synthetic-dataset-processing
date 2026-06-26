@@ -150,9 +150,11 @@ class PromptRefinementEvaluator:
         merged = None
         label_columns = []
         for model, path in model_label_paths.items():
-            dataframe = cls.read_table(path)[
-                ["source_uid", "predicted_label", "reason"]
-            ].copy()
+            dataframe: pd.DataFrame = (
+                cls.read_table(path)
+                .loc[:, ["source_uid", "predicted_label", "reason"]]
+                .copy()
+            )
             # Normalize labels so equivalent numeric/named forms (e.g. 0 and
             # "entailment") count as agreement, matching compute_fleiss_kappa.
             dataframe["predicted_label"] = dataframe["predicted_label"].apply(
