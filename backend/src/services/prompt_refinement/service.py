@@ -151,15 +151,3 @@ class PromptRefinementService:
         if not path.exists():
             raise FileNotFoundError(f"Prompt skill not found: {path}")
         return path.read_text(encoding="utf-8")
-
-    @staticmethod
-    def _build_run_url(
-        tracking_uri: str,
-        experiment_id: str,
-        run_id: str,
-    ) -> str | None:
-        return PromptRefinementMlflowStore.build_run_url(
-            tracking_uri,
-            experiment_id,
-            run_id,
-        )
