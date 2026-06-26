@@ -15,10 +15,12 @@ backend/.pipeline/
 backend/.mlflow/
 .cocoindex_code/
 outputs/
-data/batches/
-data/generated/
-backend/data/batches/
-backend/data/generated/
+data/*
+!data/generated/
+!data/generated/**
+backend/data/*
+!backend/data/generated/
+!backend/data/generated/**
 .codegraph/
 
 # Harness
