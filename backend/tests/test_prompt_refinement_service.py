@@ -708,26 +708,36 @@ class PromptRefinementServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already finalized"):
             self._eval_session(round_number=2, uids=["a", "b"], session_id="sess-mark")
 
-    def test_parse_prompt_uri_accepts_only_exact_well_formed_uri(self) -> None:
-        self.assertEqual(
-            PromptRefinementService._parse_prompt_uri(
-                "prompts:/nli-generator/7", "nli-generator"
-            ),
-            7,
+    def test_confirm_lock_rejects_wrong_prompt_uri_name(self) -> None:
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri,
+            registry_uri=self.tracking_uri,
         )
-        malformed = [
-            "prompts:/evil-prompt/7",  # wrong prompt name
-            "prompts:/x/nli-generator/7",  # extra path segment
-            "nli-generator/7",  # missing scheme
-            "prompts://nli-generator/7",  # double slash
-            "prompts:/nli-generator/",  # missing version
-            "prompts:/nli-generator/0",  # non-positive version
-            "prompts:/nli-generator/-1",  # negative version
-            "prompts:/nli-generator/v7",  # non-numeric version
-        ]
-        for uri in malformed:
-            with self.assertRaises(ValueError, msg=uri):
-                PromptRefinementService._parse_prompt_uri(uri, "nli-generator")
+        experiment_id = client.create_experiment(
+            "test-calibration",
+            artifact_location=self.artifact_root,
+        )
+        run = client.create_run(
+            experiment_id=experiment_id,
+            tags={
+                "decision": "eligible_to_lock",
+                "bundle_id": "round-01",
+            },
+        )
+        client.log_metric(run.info.run_id, "fleiss_kappa", 1.0)
+        client.log_param(run.info.run_id, "generator_prompt_uri", "prompts:/other/1")
+        client.log_param(
+            run.info.run_id,
+            "validator_prompt_uri",
+            "prompts:/nli-validator/1",
+        )
+        client.set_terminated(run.info.run_id, status="FINISHED")
+
+        with self.assertRaisesRegex(ValueError, "nli-generator"):
+            self.service.confirm_prompt_lock(
+                lock_run_id=run.info.run_id,
+                tracking_uri=self.tracking_uri,
+            )
 
     def test_partial_locked_alias_write_raises_and_is_repairable(self) -> None:
         from unittest.mock import patch

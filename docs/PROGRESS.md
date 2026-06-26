@@ -16,12 +16,10 @@
 - `backend/src/services/prompt_refinement/mlflow_store.py` — created
 - `backend/src/services/prompt_refinement/evidence_pack.py` — created
 - `backend/src/services/prompt_refinement/editor_tasks.py` — deleted
-- `backend/src/services/prompt_refinement/locking.py` — created
 - `backend/src/services/prompt_refinement/service.py` — created
 - `backend/src/services/prompt_refinement_service.py` — deleted
 - `backend/src/app_config.py` — modified
 - `backend/src/providers/validation_provider.py` — modified
-- `backend/src/services/prompt_refinement/locking.py` — modified
 - `backend/src/schemas/prompt_refinement_schema.py` — created
 - `backend/src/schemas/validation_runtime_schema.py` — modified
 - `backend/tests/test_prompt_refinement_service.py` — modified
@@ -36,7 +34,7 @@
 **Còn lại:** None
 
 **Flow explained:**
-Prompt-refinement backend giờ là facade mỏng: `evaluator.py` giữ verdict discovery, calibration checks, kappa/disagreement evidence; `mlflow_store.py` giữ prompt registry/run/session/candidate-alias side effects; `evidence_pack.py` chỉ ghi failed-round evidence files; `locking.py` chỉ lock exact prompt versions từ eligible MLflow run. `prompt_refinement_schema.py` là nơi sở hữu các data contract của refinement: `PromptRoundEvaluation`, `PromptBundleRegistration`, và các response DTOs; `validation_runtime_schema.py` chỉ còn validation-run schema. Refinement không còn ghi hash field; session grouping chỉ chặn reuse sau khi finalized/locked, còn việc giữ cùng calibration UID set giữa comparable rounds là operator convention. Public import nội bộ là `src.services.prompt_refinement.PromptRefinementService`; không còn wrapper file cùng cấp trong `services/`. Default MLflow URL, experiment name, và artifact root nằm ở `app_config.MLFLOW_*` nhưng các tool/service vẫn nhận override. Backend chỉ chuẩn bị evaluation/evidence/lock; editor subagent prompts thuộc harness/static templates, không còn API tool tạo task payload.
+Prompt-refinement backend giờ là facade mỏng: `evaluator.py` giữ verdict discovery, calibration checks, kappa/disagreement evidence; `mlflow_store.py` giữ prompt registry/run/session/candidate-alias/locked-alias side effects; `evidence_pack.py` chỉ ghi failed-round evidence files. `prompt_refinement_schema.py` là nơi sở hữu các data contract của refinement: `PromptRoundEvaluation`, `PromptBundleRegistration`, và các response DTOs; `validation_runtime_schema.py` chỉ còn validation-run schema. Refinement không còn ghi hash field; session grouping chỉ chặn reuse sau khi finalized/locked, còn việc giữ cùng calibration UID set giữa comparable rounds là operator convention. Public import nội bộ là `src.services.prompt_refinement.PromptRefinementService`; không còn wrapper file cùng cấp trong `services/`. Default MLflow URL, experiment name, và artifact root nằm ở `app_config.MLFLOW_*` nhưng các tool/service vẫn nhận override. Backend chỉ chuẩn bị evaluation/evidence/lock; editor subagent prompts thuộc harness/static templates, không còn API tool tạo task payload.
 
 ---
 

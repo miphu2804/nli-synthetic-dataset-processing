@@ -16,7 +16,6 @@ from src.services.prompt_refinement.evaluator import (
 from src.services.prompt_refinement.evidence_pack import (
     PromptRefinementEvidencePackWriter,
 )
-from src.services.prompt_refinement.locking import PromptLockingService
 from src.services.prompt_refinement.mlflow_store import PromptRefinementMlflowStore
 
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -31,7 +30,6 @@ class PromptRefinementService:
         self._evaluator = PromptRefinementEvaluator()
         self._mlflow_store = PromptRefinementMlflowStore()
         self._evidence_writer = PromptRefinementEvidencePackWriter()
-        self._locking_service = PromptLockingService()
 
     def evaluate_round(
         self,
@@ -132,7 +130,7 @@ class PromptRefinementService:
         lock_run_id: str,
         tracking_uri: str = app_config.MLFLOW_URL,
     ) -> PromptLockConfirmationResponse:
-        return self._locking_service.confirm_prompt_lock(lock_run_id, tracking_uri)
+        return self._mlflow_store.confirm_prompt_lock(lock_run_id, tracking_uri)
 
     @staticmethod
     def _validate_round_args(round_number: int, change_summary: str) -> None:
@@ -153,10 +151,6 @@ class PromptRefinementService:
         if not path.exists():
             raise FileNotFoundError(f"Prompt skill not found: {path}")
         return path.read_text(encoding="utf-8")
-
-    @staticmethod
-    def _parse_prompt_uri(uri: str, expected_name: str) -> int:
-        return PromptLockingService.parse_prompt_uri(uri, expected_name)
 
     @staticmethod
     def _build_run_url(
