@@ -21,28 +21,28 @@ fixed labeled calibration dataset
   -> exactly three independent validators judge the same rows
   -> evaluate_prompt_refinement
   -> kappa < 0.85: needs_prompt_update
-  -> optionally call propose_prompt_refinement_update for a user-facing proposal
-  -> user manually updates prompts after the completed calibration
+  -> main agent reviews logged disagreement evidence
+  -> user approves any manual prompt update after the completed calibration
   -> kappa >= 0.85: accepted
   -> start large-scale generation
 ```
 
 The connected `nli-tools` runtime owns tool execution and calibration logging.
 Each calibration records Fleiss' kappa, verdict files, prompt snapshots,
-rejected sample count, and the decision. The proposal tool is separate so the
-harness explicitly requests the user-facing prompt suggestion after the
-calibration. Keep the same calibration source UID set across comparable
-calibrations by operator convention. If the selected generator policy changes,
-regenerate that UID set; if only the validator prompt changes, reuse the same
-generated calibration file. Load the `prompt_refinement` skill through the
-connected skill lookup for the agent procedure.
+rejected sample count, `disagreement_rows.csv`, and the decision. Low kappa is
+an agent-owned evidence review step, not a backend prompt-proposal step. Keep the
+same calibration source UID set across comparable calibrations by operator
+convention. If the selected generator policy changes, regenerate that UID set;
+if only the validator prompt changes, reuse the same generated calibration file.
+Load the `prompt_refinement` skill through the connected skill lookup for the
+agent procedure.
 
 The Codex main agent owns MCP calls and file persistence. It
 dispatches three isolated validator subagents; each receives masked rows only
 and returns verdicts without reading expected labels or other models' outputs.
 Prompt files stay unchanged from subagent dispatch through MCP evaluation.
-The backend does not register prompt versions, promote aliases, lock prompts, or
-run the next calibration automatically.
+The backend does not propose prompt edits, register prompt versions, promote
+aliases, lock prompts, or run the next calibration automatically.
 
 PMI is not a prompt-refinement trigger. It belongs to Layer 3 after generation
 and consensus validation.

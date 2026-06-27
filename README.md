@@ -90,11 +90,12 @@ already has the `nli-tools` MCP tools and skill lookup available. It loads
 `prompt_refinement`, prepares one fixed calibration dataset, collects exactly
 three independent verdict files, then calls `evaluate_prompt_refinement`.
 
-Kappa below `0.85` returns `needs_prompt_update`; the agent may then call
-`propose_prompt_refinement_update` to get a user-facing manual prompt-update
-proposal. Kappa at least `0.85` returns `accepted`. The backend logs the
-calibration evidence and does not register prompt versions, promote aliases,
-lock prompts, or run another calibration automatically.
+Kappa below `0.85` returns `needs_prompt_update`; the main agent then reviews
+the logged evidence such as `disagreement_rows.csv` and reports the smallest
+evidence-backed next step for user approval. Kappa at least `0.85` returns
+`accepted`. The backend logs the calibration evidence and does not propose
+prompt edits, register prompt versions, promote aliases, lock prompts, or run
+another calibration automatically.
 
 ## Resources (MCP server: `nli-tools`)
 

@@ -73,6 +73,6 @@ data/batches/{run_id}/
 ```
 
 Batch CSVs are runtime artifacts, not final outputs. Successful finalization
-merges the batch files, verifies progress integrity and row counts, then deletes
+merges the batch files, checks progress consistency and row counts, then deletes
 both the run state and `data/batches/{run_id}`. Failed verification keeps those
 artifacts for debugging.

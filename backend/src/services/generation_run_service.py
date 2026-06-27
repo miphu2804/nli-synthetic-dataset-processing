@@ -210,7 +210,7 @@ class GenerationRunService(BaseRunService):
     ) -> FinalizeGenerationRunResponse:
         """Merge generation outputs, verify the run, and clean temporary state."""
         run_settings, state, output_files = self._collect_finalize_outputs(run_id)
-        rows_written = self._merge_batch_outputs(
+        rows_written = self._merge_batch_csv(
             output_files,
             Path(run_settings.output_path),
         )
@@ -257,7 +257,7 @@ class GenerationRunService(BaseRunService):
         run_id: str,
         agent_id: str | None = None,
     ) -> ProgressVerificationResponse:
-        """Verify generation progress-log integrity and row reconciliation."""
+        """Check generation progress-log consistency and row reconciliation."""
         return self._verify_progress_log(run_id, agent_id)
 
     def list_generation_runs(self) -> ListGenerationRunsResponse:
@@ -360,15 +360,9 @@ class GenerationRunService(BaseRunService):
                 raise ValueError("premise must not be empty.")
             if not row.hypothesis.strip():
                 raise ValueError("hypothesis must not be empty.")
-            if self._label_key(row.label) != self._label_key(
-                source_labels[self._uid_key(row.source_uid)]
-            ):
+            if str(row.label) != str(source_labels[self._uid_key(row.source_uid)]):
                 raise ValueError("Batch result label must match the source label.")
         return normalized_rows, normalized_skips
-
-    def _merge_batch_outputs(self, output_files, output_path):
-        """Concatenate generation batch CSVs into output_path and return the rows written."""
-        return self._merge_batch_csv(output_files, output_path)
 
     @staticmethod
     def _normalize_source_row(row, uid_column):
@@ -387,8 +381,3 @@ class GenerationRunService(BaseRunService):
             return Path(output_path).expanduser().resolve()
         input_stem = Path(input_path).stem
         return (Path("data/generated") / f"{input_stem}_nli_adversarials.csv").resolve()
-
-    @staticmethod
-    def _label_key(label):
-        """Return a normalized string key for a label."""
-        return str(label)

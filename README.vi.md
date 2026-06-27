@@ -32,12 +32,12 @@ và skill lookup của `nli-tools`. Agent load `prompt_refinement`, chuẩn bị
 calibration dataset cố định, thu đúng ba file verdict độc lập, rồi gọi
 `evaluate_prompt_refinement`.
 
-- Fleiss' kappa `< 0.85`: calibration trả `needs_prompt_update`; harness có thể gọi
-  `propose_prompt_refinement_update` để lấy proposal user-facing, rồi dừng để
-  user tự update prompt nếu phù hợp.
+- Fleiss' kappa `< 0.85`: calibration trả `needs_prompt_update`; main agent đọc
+  evidence đã log như `disagreement_rows.csv`, rồi report next step nhỏ nhất có
+  evidence để user duyệt.
 - Fleiss' kappa `>= 0.85`: calibration trả `accepted`.
-- Backend log calibration evidence nhưng không register prompt version, promote
-  alias, lock prompt, hoặc tự chạy calibration tiếp theo.
+- Backend log calibration evidence nhưng không propose prompt edit, register
+  prompt version, promote alias, lock prompt, hoặc tự chạy calibration tiếp theo.
 
 PMI không nằm trong refinement loop. PMI chạy sau generation và validation để
 phát hiện artifact token cần paraphrase.
@@ -51,7 +51,7 @@ phát hiện artifact token cần paraphrase.
 | `skill://generator_adversarial` | Quy tắc adversarial generation có kiểm soát |
 | `skill://generator` | Legacy adversarial generator alias |
 | `skill://validator` | Blind validation 3 class |
-| `skill://prompt_refinement` | Calibration ba model, kappa, và proposal user-facing |
+| `skill://prompt_refinement` | Calibration ba model, kappa, và evidence handoff cho agent |
 
 Tài liệu chi tiết:
 

@@ -63,17 +63,11 @@ class ValidationProviderTest(unittest.TestCase):
 
         asyncio.run(scenario())
 
-    def test_prompt_refinement_proposal_tool_is_harness_accessible(self) -> None:
+    def test_prompt_refinement_proposal_tool_is_not_backend_owned(self) -> None:
         async def scenario() -> None:
-            tool = await self.mcp.get_tool("propose_prompt_refinement_update")
-            properties = tool.parameters["properties"]
+            tool_names = {tool.name for tool in await self.mcp.list_tools()}
 
-            self.assertIn("verdicts_dir", properties)
-            self.assertIn("calibration_input", properties)
-            self.assertIn("generator_skill_name", properties)
-            self.assertNotIn("round_number", properties)
-            self.assertNotIn("tracking_uri", properties)
-            self.assertNotIn("experiment_name", properties)
+            self.assertNotIn("propose_prompt_refinement_update", tool_names)
 
         asyncio.run(scenario())
 

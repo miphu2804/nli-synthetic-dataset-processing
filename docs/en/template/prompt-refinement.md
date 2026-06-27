@@ -49,15 +49,11 @@ evaluate_prompt_refinement(
 
 Decision handling:
 1. If decision=accepted, stop and report the calibration result.
-2. If decision=needs_prompt_update, call:
-   propose_prompt_refinement_update(
-     verdicts_dir="output_root/calibration/verdicts",
-     calibration_input="output_root/calibration/calibration.csv",
-     generator_skill_name="<GENERATOR_SKILL_NAME>"
-   )
-3. Stop and report the returned proposal, rejected sample count, and
-   disagreement_rows.csv from the same MLflow run so the user can decide which
-   prompt to update manually.
+2. If decision=needs_prompt_update, stop automatic execution. Inspect the logged
+   disagreement_rows.csv, prompt snapshots, verdict files, and calibration rows.
+3. Report the rejected sample count, disagreement evidence, and the smallest
+   evidence-backed next step for user approval. Do not edit prompts unless the
+   user explicitly approves that follow-up.
 
 Rules:
 - Do not read hidden labels outside calibration_source preparation.
@@ -67,6 +63,8 @@ Rules:
 - Do not inspect unrelated repository files.
 - Do not edit generator or validator instructions during calibration.
 - Do not use PMI in this loop.
+- Do not ask the backend to propose prompt edits; the main agent owns evidence
+  review and user-facing recommendations.
 - Do not register prompt versions, promote aliases, or lock prompts.
 - If required skills, tools, or three independent validator executions are
   unavailable, report the blocker.
@@ -75,8 +73,8 @@ Report:
 - verdict file paths
 - kappa and decision
 - rejected sample count
-- propose_prompt_refinement_update result if called
 - disagreement_rows.csv
+- agent-owned next step or blocker
 - bundle ID
 - MLflow run ID
 - blockers or unresolved questions

@@ -20,13 +20,6 @@ class PromptRefinementEvaluation:
 
 
 @dataclass(frozen=True)
-class PromptRefinementProposal:
-    reason: str
-    suggested_action: str
-    evidence_uids: list[str]
-
-
-@dataclass(frozen=True)
 class PromptRefinementLog:
     run_id: str
     bundle_id: str

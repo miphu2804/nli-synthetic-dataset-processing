@@ -48,15 +48,11 @@ evaluate_prompt_refinement(
 
 Xử lý decision:
 1. Nếu decision=accepted, dừng và report kết quả calibration.
-2. Nếu decision=needs_prompt_update, gọi:
-   propose_prompt_refinement_update(
-     verdicts_dir="output_root/calibration/verdicts",
-     calibration_input="output_root/calibration/calibration.csv",
-     generator_skill_name="<GENERATOR_SKILL_NAME>"
-   )
-3. Dừng và report proposal trả về, rejected sample count, và
-   disagreement_rows.csv trong cùng MLflow run để user tự quyết định prompt nào
-   cần update thủ công.
+2. Nếu decision=needs_prompt_update, dừng automatic execution. Inspect
+   disagreement_rows.csv đã log, prompt snapshots, verdict files, và calibration
+   rows.
+3. Report rejected sample count, disagreement evidence, và next step nhỏ nhất có
+   evidence để user duyệt. Không sửa prompt nếu user chưa approve follow-up đó.
 
 Rules:
 - Không đọc hidden labels ngoài bước chuẩn bị calibration_source.
@@ -66,6 +62,8 @@ Rules:
 - Không inspect các file repo không liên quan.
 - Không sửa generator hoặc validator instructions trong lúc calibration đang chạy.
 - Không dùng PMI trong loop này.
+- Không yêu cầu backend propose prompt edits; main agent sở hữu evidence review
+  và recommendation cho user.
 - Không register prompt versions, promote aliases, hoặc lock prompts.
 - Nếu thiếu required skills, tools, hoặc ba validator execution độc lập, báo
   blocker.
@@ -74,8 +72,8 @@ Report:
 - verdict file paths
 - kappa và decision
 - rejected sample count
-- kết quả propose_prompt_refinement_update nếu đã gọi
 - disagreement_rows.csv
+- next step hoặc blocker do agent đề xuất
 - bundle ID
 - MLflow run ID
 - blockers hoặc câu hỏi còn mở
