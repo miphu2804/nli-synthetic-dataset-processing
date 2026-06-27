@@ -42,9 +42,8 @@ Mở `http://127.0.0.1:5000`, sau đó yêu cầu agent đọc
 `skill://prompt_refinement`. Agent phải dùng cùng một calibration dataset, thu
 đúng ba file verdict độc lập, rồi gọi `evaluate_prompt_refinement_round`.
 
-- Fleiss' kappa `< 0.85`: gọi `prepare_prompt_refinement_evidence_pack`, rồi
-  harness spawn editor subagents bằng static editor templates và evidence
-  directory, sửa prompt, rồi chạy vòng tiếp theo.
+- Fleiss' kappa `< 0.85`: harness inspect MLflow round artifacts, đề xuất thay
+  đổi prompt nhỏ nhất, rồi chạy vòng tiếp theo nếu phù hợp.
 - Fleiss' kappa `>= 0.85`: prompt đủ điều kiện lock.
 - Chỉ gán alias `locked` khi gọi `confirm_prompt_lock` sau approval rõ ràng.
 

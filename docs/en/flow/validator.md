@@ -20,8 +20,8 @@ fixed labeled calibration dataset
   -> generate with the selected generator policy
   -> exactly three independent validators judge the same rows
   -> evaluate_prompt_refinement_round
-  -> kappa < 0.85: prepare_prompt_refinement_evidence_pack
-  -> orchestrator spawns editor subagents with static editor templates
+  -> kappa < 0.85: harness inspects MLflow round artifacts
+  -> orchestrator proposes one prompt change
   -> refine prompts
   -> kappa >= 0.85: eligible_to_lock
   -> confirm_prompt_lock: lock the prompt bundle after approval

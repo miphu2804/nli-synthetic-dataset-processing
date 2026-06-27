@@ -1,3 +1,32 @@
+### [2026-06-27 02:35] — [PromptRefinement] Remove backend evidence-pack helper
+
+**Đã làm:**
+- Xoá MCP tool `prepare_prompt_refinement_evidence_pack` khỏi validation provider.
+- Xoá `PromptRefinementService.prepare_evidence_pack(...)`, response schema tương ứng, và writer module `review_artifacts.py`.
+- Cập nhật prompt-refinement skill/template/docs để failed-round refine do harness tự inspect MLflow artifacts và tự loop round tiếp theo.
+- Cập nhật tests để assert evidence-pack helper không còn là backend-owned tool.
+
+**Files thay đổi:**
+- `backend/src/providers/validation_provider.py` — modified
+- `backend/src/services/prompt_refinement/service.py` — modified
+- `backend/src/schemas/prompt_refinement_schema.py` — modified
+- `backend/src/services/prompt_refinement/review_artifacts.py` — deleted
+- `backend/tests/test_prompt_refinement_service.py`, `backend/tests/test_validation_provider.py`, `backend/tests/test_skill_service.py` — modified
+- `backend/skills/instructor.md`, `backend/skills/prompt_refinement.md` — modified
+- `README.md`, `README.vi.md` — modified
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
+- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Prompt-refinement backend giờ chỉ đo một round, ghi MLflow artifacts, trả decision và hỗ trợ explicit lock. Khi `decision=refine_prompt`, harness đọc artifacts của MLflow run như `disagreement_rows.csv`, `prompt_bundle.json`, calibration manifest và verdict files để quyết định sửa prompt hoặc chạy round tiếp theo; backend không còn tạo local evidence pack, không spawn editor agents, và không giữ method thủ công cho refine loop.
+
+---
+
 ### [2026-06-27 02:15] — [PromptRefinement] Remove thin MLflow support module
 
 **Đã làm:**
@@ -202,38 +231,5 @@ Prompt-refinement giờ tách lock path ra rõ hơn: `PromptRefinementService.co
 
 **Flow explained:**
 Generator runtime không có khái niệm worker count nữa ở cả code lẫn template. Agent có thể chạy tuần tự hoặc tự spawn bao nhiêu subagent tùy context, nhưng backend chỉ biết các mutation có state thật: `start_generation_run`, `claim_next_batch`, `submit_batch_result`, `verify_progress_log`, `finalize_generation_run`.
-
----
-
-### [2026-06-26 19:44] — [DispatchPlanning] Remove redundant dispatch planning tool
-
-**Đã làm:**
-- Xoá service/router/provider/schema/test riêng cho `calculate_dispatch_plan` vì tool chỉ bọc phép tính agent có thể tự làm.
-- Gỡ registration MCP tool và REST route `/api/dispatch-plan/calculate` khỏi app wiring.
-- Chuyển default batch size `20` sang shared run lifecycle constant để generation/validation không phụ thuộc dispatch module.
-- Cập nhật generator flow/templates EN/VI và project overview để agent tự tính batch/worker khi dùng subagents.
-
-**Files thay đổi:**
-- `backend/src/main.py` — modified
-- `backend/src/providers/__init__.py`, `backend/src/services/__init__.py`, `backend/src/schemas/__init__.py` — modified
-- `backend/src/services/base_run_service.py`, `backend/src/services/generation_run_service.py`, `backend/src/services/validation_run_service.py` — modified
-- `backend/src/providers/generation_provider.py`, `backend/src/providers/validation_provider.py` — modified
-- `backend/src/services/dispatch_planning_service.py` — deleted
-- `backend/src/routers/dispatch_plan_router.py` — deleted
-- `backend/src/providers/dispatch_planning_provider.py` — deleted
-- `backend/src/schemas/dispatch_plan_schema.py` — deleted
-- `backend/tests/test_dispatch_planning_service.py`, `backend/tests/test_dispatch_plan_router.py` — deleted
-- `backend/tests/test_generation_provider.py` — modified
-- `docs/en/flow/generator.md`, `docs/vi/flow/generator.md` — modified
-- `docs/en/template/generator.md`, `docs/vi/template/generator.md` — modified
-- `docs/en/project-overview.md`, `docs/vi/project-overview.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Dispatch planning không còn là backend-owned runtime contract. Agent vẫn dùng `start_generation_run` để tạo run và `claim_next_batch` để lấy batch thật; nếu muốn chạy subagents song song thì agent tự tính `assigned_samples = to_sample - from_sample + 1`, `total_batches = ceil(assigned_samples / batch_size)`, rồi giữ số worker trong cap operator cho phép. Backend chỉ giữ các tool có side effect/runtime state: start, claim, submit, verify, finalize.
 
 ---

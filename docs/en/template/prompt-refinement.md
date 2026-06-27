@@ -60,33 +60,15 @@ evaluate_prompt_refinement_round(
 
 Auto-refine after a failed round:
 1. If decision=eligible_to_lock, stop and report. Do not lock without approval.
-2. If decision=refine_prompt and round_number < max_rounds, call:
-   prepare_prompt_refinement_evidence_pack(
-     verdicts_dir="output_root/round-<NN>/verdicts",
-     calibration_input="output_root/round-<NN>/calibration.csv",
-     output_root="output_root",
-     round_number=<NN>,
-     generator_skill_name="<GENERATOR_SKILL_NAME>",
-     bundle_id="<BUNDLE_ID_FROM_EVALUATION>",
-     mlflow_run_id="<MLFLOW_RUN_ID_FROM_EVALUATION>",
-     generator_prompt_version=<GENERATOR_PROMPT_VERSION>,
-     validator_prompt_version=<VALIDATOR_PROMPT_VERSION>
-   )
-   This creates:
-   output_root/round-<NN>/evidence/
-     disagreement_rows.csv
-     disagreement_calibration_rows.csv
-     round_summary.json
-     current_generator_instructions.md
-     current_validator_instructions.md
-   The evidence pack must summarize all three verdict files, kappa, decision,
-   label distribution, disagreement count, generator_skill_name, prompt
-   versions, and calibration sample count. Editors may inspect only this pack.
-3. Spawn exactly two editor subagents with the static editor templates:
+2. If decision=refine_prompt and round_number < max_rounds, inspect the MLflow
+   artifacts for the evaluated run, especially disagreement_rows.csv,
+   prompt_bundle.json, the calibration manifest, and the verdict files.
+3. Spawn exactly two editor subagents with the static editor templates if a
+   review is needed:
    - validator-rubric reviewer
    - generator-policy reviewer
-4. Give both editors the same evidence pack. Editors return proposals only
-   using:
+4. Give both editors only the evidence intentionally exported from the evaluated
+   MLflow round. Editors return proposals only using:
    target: generator | validator | no_change
    evidence_uids: [...]
    diagnosis: ...

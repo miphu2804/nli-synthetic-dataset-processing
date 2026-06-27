@@ -6,7 +6,6 @@ from pathlib import Path
 from src.app_config import app_config
 from src.schemas.prompt_refinement_schema import (
     PromptLockConfirmationResponse,
-    PromptRefinementEvidencePackResponse,
     PromptRefinementRoundResponse,
 )
 from src.services.prompt_refinement.evaluator import (
@@ -15,9 +14,6 @@ from src.services.prompt_refinement.evaluator import (
 )
 from src.services.prompt_refinement.locking import PromptRefinementLockService
 from src.services.prompt_refinement.mlflow_store import PromptRefinementMlflowStore
-from src.services.prompt_refinement.review_artifacts import (
-    PromptRefinementReviewArtifactsWriter,
-)
 
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 SKILL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -31,7 +27,6 @@ class PromptRefinementService:
         self._evaluator = PromptRefinementEvaluator()
         self._lock_service = PromptRefinementLockService()
         self._mlflow_store = PromptRefinementMlflowStore()
-        self._review_artifacts_writer = PromptRefinementReviewArtifactsWriter()
 
     def evaluate_round(
         self,
@@ -91,42 +86,6 @@ class PromptRefinementService:
             mlflow_run_id=registration.run_id,
             n_disagreements=evaluation.n_disagreements,
             mlflow_session_run_id=registration.session_run_id,
-        )
-
-    def prepare_evidence_pack(
-        self,
-        verdicts_dir: str | Path,
-        calibration_input: str | Path,
-        output_root: str | Path,
-        round_number: int,
-        generator_skill_name: str = "generator",
-        bundle_id: str | None = None,
-        mlflow_run_id: str | None = None,
-        generator_prompt_version: int | None = None,
-        validator_prompt_version: int | None = None,
-    ) -> PromptRefinementEvidencePackResponse:
-        """Write a local evidence pack for post-failure editor subagents."""
-        if round_number < 1:
-            raise ValueError("round_number must be at least 1.")
-        self._validate_generator_skill_name(generator_skill_name)
-
-        evaluation = self._evaluator.evaluate_round_inputs(
-            verdicts_dir,
-            calibration_input,
-        )
-        generator_text = self._read_skill(f"{generator_skill_name}.md")
-        validator_text = self._read_skill("validator.md")
-        return self._review_artifacts_writer.write_review_artifacts(
-            evaluation,
-            output_root=output_root,
-            round_number=round_number,
-            generator_skill_name=generator_skill_name,
-            bundle_id=bundle_id,
-            mlflow_run_id=mlflow_run_id,
-            generator_prompt_version=generator_prompt_version,
-            validator_prompt_version=validator_prompt_version,
-            generator_text=generator_text,
-            validator_text=validator_text,
         )
 
     def confirm_prompt_lock(

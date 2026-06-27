@@ -46,20 +46,6 @@ class PromptRefinementRoundResponse(BaseModel):
     mlflow_session_run_id: str | None = None
 
 
-class PromptRefinementEvidencePackResponse(BaseModel):
-    status: Literal["prepared"]
-    evidence_dir: str
-    disagreement_rows_path: str
-    disagreement_calibration_rows_path: str
-    round_summary_path: str
-    generator_instructions_path: str
-    validator_instructions_path: str
-    decision: Literal["refine_prompt", "eligible_to_lock"]
-    kappa: float
-    n_disagreements: int
-    models: list[str]
-
-
 class PromptLockConfirmationResponse(BaseModel):
     decision: Literal["lock_prompt"]
     bundle_id: str

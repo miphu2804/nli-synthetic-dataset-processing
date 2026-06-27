@@ -19,8 +19,8 @@ fixed labeled calibration dataset
   -> generate bằng generator policy đã chọn
   -> đúng ba validator độc lập chấm cùng các row
   -> evaluate_prompt_refinement_round
-  -> kappa < 0.85: prepare_prompt_refinement_evidence_pack
-  -> orchestrator spawn editor subagents bằng static editor templates
+  -> kappa < 0.85: harness inspect MLflow round artifacts
+  -> orchestrator đề xuất một prompt change
   -> sửa prompt
   -> kappa >= 0.85: eligible_to_lock
   -> confirm_prompt_lock: lock prompt bundle sau approval

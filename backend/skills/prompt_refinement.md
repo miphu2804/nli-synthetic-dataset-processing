@@ -96,46 +96,20 @@ MLflow's Prompt Registry already versions every generator and validator prompt
 on each evaluation (`nli-generator` / `nli-validator` vN), so manual copies are
 redundant and provide no extra provenance safety.
 
-## Failed-Round Editor Workflow
+## Failed-Round Review Workflow
 
 When `evaluate_prompt_refinement_round` returns `decision=refine_prompt`, the
-main agent owns the next step. Do not ask validator subagents to revise
-instructions. Call `prepare_prompt_refinement_evidence_pack` to build exactly:
+backend has already logged the round evidence to MLflow, including
+`disagreement_rows.csv`, `prompt_bundle.json`, the calibration manifest, and the
+three verdict files. The harness owns the next step: inspect those artifacts,
+decide whether a prompt change is justified, and start a new round if needed.
 
-```text
-output_root/round-<NN>/evidence/
-  disagreement_rows.csv
-  disagreement_calibration_rows.csv
-  round_summary.json
-  current_generator_instructions.md
-  current_validator_instructions.md
-```
-
-The evidence pack is the only material editor subagents may inspect. It should
-summarize the three verdict files, kappa, decision, label distribution,
-disagreement count, generator skill name, prompt versions, and calibration
-dataset hash.
-
-MCP helper call:
-
-```text
-prepare_prompt_refinement_evidence_pack(
-  verdicts_dir="output_root/round-<NN>/verdicts",
-  calibration_input="output_root/round-<NN>/calibration.csv",
-  output_root="output_root",
-  round_number=<NN>,
-  generator_skill_name="<GENERATOR_SKILL_NAME>",
-  bundle_id="<BUNDLE_ID_FROM_EVALUATION>",
-  mlflow_run_id="<MLFLOW_RUN_ID_FROM_EVALUATION>",
-  generator_prompt_version=<GENERATOR_PROMPT_VERSION>,
-  validator_prompt_version=<VALIDATOR_PROMPT_VERSION>
-)
-```
-
-Then the harness/orchestrator runs editor subagents with the static editor
-templates in `docs/*/template/prompt-refinement-editor-*.md`, passing only the
-evidence directory. The backend does not create editor prompts, spawn agents,
-call model APIs, edit instructions, or run the next round.
+Do not ask validator subagents to revise instructions. If the harness uses
+editor subagents, run them with the static editor templates in
+`docs/*/template/prompt-refinement-editor-*.md` and give them only the evidence
+the harness intentionally exports from the MLflow round. The backend does not
+create editor prompts, spawn agents, call model APIs, edit instructions, write
+local review packs, or run the next round.
 
 Run exactly two editor subagents:
 

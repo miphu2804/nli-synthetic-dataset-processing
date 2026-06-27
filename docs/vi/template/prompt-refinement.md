@@ -59,33 +59,14 @@ evaluate_prompt_refinement_round(
 
 Auto-refine sau failed round:
 1. Nếu decision=eligible_to_lock, dừng và report. Không lock nếu chưa approve.
-2. Nếu decision=refine_prompt và round_number < max_rounds, gọi:
-   prepare_prompt_refinement_evidence_pack(
-     verdicts_dir="output_root/round-<NN>/verdicts",
-     calibration_input="output_root/round-<NN>/calibration.csv",
-     output_root="output_root",
-     round_number=<NN>,
-     generator_skill_name="<GENERATOR_SKILL_NAME>",
-     bundle_id="<BUNDLE_ID_FROM_EVALUATION>",
-     mlflow_run_id="<MLFLOW_RUN_ID_FROM_EVALUATION>",
-     generator_prompt_version=<GENERATOR_PROMPT_VERSION>,
-     validator_prompt_version=<VALIDATOR_PROMPT_VERSION>
-   )
-   Tool này tạo:
-   output_root/round-<NN>/evidence/
-     disagreement_rows.csv
-     disagreement_calibration_rows.csv
-     round_summary.json
-     current_generator_instructions.md
-     current_validator_instructions.md
-   Evidence pack phải tóm tắt đủ ba verdict files, kappa, decision, label
-   distribution, disagreement count, generator_skill_name, prompt versions, và
-   calibration sample count. Editors chỉ được inspect pack này.
-3. Spawn đúng hai editor subagents bằng static editor templates:
+2. Nếu decision=refine_prompt và round_number < max_rounds, inspect MLflow
+   artifacts của evaluated run, nhất là disagreement_rows.csv,
+   prompt_bundle.json, calibration manifest, và verdict files.
+3. Spawn đúng hai editor subagents bằng static editor templates nếu cần review:
    - validator-rubric reviewer
    - generator-policy reviewer
-4. Đưa cùng evidence pack cho cả hai editors. Editors chỉ trả proposals theo
-   schema:
+4. Chỉ đưa cho editors phần evidence được harness chủ động export từ evaluated
+   MLflow round. Editors chỉ trả proposals theo schema:
    target: generator | validator | no_change
    evidence_uids: [...]
    diagnosis: ...

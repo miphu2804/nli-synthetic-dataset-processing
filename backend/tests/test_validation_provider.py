@@ -62,24 +62,11 @@ class ValidationProviderTest(unittest.TestCase):
 
         asyncio.run(scenario())
 
-    def test_prompt_refinement_evidence_pack_tool_exposes_parameters(self) -> None:
+    def test_prompt_refinement_evidence_pack_tool_is_not_backend_owned(self) -> None:
         async def scenario() -> None:
-            tool = await self.mcp.get_tool("prepare_prompt_refinement_evidence_pack")
-            properties = tool.parameters["properties"]
+            tool_names = {tool.name for tool in await self.mcp.list_tools()}
 
-            for name in (
-                "verdicts_dir",
-                "calibration_input",
-                "output_root",
-                "round_number",
-                "generator_skill_name",
-                "bundle_id",
-                "mlflow_run_id",
-                "generator_prompt_version",
-                "validator_prompt_version",
-            ):
-                self.assertIn(name, properties)
-            self.assertNotIn("self", properties)
+            self.assertNotIn("prepare_prompt_refinement_evidence_pack", tool_names)
 
         asyncio.run(scenario())
 

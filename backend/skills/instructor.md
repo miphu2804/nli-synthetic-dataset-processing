@@ -64,7 +64,6 @@ verify_validation_progress_log
 finalize_validation_run
 list_validation_runs
 evaluate_prompt_refinement_round
-prepare_prompt_refinement_evidence_pack
 ```
 
 ## Resource Map
@@ -93,8 +92,7 @@ load prompt_refinement
   -> main agent dispatches exactly three independent validator subagents
   -> main agent validates and persists one verdict file per model
   -> evaluate_prompt_refinement_round
-  -> prepare_prompt_refinement_evidence_pack when decision=refine_prompt
-  -> harness runs editor subagents with static editor templates and evidence_dir
+  -> harness inspects MLflow artifacts when decision=refine_prompt
   -> refine while kappa < 0.85
   -> explicitly confirm an eligible prompt bundle before locking it
 ```

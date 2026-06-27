@@ -72,8 +72,8 @@ class SkillServiceTest(unittest.TestCase):
         for document in (skill, english_template, vietnamese_template):
             lower_document = document.lower()
             self.assertIn("max_rounds", document)
-            self.assertIn("evidence/", document)
-            self.assertIn("prepare_prompt_refinement_evidence_pack", document)
+            self.assertIn("disagreement_rows.csv", document)
+            self.assertNotIn("prepare_prompt_refinement_evidence_pack", document)
             self.assertNotIn("prepare_prompt_refinement_editor_tasks", document)
             self.assertIn("validator-rubric reviewer", document)
             self.assertIn("generator-policy reviewer", document)
