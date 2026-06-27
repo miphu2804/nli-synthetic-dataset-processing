@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-from src.schemas.prompt_refinement_schema import PromptRoundEvaluation
+from src.services.prompt_refinement.models import PromptRoundEvaluation
 from src.utils.nli_labels import to_label_name
 from src.utils.validation_aggregation import compute_fleiss_kappa
 
@@ -19,53 +19,33 @@ class PromptRefinementEvaluator:
         self,
         verdicts_dir: str | Path,
         calibration_input: str | Path,
-        *,
-        include_summary_fields: bool = True,
     ) -> PromptRoundEvaluation:
         verdict_paths = self._discover_valid_verdict_files(Path(verdicts_dir))
         model_label_paths = {path.stem: path for path in verdict_paths}
         kappa_result = compute_fleiss_kappa(model_label_paths)
         calibration_path = Path(calibration_input)
-        (
-            sample_count,
-            calibration,
-        ) = self._load_validated_calibration(calibration_path, verdict_paths[0])
+        sample_count = self._load_validated_calibration(
+            calibration_path, verdict_paths[0]
+        )
         kappa = float(kappa_result["kappa"])
         disagreements = self._build_disagreement_rows(model_label_paths)
 
-        calibration_with_source_uid = calibration.copy()
-        calibration_with_source_uid["source_uid"] = calibration_with_source_uid[
-            "source_uid"
-        ].astype(str)
-
         return PromptRoundEvaluation(
-            verdict_paths=verdict_paths,
             model_label_paths=model_label_paths,
             kappa_result=kappa_result,
             kappa=kappa,
             decision=self.decide_round_outcome(kappa),
             calibration_path=calibration_path,
             sample_count=sample_count,
-            calibration=calibration_with_source_uid,
             disagreements=disagreements,
             n_disagreements=len(disagreements),
-            label_distribution=(
-                self._build_label_distribution(calibration)
-                if include_summary_fields
-                else {}
-            ),
-            model_summaries=(
-                self._build_model_summaries(model_label_paths)
-                if include_summary_fields
-                else []
-            ),
         )
 
     @staticmethod
     def decide_round_outcome(kappa: float) -> str:
         if kappa >= KAPPA_THRESHOLD:
-            return "eligible_to_lock"
-        return "refine_prompt"
+            return "accepted"
+        return "needs_prompt_update"
 
     @classmethod
     def _discover_valid_verdict_files(cls, verdicts_dir: Path) -> list[Path]:
@@ -90,7 +70,7 @@ class PromptRefinementEvaluator:
         cls,
         calibration_path: Path,
         verdict_path: Path,
-    ) -> tuple[int, pd.DataFrame]:
+    ) -> int:
         if not calibration_path.exists():
             raise FileNotFoundError(
                 f"Calibration dataset not found: {calibration_path}"
@@ -114,35 +94,7 @@ class PromptRefinementEvaluator:
             raise ValueError(
                 "Calibration dataset source UIDs must match verdict source UIDs."
             )
-        return len(calibration), calibration
-
-    @staticmethod
-    def _build_label_distribution(dataframe: pd.DataFrame) -> dict[str, int]:
-        if "label" not in dataframe.columns:
-            raise ValueError("Calibration dataset must contain label.")
-        labels = dataframe["label"].apply(to_label_name)
-        return {
-            str(label): int(count) for label, count in labels.value_counts().items()
-        }
-
-    @classmethod
-    def _build_model_summaries(cls, model_label_paths: dict[str, Path]) -> list[dict]:
-        summaries = []
-        for model, path in sorted(model_label_paths.items()):
-            dataframe = cls._read_dataset(path)
-            labels = dataframe["predicted_label"].apply(to_label_name)
-            summaries.append(
-                {
-                    "model": model,
-                    "path": str(path),
-                    "n_rows": int(len(dataframe)),
-                    "label_distribution": {
-                        str(label): int(count)
-                        for label, count in labels.value_counts().items()
-                    },
-                }
-            )
-        return summaries
+        return len(calibration)
 
     @classmethod
     def _build_disagreement_rows(

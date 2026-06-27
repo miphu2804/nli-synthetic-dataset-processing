@@ -43,9 +43,11 @@ Mở `http://127.0.0.1:5000`, sau đó yêu cầu agent đọc
 đúng ba file verdict độc lập, rồi gọi `evaluate_prompt_refinement_round`.
 
 - Fleiss' kappa `< 0.85`: harness inspect MLflow round artifacts, đề xuất thay
-  đổi prompt nhỏ nhất, rồi chạy vòng tiếp theo nếu phù hợp.
-- Fleiss' kappa `>= 0.85`: prompt đủ điều kiện lock.
-- Chỉ gán alias `locked` khi gọi `confirm_prompt_lock` sau approval rõ ràng.
+  đổi prompt nhỏ nhất qua `prompt_augment_proposal.json`, rồi dừng để user tự
+  update prompt nếu phù hợp.
+- Fleiss' kappa `>= 0.85`: round trả `accepted`.
+- Backend không register prompt version, promote alias, lock prompt, hoặc tự
+  chạy round tiếp theo.
 
 PMI không nằm trong refinement loop. PMI chạy sau generation và validation để
 phát hiện artifact token cần paraphrase.
@@ -59,7 +61,7 @@ phát hiện artifact token cần paraphrase.
 | `skill://generator_adversarial` | Quy tắc adversarial generation có kiểm soát |
 | `skill://generator` | Legacy adversarial generator alias |
 | `skill://validator` | Blind validation 3 class |
-| `skill://prompt_refinement` | Calibration ba model và MLflow prompt versioning |
+| `skill://prompt_refinement` | Calibration ba model, kappa, và proposal artifact |
 
 Tài liệu chi tiết:
 

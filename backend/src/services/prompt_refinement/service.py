@@ -5,28 +5,36 @@ from pathlib import Path
 
 from src.app_config import app_config
 from src.schemas.prompt_refinement_schema import (
-    PromptLockConfirmationResponse,
+    PromptAugmentProposalResponse,
     PromptRefinementRoundResponse,
+)
+from src.services.prompt_refinement.augment_strategy import (
+    PromptAugmentContext,
+    PromptAugmentStrategy,
 )
 from src.services.prompt_refinement.evaluator import (
     KAPPA_THRESHOLD,
     PromptRefinementEvaluator,
 )
-from src.services.prompt_refinement.locking import PromptRefinementLockService
 from src.services.prompt_refinement.mlflow_store import PromptRefinementMlflowStore
 
-SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 SKILL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class PromptRefinementService:
-    """Facade for prompt calibration evaluation, evidence, and locking."""
+    """Facade for prompt calibration evaluation and manual update proposals."""
 
-    def __init__(self, skills_dir: Path = Path("skills")) -> None:
+    def __init__(
+        self,
+        skills_dir: Path = Path("skills"),
+        evaluator: PromptRefinementEvaluator | None = None,
+        augment_strategy: PromptAugmentStrategy | None = None,
+        mlflow_store: PromptRefinementMlflowStore | None = None,
+    ) -> None:
         self._skills_dir = skills_dir
-        self._evaluator = PromptRefinementEvaluator()
-        self._lock_service = PromptRefinementLockService()
-        self._mlflow_store = PromptRefinementMlflowStore()
+        self._evaluator = evaluator or PromptRefinementEvaluator()
+        self._augment_strategy = augment_strategy or PromptAugmentStrategy()
+        self._mlflow_store = mlflow_store or PromptRefinementMlflowStore()
 
     def evaluate_round(
         self,
@@ -37,40 +45,56 @@ class PromptRefinementService:
         tracking_uri: str = app_config.MLFLOW_URL,
         experiment_name: str = app_config.MLFLOW_EXPERIMENT_NAME,
         artifact_root: str | None = app_config.MLFLOW_ARTIFACT_ROOT,
-        session_id: str | None = None,
         generator_skill_name: str = "generator",
     ) -> PromptRefinementRoundResponse:
-        """Compute kappa, version current skills, and log one MLflow round."""
+        """Compute kappa, propose manual prompt updates, and log one round."""
         self._validate_round_args(round_number, change_summary)
-        if session_id is not None and not SESSION_ID_PATTERN.fullmatch(session_id):
-            raise ValueError(
-                "session_id may only contain letters, digits, '.', '_', or '-'."
-            )
         self._validate_generator_skill_name(generator_skill_name)
 
         evaluation = self._evaluator.evaluate_round_inputs(
             verdicts_dir,
             calibration_input,
-            include_summary_fields=False,
         )
         generator_skill_file = f"{generator_skill_name}.md"
+        validator_skill_file = "validator.md"
         generator_text = self._read_skill(generator_skill_file)
-        validator_text = self._read_skill("validator.md")
+        validator_text = self._read_skill(validator_skill_file)
         bundle_id = f"round-{round_number:02d}"
+        proposal = None
+        if evaluation.kappa < KAPPA_THRESHOLD:
+            proposal = self._augment_strategy.propose(
+                PromptAugmentContext(
+                    evaluation=evaluation,
+                    threshold=KAPPA_THRESHOLD,
+                    generator_skill_name=generator_skill_name,
+                    generator_skill_file=generator_skill_file,
+                    validator_skill_file=validator_skill_file,
+                )
+            )
 
-        registration = self._mlflow_store.log_evaluated_round(
+        logged_round = self._mlflow_store.log_evaluated_round(
             evaluation,
             round_number=round_number,
             change_summary=change_summary,
             tracking_uri=tracking_uri,
             experiment_name=experiment_name,
             artifact_root=artifact_root,
-            session_id=session_id,
             generator_skill_name=generator_skill_name,
             generator_skill_file=generator_skill_file,
             generator_text=generator_text,
+            validator_skill_file=validator_skill_file,
             validator_text=validator_text,
             bundle_id=bundle_id,
+            proposal=proposal,
+        )
+        proposal_response = (
+            None
+            if proposal is None
+            else PromptAugmentProposalResponse(
+                reason=proposal.reason,
+                suggested_action=proposal.suggested_action,
+                evidence_uids=proposal.evidence_uids,
+            )
         )
 
         return PromptRefinementRoundResponse(
@@ -80,20 +104,12 @@ class PromptRefinementService:
             n_items=int(evaluation.kappa_result["n_items"]),
             n_raters=int(evaluation.kappa_result["n_raters"]),
             models=sorted(evaluation.model_label_paths),
-            generator_prompt_version=registration.generator_prompt_version,
-            validator_prompt_version=registration.validator_prompt_version,
-            bundle_id=registration.bundle_id,
-            mlflow_run_id=registration.run_id,
+            bundle_id=logged_round.bundle_id,
+            mlflow_run_id=logged_round.run_id,
             n_disagreements=evaluation.n_disagreements,
-            mlflow_session_run_id=registration.session_run_id,
+            proposal=proposal_response,
+            proposal_artifact_path=logged_round.proposal_artifact_path,
         )
-
-    def confirm_prompt_lock(
-        self,
-        lock_run_id: str,
-        tracking_uri: str = app_config.MLFLOW_URL,
-    ) -> PromptLockConfirmationResponse:
-        return self._lock_service.confirm_prompt_lock(lock_run_id, tracking_uri)
 
     @staticmethod
     def _validate_round_args(round_number: int, change_summary: str) -> None:

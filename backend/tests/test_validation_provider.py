@@ -59,6 +59,7 @@ class ValidationProviderTest(unittest.TestCase):
             self.assertIn("experiment_name", properties)
             self.assertIn("generator_skill_name", properties)
             self.assertNotIn("confirm_lock", properties)
+            self.assertNotIn("session_id", properties)
 
         asyncio.run(scenario())
 
@@ -75,6 +76,14 @@ class ValidationProviderTest(unittest.TestCase):
             tool_names = {tool.name for tool in await self.mcp.list_tools()}
 
             self.assertNotIn("prepare_prompt_refinement_editor_tasks", tool_names)
+
+        asyncio.run(scenario())
+
+    def test_prompt_refinement_lock_tool_is_not_backend_owned(self) -> None:
+        async def scenario() -> None:
+            tool_names = {tool.name for tool in await self.mcp.list_tools()}
+
+            self.assertNotIn("confirm_prompt_lock", tool_names)
 
         asyncio.run(scenario())
 

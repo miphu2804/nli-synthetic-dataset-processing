@@ -80,7 +80,7 @@ Load only the resources needed by the current phase:
 | `skill://delegation` | When processing at least 100 assigned rows with subagents. |
 | `skill://aggregator` | Before finalizing a completed local run. |
 | `skill://validator` | Before validating generated rows with blank labels. |
-| `skill://prompt_refinement` | Before large-scale generation when prompts need three-model calibration and MLflow versioning. |
+| `skill://prompt_refinement` | Before large-scale generation when prompts need three-model calibration and manual proposal artifacts. |
 
 ## Optional Prompt Refinement
 
@@ -92,9 +92,9 @@ load prompt_refinement
   -> main agent dispatches exactly three independent validator subagents
   -> main agent validates and persists one verdict file per model
   -> evaluate_prompt_refinement_round
-  -> harness inspects MLflow artifacts when decision=refine_prompt
-  -> refine while kappa < 0.85
-  -> explicitly confirm an eligible prompt bundle before locking it
+  -> kappa < 0.85 returns needs_prompt_update + prompt_augment_proposal.json
+  -> kappa >= 0.85 returns accepted
+  -> user manually updates prompts outside the round if needed
 ```
 
 MLflow is started separately by the operator. The backend does not start it

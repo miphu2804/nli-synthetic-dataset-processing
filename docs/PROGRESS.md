@@ -1,3 +1,40 @@
+### [2026-06-27 13:06] — [PromptRefinement] Switch to proposal-only kappa rounds
+
+**Đã làm:**
+- Thêm `PromptAugmentStrategy.propose(...)` để tạo proposal deterministic khi Fleiss' kappa thấp hơn threshold.
+- Đổi decision prompt-refinement thành `needs_prompt_update` / `accepted`; bỏ ngôn ngữ `eligible_to_lock`.
+- Xoá public lock path: không còn `confirm_prompt_lock`, prompt registry version fields, candidate/locked alias promotion, hoặc prompt lock manager.
+- MLflow round giờ chỉ log metrics, verdicts, prompt snapshots, `disagreement_rows.csv`, `round_summary.json`, và `prompt_augment_proposal.json` khi cần user update prompt.
+- Xoá template editor-subagent cũ vì backend/harness không còn tự loop hoặc spawn reviewer để sửa prompt.
+- Cập nhật README, skill, provider schema, validator flow docs, templates, và tests theo handoff proposal-only.
+
+**Files thay đổi:**
+- `backend/src/services/prompt_refinement/augment_strategy.py` — created
+- `backend/src/services/prompt_refinement/models.py` — created
+- `backend/src/services/prompt_refinement/locking.py` — deleted
+- `backend/src/services/prompt_refinement/service.py` — modified
+- `backend/src/services/prompt_refinement/mlflow_store.py` — modified
+- `backend/src/services/prompt_refinement/evaluator.py` — modified
+- `backend/src/schemas/prompt_refinement_schema.py` — modified
+- `backend/src/providers/validation_provider.py` — modified
+- `backend/src/cli.py` — modified
+- `backend/skills/prompt_refinement.md` — modified
+- `backend/skills/instructor.md` — modified
+- `README.md`, `README.vi.md` — modified
+- `backend/tests/test_prompt_refinement_service.py`, `backend/tests/test_validation_provider.py`, `backend/tests/test_skill_service.py` — modified
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
+- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md` — modified
+- `docs/en/template/prompt-refinement-editor-*.md`, `docs/vi/template/prompt-refinement-editor-*.md` — deleted
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Prompt-refinement backend giờ dừng ở một round kappa. Nếu `kappa < 0.85`, service gọi `PromptAugmentStrategy.propose(...)`, log `prompt_augment_proposal.json` kèm reason/evidence/source_uid, rồi trả `needs_prompt_update` để user tự sửa prompt ngoài round. Nếu `kappa >= 0.85`, service trả `accepted`. Backend không register prompt versions, không set aliases, không lock, không spawn editor agents, và không tự chạy round tiếp theo.
+
+---
+
 ### [2026-06-27 02:35] — [PromptRefinement] Remove backend evidence-pack helper
 
 **Đã làm:**
@@ -208,28 +245,5 @@ Prompt-refinement giờ chỉ expose MLflow identifiers để operator hoặc au
 
 **Flow explained:**
 Prompt-refinement giờ tách lock path ra rõ hơn: `PromptRefinementService.confirm_prompt_lock()` chỉ delegate sang `PromptRefinementLockService`, module này chịu trách nhiệm load eligible run, validate exact evaluated prompt URIs/versions, set `locked` aliases, và mark session/run state. `PromptRefinementMlflowStore` chỉ còn ownership cho evaluate-round logging/register/candidate alias, nên boundary giữa `round logging` và `lock confirmation` rõ hơn mà không đổi public contract.
-
----
-
-### [2026-06-26 20:01] — [DispatchPlanning] Remove worker-count guidance from generator templates
-
-**Đã làm:**
-- Bỏ công thức `assigned_samples`, `total_batches`, và worker cap khỏi generator flow/template EN/VI.
-- Đổi wording còn sót từ `parallel worker` sang `subagent` để không ám chỉ backend có worker model.
-- Giữ nguyên runtime claim/submit/finalize; chỉ bỏ guidance tính toán worker ở lớp docs/prompt.
-
-**Files thay đổi:**
-- `README.md` — modified
-- `backend/src/providers/generation_provider.py` — modified
-- `docs/en/flow/generator.md`, `docs/vi/flow/generator.md` — modified
-- `docs/en/template/generator.md`, `docs/vi/template/generator.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Generator runtime không có khái niệm worker count nữa ở cả code lẫn template. Agent có thể chạy tuần tự hoặc tự spawn bao nhiêu subagent tùy context, nhưng backend chỉ biết các mutation có state thật: `start_generation_run`, `claim_next_batch`, `submit_batch_result`, `verify_progress_log`, `finalize_generation_run`.
 
 ---

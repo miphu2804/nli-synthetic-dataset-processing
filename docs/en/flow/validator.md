@@ -20,26 +20,27 @@ fixed labeled calibration dataset
   -> generate with the selected generator policy
   -> exactly three independent validators judge the same rows
   -> evaluate_prompt_refinement_round
-  -> kappa < 0.85: harness inspects MLflow round artifacts
-  -> orchestrator proposes one prompt change
-  -> refine prompts
-  -> kappa >= 0.85: eligible_to_lock
-  -> confirm_prompt_lock: lock the prompt bundle after approval
+  -> kappa < 0.85: needs_prompt_update + prompt_augment_proposal.json
+  -> user manually updates prompts outside the completed round
+  -> kappa >= 0.85: accepted
   -> start large-scale generation
 ```
 
 Start MLflow separately; the backend never starts it automatically. Each round
-records the prompt versions, Fleiss' kappa, verdict files, disagreements, and
-the bundle decision. Keep the same calibration source UID set across comparable
-rounds by operator convention. If the selected generator policy changes,
+records Fleiss' kappa, verdict files, prompt snapshots, disagreements, the
+decision, and a proposal artifact when agreement is too low. Keep the same
+calibration source UID set across comparable rounds by operator convention. If
+the selected generator policy changes,
 regenerate that UID set; if only the validator prompt changes, reuse the same
 generated calibration file. Read
 `skill://prompt_refinement` for the agent procedure.
 
-The Codex main agent owns MCP calls, prompt edits, and file persistence. It
+The Codex main agent owns MCP calls and file persistence. It
 dispatches three isolated validator subagents; each receives masked rows only
 and returns verdicts without reading expected labels or other models' outputs.
 Prompt files stay unchanged from subagent dispatch through MCP evaluation.
+The backend does not register prompt versions, promote aliases, lock prompts, or
+run the next round automatically.
 
 PMI is not a prompt-refinement trigger. It belongs to Layer 3 after generation
 and consensus validation.

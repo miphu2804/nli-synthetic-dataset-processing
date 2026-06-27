@@ -713,9 +713,9 @@ def _run_kappa_command(args: argparse.Namespace, console: Console) -> int:
     summary.add_row("Models", ", ".join(result["models"]))
     console.print(summary)
     if kappa >= KAPPA_THRESHOLD:
-        console.print("[green]κ ≥ 0.85 → lock prompt[/green]")
+        console.print("[green]κ ≥ 0.85 → accepted[/green]")
     else:
-        console.print("[yellow]κ < 0.85 → refine prompt[/yellow]")
+        console.print("[yellow]κ < 0.85 → propose prompt update[/yellow]")
     return 0
 
 

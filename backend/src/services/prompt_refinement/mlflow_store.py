@@ -5,26 +5,17 @@ from pathlib import Path
 
 import mlflow
 from mlflow import MlflowClient
-from src.schemas.prompt_refinement_schema import (
-    PromptBundleRegistration,
+from src.services.prompt_refinement.models import (
+    PromptAugmentProposal,
     PromptRoundEvaluation,
+    PromptRoundLog,
 )
 
-GENERATOR_PROMPT_NAME = "nli-generator"
-VALIDATOR_PROMPT_NAME = "nli-validator"
-
-
-def _create_mlflow_client(tracking_uri: str) -> MlflowClient:
-    mlflow.set_tracking_uri(tracking_uri)
-    mlflow.set_registry_uri(tracking_uri)
-    return MlflowClient(
-        tracking_uri=tracking_uri,
-        registry_uri=tracking_uri,
-    )
+PROPOSAL_ARTIFACT_PATH = "prompt_augment_proposal.json"
 
 
 class PromptRefinementMlflowStore:
-    """MLflow prompt registry and round logging side effects."""
+    """Log prompt-refinement round evidence without promoting prompt versions."""
 
     def log_evaluated_round(
         self,
@@ -35,14 +26,15 @@ class PromptRefinementMlflowStore:
         tracking_uri: str,
         experiment_name: str,
         artifact_root: str | None,
-        session_id: str | None,
         generator_skill_name: str,
         generator_skill_file: str,
         generator_text: str,
+        validator_skill_file: str,
         validator_text: str,
         bundle_id: str,
-    ) -> PromptBundleRegistration:
-        client = _create_mlflow_client(tracking_uri)
+        proposal: PromptAugmentProposal | None,
+    ) -> PromptRoundLog:
+        client = self._create_mlflow_client(tracking_uri)
         experiment = self._get_experiment_by_name(client, experiment_name)
         if experiment is None:
             experiment_id = self._create_experiment(
@@ -53,81 +45,47 @@ class PromptRefinementMlflowStore:
         else:
             experiment_id = experiment.experiment_id
 
-        session_run_id = None
-        if session_id:
-            session_run = self._get_active_session_run(
-                client,
-                experiment_id,
-                session_id,
-            )
-            if session_run is None:
-                session_run_id = self._create_session_run(
-                    client,
-                    experiment_id,
-                    session_id,
-                )
-            else:
-                session_run_id = session_run.info.run_id
-        round_tags = self._build_round_tags(
-            evaluation=evaluation,
-            change_summary=change_summary,
-            bundle_id=bundle_id,
-            generator_skill_name=generator_skill_name,
-            session_run_id=session_run_id,
-        )
         run = self._create_round_run(
             client,
             experiment_id=experiment_id,
             round_number=round_number,
-            tags=round_tags,
+            tags=self._build_round_tags(
+                evaluation=evaluation,
+                change_summary=change_summary,
+                bundle_id=bundle_id,
+                generator_skill_name=generator_skill_name,
+            ),
         )
         run_id = run.info.run_id
         try:
-            generator_prompt, validator_prompt = self._register_round_prompts(
-                client,
-                round_number=round_number,
-                change_summary=change_summary,
-                bundle_id=bundle_id,
-                generator_text=generator_text,
-                validator_text=validator_text,
-            )
-            generator_version = int(generator_prompt.version)
-            validator_version = int(validator_prompt.version)
-            self._log_round_metadata_and_artifacts(
+            proposal_artifact_path = self._log_round_metadata_and_artifacts(
                 client=client,
                 run_id=run_id,
                 round_number=round_number,
                 evaluation=evaluation,
-                generator_prompt=generator_prompt,
-                validator_prompt=validator_prompt,
                 bundle_id=bundle_id,
                 generator_skill_name=generator_skill_name,
                 generator_skill_file=generator_skill_file,
-            )
-            self._set_candidate_aliases(
-                client,
-                generator_version=generator_version,
-                validator_version=validator_version,
+                generator_text=generator_text,
+                validator_skill_file=validator_skill_file,
+                validator_text=validator_text,
+                proposal=proposal,
             )
             client.set_terminated(run_id, status="FINISHED")
         except Exception:
             client.set_terminated(run_id, status="FAILED")
             raise
 
-        self._log_session_metrics_best_effort(
-            client,
-            session_run_id=session_run_id,
-            evaluation=evaluation,
-            round_number=round_number,
+        return PromptRoundLog(
+            run_id=run_id,
+            bundle_id=bundle_id,
+            proposal_artifact_path=proposal_artifact_path,
         )
 
-        return PromptBundleRegistration(
-            run_id=run_id,
-            session_run_id=session_run_id,
-            bundle_id=bundle_id,
-            generator_prompt_version=generator_version,
-            validator_prompt_version=validator_version,
-        )
+    @staticmethod
+    def _create_mlflow_client(tracking_uri: str) -> MlflowClient:
+        mlflow.set_tracking_uri(tracking_uri)
+        return MlflowClient(tracking_uri=tracking_uri)
 
     @staticmethod
     def _get_experiment_by_name(
@@ -154,17 +112,13 @@ class PromptRefinementMlflowStore:
         change_summary: str,
         bundle_id: str,
         generator_skill_name: str,
-        session_run_id: str | None,
     ) -> dict[str, str]:
-        round_tags = {
+        return {
             "decision": evaluation.decision,
             "change_summary": change_summary,
             "bundle_id": bundle_id,
             "generator_skill_name": generator_skill_name,
         }
-        if session_run_id:
-            round_tags["mlflow.parentRunId"] = session_run_id
-        return round_tags
 
     @staticmethod
     def _create_round_run(
@@ -180,72 +134,6 @@ class PromptRefinementMlflowStore:
             tags=tags,
         )
 
-    @staticmethod
-    def _get_active_session_run(
-        client: MlflowClient,
-        experiment_id: str,
-        session_id: str,
-    ):
-        """Return the active parent run for a session, if one already exists."""
-        filter_string = f"tags.calibration_session_id = '{session_id}'"
-        runs = client.search_runs(
-            experiment_ids=[experiment_id],
-            filter_string=filter_string,
-            order_by=["start_time ASC"],
-        )
-        if not runs:
-            return None
-
-        existing = runs[0]
-        locked = existing.data.tags.get("session_locked") == "true"
-        if locked or existing.info.status != "RUNNING":
-            raise ValueError(
-                f"Session '{session_id}' is already finalized "
-                f"(status {existing.info.status}); use a new session_id."
-            )
-        return existing
-
-    @staticmethod
-    def _create_session_run(
-        client: MlflowClient,
-        experiment_id: str,
-        session_id: str,
-    ) -> str:
-        run = client.create_run(
-            experiment_id=experiment_id,
-            run_name=f"calibration-session-{session_id}",
-            tags={
-                "calibration_session_id": session_id,
-                "run_type": "calibration_session",
-            },
-        )
-        return run.info.run_id
-
-    @staticmethod
-    def _register_round_prompts(
-        client: MlflowClient,
-        *,
-        round_number: int,
-        change_summary: str,
-        bundle_id: str,
-        generator_text: str,
-        validator_text: str,
-    ):
-        prompt_tags = {"round": str(round_number), "bundle_id": bundle_id}
-        generator_prompt = client.register_prompt(
-            name=GENERATOR_PROMPT_NAME,
-            template=generator_text,
-            commit_message=change_summary,
-            tags=prompt_tags,
-        )
-        validator_prompt = client.register_prompt(
-            name=VALIDATOR_PROMPT_NAME,
-            template=validator_text,
-            commit_message=change_summary,
-            tags=prompt_tags,
-        )
-        return generator_prompt, validator_prompt
-
     def _log_round_metadata_and_artifacts(
         self,
         *,
@@ -253,20 +141,19 @@ class PromptRefinementMlflowStore:
         run_id: str,
         round_number: int,
         evaluation: PromptRoundEvaluation,
-        generator_prompt,
-        validator_prompt,
         bundle_id: str,
         generator_skill_name: str,
         generator_skill_file: str,
-    ) -> None:
-        generator_uri = f"prompts:/{generator_prompt.name}/{generator_prompt.version}"
-        validator_uri = f"prompts:/{validator_prompt.name}/{validator_prompt.version}"
+        generator_text: str,
+        validator_skill_file: str,
+        validator_text: str,
+        proposal: PromptAugmentProposal | None,
+    ) -> str | None:
         params = {
             "round_number": round_number,
-            "generator_prompt_uri": generator_uri,
-            "validator_prompt_uri": validator_uri,
             "generator_skill_name": generator_skill_name,
             "generator_skill_file": generator_skill_file,
+            "validator_skill_file": validator_skill_file,
             "sample_count": evaluation.sample_count,
             "model_names": ",".join(sorted(evaluation.model_label_paths)),
         }
@@ -278,18 +165,20 @@ class PromptRefinementMlflowStore:
             "per_category_proportion"
         ].items():
             client.log_metric(run_id, f"{label}_proportion", float(proportion))
-        client.link_prompt_version_to_run(run_id, generator_prompt)
-        client.link_prompt_version_to_run(run_id, validator_prompt)
 
-        bundle = {
-            "bundle_id": bundle_id,
-            "generator_prompt_uri": generator_uri,
-            "generator_skill_name": generator_skill_name,
-            "generator_skill_file": generator_skill_file,
-            "validator_prompt_uri": validator_uri,
-            "fleiss_kappa": evaluation.kappa,
-        }
-        client.log_dict(run_id, bundle, "prompt_bundle.json")
+        client.log_dict(
+            run_id,
+            {
+                "bundle_id": bundle_id,
+                "decision": evaluation.decision,
+                "generator_skill_name": generator_skill_name,
+                "generator_skill_file": generator_skill_file,
+                "validator_skill_file": validator_skill_file,
+                "fleiss_kappa": evaluation.kappa,
+                "n_disagreements": evaluation.n_disagreements,
+            },
+            "round_summary.json",
+        )
         client.log_dict(
             run_id,
             {
@@ -298,49 +187,63 @@ class PromptRefinementMlflowStore:
             },
             "calibration_dataset_manifest.json",
         )
+        proposal_artifact_path = self._log_proposal(client, run_id, proposal)
+        self._log_file_artifacts(
+            client=client,
+            run_id=run_id,
+            evaluation=evaluation,
+            generator_skill_file=generator_skill_file,
+            generator_text=generator_text,
+            validator_skill_file=validator_skill_file,
+            validator_text=validator_text,
+        )
+        return proposal_artifact_path
 
+    @staticmethod
+    def _log_proposal(
+        client: MlflowClient,
+        run_id: str,
+        proposal: PromptAugmentProposal | None,
+    ) -> str | None:
+        if proposal is None:
+            return None
+        client.log_dict(
+            run_id,
+            {
+                "reason": proposal.reason,
+                "suggested_action": proposal.suggested_action,
+                "evidence_uids": proposal.evidence_uids,
+            },
+            PROPOSAL_ARTIFACT_PATH,
+        )
+        return PROPOSAL_ARTIFACT_PATH
+
+    @staticmethod
+    def _log_file_artifacts(
+        *,
+        client: MlflowClient,
+        run_id: str,
+        evaluation: PromptRoundEvaluation,
+        generator_skill_file: str,
+        generator_text: str,
+        validator_skill_file: str,
+        validator_text: str,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
             temporary_root = Path(temporary_dir)
             disagreement_path = temporary_root / "disagreement_rows.csv"
             evaluation.disagreements.to_csv(disagreement_path, index=False)
             client.log_artifact(run_id, str(disagreement_path))
+
+            generator_path = temporary_root / generator_skill_file
+            generator_path.write_text(generator_text, encoding="utf-8")
+            client.log_artifact(run_id, str(generator_path), artifact_path="prompts")
+
+            validator_path = temporary_root / validator_skill_file
+            validator_path.write_text(validator_text, encoding="utf-8")
+            client.log_artifact(run_id, str(validator_path), artifact_path="prompts")
+
             for model, verdict_path in evaluation.model_label_paths.items():
                 copied_path = temporary_root / f"{model}{verdict_path.suffix.lower()}"
                 copied_path.write_bytes(verdict_path.read_bytes())
                 client.log_artifact(run_id, str(copied_path), artifact_path="verdicts")
-
-    @staticmethod
-    def _set_candidate_aliases(
-        client: MlflowClient,
-        *,
-        generator_version: int,
-        validator_version: int,
-    ) -> None:
-        client.set_prompt_alias(GENERATOR_PROMPT_NAME, "candidate", generator_version)
-        client.set_prompt_alias(VALIDATOR_PROMPT_NAME, "candidate", validator_version)
-
-    @staticmethod
-    def _log_session_metrics_best_effort(
-        client: MlflowClient,
-        *,
-        session_run_id: str | None,
-        evaluation: PromptRoundEvaluation,
-        round_number: int,
-    ) -> None:
-        if not session_run_id:
-            return
-        try:
-            client.log_metric(
-                session_run_id,
-                "fleiss_kappa",
-                evaluation.kappa,
-                step=round_number,
-            )
-            client.log_metric(
-                session_run_id,
-                "n_disagreements",
-                evaluation.n_disagreements,
-                step=round_number,
-            )
-        except Exception:
-            pass

@@ -198,8 +198,8 @@ class ValidationToolProvider(ToolProvider):
         name="evaluate_prompt_refinement_round",
         description=(
             "Compute Fleiss kappa from exactly three independent verdict files, "
-            "version the selected generator skill and validator prompt, and log the "
-            "calibration round to an explicitly configured MLflow server."
+            "log the calibration round, and return a manual prompt-update "
+            "proposal when agreement is below threshold."
         ),
     )
     def evaluate_prompt_refinement_round(
@@ -230,27 +230,17 @@ class ValidationToolProvider(ToolProvider):
         ],
         tracking_uri: Annotated[
             str,
-            Field(description="MLflow tracking and prompt registry URI."),
+            Field(description="MLflow tracking URI for prompt calibration rounds."),
         ] = app_config.MLFLOW_URL,
         experiment_name: Annotated[
             str,
             Field(description="MLflow experiment used for prompt calibration rounds."),
         ] = app_config.MLFLOW_EXPERIMENT_NAME,
-        session_id: Annotated[
-            str | None,
-            Field(
-                default=None,
-                description=(
-                    "Optional id grouping rounds of one calibration session to view "
-                    "kappa trend on the parent calibration-session-* run."
-                ),
-            ),
-        ] = None,
         generator_skill_name: Annotated[
             str,
             Field(
                 description=(
-                    "Generator skill stem to version for this round. Use generator "
+                    "Generator skill stem used for this round. Use generator "
                     "for legacy prompts, generator_plain for ANLI-style translation, "
                     "or generator_adversarial for controlled adversarial generation."
                 )
@@ -264,33 +254,7 @@ class ValidationToolProvider(ToolProvider):
             change_summary=change_summary,
             tracking_uri=tracking_uri,
             experiment_name=experiment_name,
-            session_id=session_id,
             generator_skill_name=generator_skill_name,
-        ).model_dump(mode="json")
-
-    @tool(
-        name="confirm_prompt_lock",
-        description=(
-            "Lock the exact prompt bundle of a previously eligible refinement "
-            "round by its MLflow run id; does not register new prompt versions."
-        ),
-    )
-    def confirm_prompt_lock(
-        self,
-        lock_run_id: Annotated[
-            str,
-            Field(
-                description=("MLflow run id of an eligible_to_lock evaluation result.")
-            ),
-        ],
-        tracking_uri: Annotated[
-            str,
-            Field(description="MLflow tracking and prompt registry URI."),
-        ] = app_config.MLFLOW_URL,
-    ) -> dict[str, Any]:
-        return self._prompt_refinement_service.confirm_prompt_lock(
-            lock_run_id=lock_run_id,
-            tracking_uri=tracking_uri,
         ).model_dump(mode="json")
 
     @tool(

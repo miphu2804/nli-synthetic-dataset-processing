@@ -28,16 +28,18 @@ class SkillServiceTest(unittest.TestCase):
         self.assertIn("skill://generator_plain", instructor)
         self.assertIn("skill://generator_adversarial", instructor)
 
-    def test_prompt_refinement_skill_uses_mcp_kappa_and_explicit_lock(self) -> None:
+    def test_prompt_refinement_skill_uses_mcp_kappa_and_manual_proposal(self) -> None:
         skill_service = SkillService()
 
         skill = skill_service.get_skill("prompt_refinement")
         instructor = skill_service.get_skill("instructor")
 
         self.assertIn("evaluate_prompt_refinement_round", skill)
-        self.assertIn("confirm_prompt_lock", skill)
+        self.assertNotIn("confirm_prompt_lock", skill)
         self.assertIn("0.85", skill)
-        self.assertIn("eligible_to_lock", skill)
+        self.assertIn("needs_prompt_update", skill)
+        self.assertIn("accepted", skill)
+        self.assertIn("prompt_augment_proposal.json", skill)
         self.assertIn("exactly three", skill.lower())
         self.assertIn("skill://prompt_refinement", instructor)
 
@@ -59,7 +61,7 @@ class SkillServiceTest(unittest.TestCase):
             self.assertIn("one verdict file", document.lower())
             self.assertIn("evaluate_prompt_refinement_round", document)
 
-    def test_prompt_refinement_documents_editor_candidate_workflow(self) -> None:
+    def test_prompt_refinement_documents_manual_proposal_handoff(self) -> None:
         skill = SkillService().get_skill("prompt_refinement")
         repository_root = Path(__file__).resolve().parents[2]
         english_template = (
@@ -71,58 +73,34 @@ class SkillServiceTest(unittest.TestCase):
 
         for document in (skill, english_template, vietnamese_template):
             lower_document = document.lower()
-            self.assertIn("max_rounds", document)
             self.assertIn("disagreement_rows.csv", document)
+            self.assertIn("prompt_augment_proposal.json", document)
             self.assertNotIn("prepare_prompt_refinement_evidence_pack", document)
             self.assertNotIn("prepare_prompt_refinement_editor_tasks", document)
-            self.assertIn("validator-rubric reviewer", document)
-            self.assertIn("generator-policy reviewer", document)
+            self.assertNotIn("validator-rubric reviewer", document)
+            self.assertNotIn("generator-policy reviewer", document)
+            self.assertNotIn("confirm_prompt_lock", document)
             self.assertTrue(
                 "source_uid set" in document or "source uid set" in lower_document
             )
             self.assertIn("pmi", lower_document)
 
-    def test_editor_templates_are_proposal_only_and_single_target(self) -> None:
+    def test_prompt_refinement_editor_templates_are_removed(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
-        documents = [
-            (
-                repository_root
-                / "docs/en/template/prompt-refinement-editor-validator-rubric.md"
-            ).read_text(encoding="utf-8"),
-            (
-                repository_root
-                / "docs/en/template/prompt-refinement-editor-generator-policy.md"
-            ).read_text(encoding="utf-8"),
-            (
-                repository_root
-                / "docs/vi/template/prompt-refinement-editor-validator-rubric.md"
-            ).read_text(encoding="utf-8"),
-            (
-                repository_root
-                / "docs/vi/template/prompt-refinement-editor-generator-policy.md"
-            ).read_text(encoding="utf-8"),
-        ]
-
-        for document in documents:
-            lower_document = document.lower()
-            self.assertIn("do not call mcp", lower_document)
-            self.assertTrue(
-                "do not edit files" in lower_document
-                or "không edit files" in lower_document
+        self.assertFalse(
+            list(
+                (repository_root / "docs/en/template").glob(
+                    "prompt-refinement-editor-*.md"
+                )
             )
-            self.assertTrue(
-                "do not run evaluation" in lower_document
-                or "không chạy evaluation" in lower_document
+        )
+        self.assertFalse(
+            list(
+                (repository_root / "docs/vi/template").glob(
+                    "prompt-refinement-editor-*.md"
+                )
             )
-            self.assertTrue(
-                "inspect only" in lower_document or "chỉ inspect" in lower_document
-            )
-            self.assertIn("target: ", document)
-            self.assertIn("no_change", document)
-            self.assertTrue(
-                "do not return `both`" in lower_document
-                or "không được trả target là `both`" in lower_document
-            )
+        )
 
     def test_prompt_refinement_templates_avoid_repo_and_server_leakage(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
@@ -156,9 +134,7 @@ class SkillServiceTest(unittest.TestCase):
             for forbidden in forbidden_literals:
                 self.assertNotIn(forbidden, document)
 
-    def test_prompt_refinement_main_templates_name_exactly_two_editor_roles(
-        self,
-    ) -> None:
+    def test_prompt_refinement_main_templates_avoid_auto_loop_language(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
         documents = [
             (repository_root / "docs/en/template/prompt-refinement.md").read_text(
@@ -170,13 +146,10 @@ class SkillServiceTest(unittest.TestCase):
         ]
 
         for document in documents:
-            self.assertEqual(document.count("validator-rubric reviewer"), 1)
-            self.assertEqual(document.count("generator-policy reviewer"), 1)
             self.assertIn("blind", document.lower())
-            self.assertTrue(
-                "post-failure reviewers" in document.lower()
-                or "reviewer sau failed round" in document.lower()
-            )
+            self.assertNotIn("max_rounds", document)
+            self.assertNotIn("Auto-refine", document)
+            self.assertNotIn("editor subagents", document.lower())
 
     def test_post_validation_templates_cover_pmi_revalidation_and_split(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]

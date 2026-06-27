@@ -19,25 +19,26 @@ fixed labeled calibration dataset
   -> generate bằng generator policy đã chọn
   -> đúng ba validator độc lập chấm cùng các row
   -> evaluate_prompt_refinement_round
-  -> kappa < 0.85: harness inspect MLflow round artifacts
-  -> orchestrator đề xuất một prompt change
-  -> sửa prompt
-  -> kappa >= 0.85: eligible_to_lock
-  -> confirm_prompt_lock: lock prompt bundle sau approval
+  -> kappa < 0.85: needs_prompt_update + prompt_augment_proposal.json
+  -> user tự update prompt ngoài round đã hoàn tất
+  -> kappa >= 0.85: accepted
   -> bắt đầu large-scale generation
 ```
 
 MLflow được operator chạy riêng; backend không tự khởi động MLflow. Mỗi round
-ghi prompt versions, Fleiss' kappa, verdict files, disagreements, và bundle
-decision. Giữ cố định source UID set giữa các round bằng quy ước operator khi
-các round cần so sánh trực tiếp. Nếu generator policy đã chọn đổi, regenerate
-đúng UID set đó; nếu chỉ validator prompt đổi, reuse generated calibration file. Đọc
+ghi Fleiss' kappa, verdict files, prompt snapshots, disagreements, decision, và
+proposal artifact khi agreement quá thấp. Giữ cố định source UID set giữa các
+round bằng quy ước operator khi các round cần so sánh trực tiếp. Nếu generator
+policy đã chọn đổi, regenerate đúng UID set đó; nếu chỉ validator prompt đổi,
+reuse generated calibration file. Đọc
 `skill://prompt_refinement` để chạy đúng flow.
 
-Codex main agent sở hữu MCP calls, prompt edits, và file persistence. Main agent
-dispatch ba validator subagent cô lập; mỗi subagent chỉ nhận masked rows và trả
-verdict mà không đọc expected label hoặc output của model khác.
+Codex main agent sở hữu MCP calls và file persistence. Main agent dispatch ba
+validator subagent cô lập; mỗi subagent chỉ nhận masked rows và trả verdict mà
+không đọc expected label hoặc output của model khác.
 Prompt file phải giữ nguyên từ lúc dispatch đến khi MCP evaluation hoàn tất.
+Backend không register prompt versions, promote aliases, lock prompts, hoặc tự
+chạy round tiếp theo.
 
 PMI không phải trigger sửa prompt. PMI thuộc Lớp 3 sau generation và consensus
 validation.

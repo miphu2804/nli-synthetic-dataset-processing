@@ -99,9 +99,10 @@ uv run mlflow server \
 Open `http://127.0.0.1:5000`, then ask the agent to read
 `skill://prompt_refinement`. The agent collects exactly three independent
 verdict files and calls `evaluate_prompt_refinement_round`. Kappa below `0.85`
-means the harness inspects the MLflow round artifacts, proposes the smallest
-prompt change, and starts another round if appropriate. Kappa at least `0.85` is
-eligible to lock and still requires an explicit `confirm_prompt_lock` call.
+returns `needs_prompt_update` with a `prompt_augment_proposal.json` artifact for
+manual prompt updates. Kappa at least `0.85` returns `accepted`. The backend does
+not register prompt versions, promote aliases, lock prompts, or run another
+round automatically.
 
 ## Resources (MCP server: `nli-tools`)
 

@@ -1,56 +1,23 @@
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
-import pandas as pd
 from pydantic import BaseModel
 
 
-@dataclass(frozen=True)
-class PromptRoundEvaluation:
-    verdict_paths: list[Path]
-    model_label_paths: dict[str, Path]
-    kappa_result: dict[str, Any]
-    kappa: float
-    decision: str
-    calibration_path: Path
-    sample_count: int
-    calibration: pd.DataFrame
-    disagreements: pd.DataFrame
-    n_disagreements: int
-    label_distribution: dict[str, int]
-    model_summaries: list[dict[str, Any]]
-
-
-@dataclass(frozen=True)
-class PromptBundleRegistration:
-    run_id: str
-    session_run_id: str | None
-    bundle_id: str
-    generator_prompt_version: int
-    validator_prompt_version: int
+class PromptAugmentProposalResponse(BaseModel):
+    reason: str
+    suggested_action: str
+    evidence_uids: list[str]
 
 
 class PromptRefinementRoundResponse(BaseModel):
     kappa: float
     threshold: float
-    decision: Literal["refine_prompt", "eligible_to_lock"]
+    decision: Literal["needs_prompt_update", "accepted"]
     n_items: int
     n_raters: int
     models: list[str]
-    generator_prompt_version: int
-    validator_prompt_version: int
     bundle_id: str
     mlflow_run_id: str
     n_disagreements: int
-    mlflow_session_run_id: str | None = None
-
-
-class PromptLockConfirmationResponse(BaseModel):
-    decision: Literal["lock_prompt"]
-    bundle_id: str
-    generator_prompt_version: int
-    validator_prompt_version: int
-    kappa: float
-    threshold: float
-    mlflow_run_id: str
+    proposal: PromptAugmentProposalResponse | None = None
+    proposal_artifact_path: str | None = None
