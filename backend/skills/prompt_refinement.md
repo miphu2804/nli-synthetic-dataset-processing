@@ -5,7 +5,8 @@ validator instructions need calibration.
 
 ## Preconditions
 
-- Start MLflow separately and keep its tracking URI available.
+- Work in a connected `nli-tools` session where the main agent can read skills
+  and call MCP tools.
 - Freeze one calibration source_uid set.
 - Produce exactly three independent verdict CSV or Parquet files. Each file
   must contain `source_uid,predicted_label,reason`.
@@ -21,10 +22,11 @@ The main agent owns orchestration and trusted state:
 - dispatch exactly three validator subagents in parallel;
 - validate responses and persist one verdict file per model;
 - call `evaluate_prompt_refinement`;
-- if kappa is low, call `propose_prompt_refinement_update` to get the
-  user-facing prompt-update proposal;
-- report kappa, decision, MLflow run ID, rejected sample count, and any proposal
-  to the user.
+- if kappa is low, inspect the logged disagreement evidence and decide whether
+  the smallest next step is generator prompt review, validator rubric review, or
+  no prompt edit because the evidence points to calibration rows;
+- report kappa, decision, MLflow run ID, rejected sample count, evidence paths,
+  and the agent-owned next step to the user.
 
 Each subagent is a stateless validator. Give it only `source_uid`, `premise`,
 `hypothesis`, the 3-class rubric, and its output path identity. It must return
@@ -54,17 +56,17 @@ successful model's verdict file.
 3. Validate the three returned verdict sets and save one verdict file per model
    in a dedicated calibration directory.
 4. The main agent calls `evaluate_prompt_refinement` with the verdict
-   directory, generated labeled calibration file path, MLflow tracking URI,
-   experiment name, and `generator_skill_name`.
+   directory, generated labeled calibration file path, and
+   `generator_skill_name`.
 5. Follow the returned decision:
 
 | Decision | Action |
 |----------|--------|
-| `needs_prompt_update` | Call `propose_prompt_refinement_update` with the same verdict directory, calibration file, and `generator_skill_name`; then stop and report the proposal, rejected sample count, `disagreement_rows.csv`, kappa, and MLflow run ID so the user can manually update the prompt. |
+| `needs_prompt_update` | Stop automatic execution. Inspect the logged `disagreement_rows.csv`, prompt snapshots, verdict files, and calibration rows; then report the rejected sample count, kappa, MLflow run ID, and the smallest evidence-backed next step for user approval. |
 | `accepted` | Stop the calibration. Report kappa and MLflow run ID; no prompt lock or version promotion is performed. |
 
-Fleiss' kappa below `0.85` means the separate proposal tool returns a
-`reason`, `suggested_action`, and evidence source_uid list. The backend does not
+Fleiss' kappa below `0.85` means the agent reviews the logged evidence and
+decides what to propose to the user. The backend does not propose prompt edits,
 spawn editor agents, edit prompt files, rerun calibration, register prompt
 versions, or promote aliases.
 
@@ -75,9 +77,9 @@ rubric must stay byte-identical from the moment you dispatch the validator
 subagents until `evaluate_prompt_refinement` returns. Kappa is computed on
 verdicts produced by the instructions as they were at dispatch time.
 
-If the user chooses to edit a prompt after a `needs_prompt_update` proposal,
-finish or abandon the current calibration first, then run a fresh calibration
-on the same source_uid set.
+If the user chooses to edit a prompt after a `needs_prompt_update` review, finish
+or abandon the current calibration first, then run a fresh calibration on the
+same source_uid set.
 
 Do not use PMI as a prompt-refinement trigger. PMI belongs to post-generation
 artifact analysis and paraphrasing.
@@ -89,8 +91,8 @@ Return:
 - verdict file paths;
 - kappa and decision;
 - rejected sample count;
-- `propose_prompt_refinement_update` result when called;
 - `disagreement_rows.csv`;
+- agent-owned next step or blocker;
 - model identifiers;
 - bundle ID;
 - MLflow run ID;

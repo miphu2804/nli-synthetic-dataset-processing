@@ -173,7 +173,10 @@ class ValidationToolProvider(ToolProvider):
 
     @tool(
         name="verify_validation_progress_log",
-        description="Verify the integrity of a validation run progress log.",
+        description=(
+            "Check validation progress consistency, row reconciliation, "
+            "and batch output references."
+        ),
     )
     def verify_validation_progress_log(
         self,
@@ -243,48 +246,6 @@ class ValidationToolProvider(ToolProvider):
             calibration_input=calibration_input,
             tracking_uri=tracking_uri,
             experiment_name=experiment_name,
-            generator_skill_name=generator_skill_name,
-        ).model_dump(mode="json")
-
-    @tool(
-        name="propose_prompt_refinement_update",
-        description=(
-            "Return a deterministic manual prompt-update proposal from the "
-            "same calibration inputs after a prompt-refinement run."
-        ),
-    )
-    def propose_prompt_refinement_update(
-        self,
-        verdicts_dir: Annotated[
-            str,
-            Field(
-                description=(
-                    "Directory containing exactly three CSV or Parquet verdict files."
-                )
-            ),
-        ],
-        calibration_input: Annotated[
-            str,
-            Field(
-                description=(
-                    "Fixed calibration CSV or Parquet used by all three validators."
-                )
-            ),
-        ],
-        generator_skill_name: Annotated[
-            str,
-            Field(
-                description=(
-                    "Generator skill stem used for this calibration. Use generator "
-                    "for legacy prompts, generator_plain for ANLI-style translation, "
-                    "or generator_adversarial for controlled adversarial generation."
-                )
-            ),
-        ] = "generator",
-    ) -> dict[str, Any]:
-        return self._prompt_refinement_service.propose_update(
-            verdicts_dir=verdicts_dir,
-            calibration_input=calibration_input,
             generator_skill_name=generator_skill_name,
         ).model_dump(mode="json")
 

@@ -1,7 +1,6 @@
 # Template điều phối Prompt Refinement
 
-Dùng prompt này khi Codex đã kết nối MCP server `nli-tools` và operator đã tự
-khởi động các service cần thiết.
+Dùng prompt này khi Codex đã kết nối MCP server `nli-tools`.
 
 ```text
 Bạn là main agent đang kết nối MCP server `nli-tools`.
@@ -14,18 +13,16 @@ Input:
 - sample_count: <N>
 - generator_skill_name: <generator_plain_OR_generator_adversarial_OR_generator>
 - output_root: data/prompt-refinement/<SESSION_ID_OR_DATASET_ID>
-- tracking_uri: <MLFLOW_TRACKING_URI>
-- experiment_name: <MLFLOW_EXPERIMENT_NAME>
 - validator_models: <THREE_REAL_INDEPENDENT_MODEL_IDENTIFIERS>
 
-MCP resources bắt buộc:
-- skill://instructor
-- skill://prompt_refinement
-- skill://validator
-- skill://<generator_skill_name>
+Skills cần load từ skill lookup của `nli-tools` đang connect:
+- instructor
+- prompt_refinement
+- validator
+- <generator_skill_name>
 
 Task:
-1. Chỉ đọc MCP resources bắt buộc và calibration_source đã được cung cấp.
+1. Chỉ đọc skills bắt buộc và calibration_source đã được cung cấp.
 2. Giữ cố định source_uid set đã chọn cho calibration này.
 3. Tạo output_root/calibration/calibration.csv với:
    source_uid,premise,hypothesis,label
@@ -46,22 +43,16 @@ Sau đó gọi:
 evaluate_prompt_refinement(
   verdicts_dir="output_root/calibration/verdicts",
   calibration_input="output_root/calibration/calibration.csv",
-  tracking_uri="<MLFLOW_TRACKING_URI>",
-  experiment_name="<MLFLOW_EXPERIMENT_NAME>",
   generator_skill_name="<GENERATOR_SKILL_NAME>"
 )
 
 Xử lý decision:
 1. Nếu decision=accepted, dừng và report kết quả calibration.
-2. Nếu decision=needs_prompt_update, gọi:
-   propose_prompt_refinement_update(
-     verdicts_dir="output_root/calibration/verdicts",
-     calibration_input="output_root/calibration/calibration.csv",
-     generator_skill_name="<GENERATOR_SKILL_NAME>"
-   )
-3. Dừng và report proposal trả về, rejected sample count, và
-   disagreement_rows.csv trong cùng MLflow run để user tự quyết định prompt nào
-   cần update thủ công.
+2. Nếu decision=needs_prompt_update, dừng automatic execution. Inspect
+   disagreement_rows.csv đã log, prompt snapshots, verdict files, và calibration
+   rows.
+3. Report rejected sample count, disagreement evidence, và next step nhỏ nhất có
+   evidence để user duyệt. Không sửa prompt nếu user chưa approve follow-up đó.
 
 Rules:
 - Không đọc hidden labels ngoài bước chuẩn bị calibration_source.
@@ -71,15 +62,18 @@ Rules:
 - Không inspect các file repo không liên quan.
 - Không sửa generator hoặc validator instructions trong lúc calibration đang chạy.
 - Không dùng PMI trong loop này.
+- Không yêu cầu backend propose prompt edits; main agent sở hữu evidence review
+  và recommendation cho user.
 - Không register prompt versions, promote aliases, hoặc lock prompts.
-- Nếu MCP hoặc MLflow unavailable, báo blocker; không tự start services.
+- Nếu thiếu required skills, tools, hoặc ba validator execution độc lập, báo
+  blocker.
 
 Report:
 - verdict file paths
 - kappa và decision
 - rejected sample count
-- kết quả propose_prompt_refinement_update nếu đã gọi
 - disagreement_rows.csv
+- next step hoặc blocker do agent đề xuất
 - bundle ID
 - MLflow run ID
 - blockers hoặc câu hỏi còn mở

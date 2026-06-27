@@ -715,7 +715,7 @@ def _run_kappa_command(args: argparse.Namespace, console: Console) -> int:
     if kappa >= KAPPA_THRESHOLD:
         console.print("[green]κ ≥ 0.85 → accepted[/green]")
     else:
-        console.print("[yellow]κ < 0.85 → propose prompt update[/yellow]")
+        console.print("[yellow]κ < 0.85 → review disagreement evidence[/yellow]")
     return 0
 
 

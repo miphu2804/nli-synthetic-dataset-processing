@@ -20,27 +20,27 @@ fixed labeled calibration dataset
   -> đúng ba validator độc lập chấm cùng các row
   -> evaluate_prompt_refinement
   -> kappa < 0.85: needs_prompt_update
-  -> tùy chọn gọi propose_prompt_refinement_update để lấy proposal cho user
-  -> user tự update prompt sau calibration đã hoàn tất
+  -> main agent review disagreement evidence đã log
+  -> user duyệt mọi prompt update thủ công sau calibration đã hoàn tất
   -> kappa >= 0.85: accepted
   -> bắt đầu large-scale generation
 ```
 
-MLflow được operator chạy riêng; backend không tự khởi động MLflow. Mỗi calibration
-ghi Fleiss' kappa, verdict files, prompt snapshots, rejected sample count, và decision.
-Proposal tool được tách riêng để harness chủ động lấy gợi ý user-facing sau
-calibration. Giữ cố định source UID set giữa các
-calibration bằng quy ước operator khi cần so sánh trực tiếp. Nếu generator
-policy đã chọn đổi, regenerate đúng UID set đó; nếu chỉ validator prompt đổi,
-reuse generated calibration file. Đọc
-`skill://prompt_refinement` để chạy đúng flow.
+Connected runtime của `nli-tools` sở hữu tool execution và calibration logging.
+Mỗi calibration ghi Fleiss' kappa, verdict files, prompt snapshots, rejected
+sample count, `disagreement_rows.csv`, và decision. Kappa thấp là bước agent
+review evidence, không phải backend prompt-proposal step. Giữ cố định source UID
+set giữa các calibration bằng quy ước operator khi cần so sánh trực tiếp. Nếu
+generator policy đã chọn đổi, regenerate đúng UID set đó; nếu chỉ validator
+prompt đổi, reuse generated calibration file. Load skill `prompt_refinement` qua
+skill lookup của session đang connect để chạy đúng flow.
 
 Codex main agent sở hữu MCP calls và file persistence. Main agent dispatch ba
 validator subagent cô lập; mỗi subagent chỉ nhận masked rows và trả verdict mà
 không đọc expected label hoặc output của model khác.
 Prompt file phải giữ nguyên từ lúc dispatch đến khi MCP evaluation hoàn tất.
-Backend không register prompt versions, promote aliases, lock prompts, hoặc tự
-chạy calibration tiếp theo.
+Backend không propose prompt edits, register prompt versions, promote aliases,
+lock prompts, hoặc tự chạy calibration tiếp theo.
 
 PMI không phải trigger sửa prompt. PMI thuộc Lớp 3 sau generation và consensus
 validation.

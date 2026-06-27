@@ -214,31 +214,6 @@ class PromptRefinementServiceTest(unittest.TestCase):
         }
         self.assertNotIn("prompt_augment_proposal.json", artifact_paths)
 
-    def test_propose_update_returns_manual_update_proposal_for_low_agreement(
-        self,
-    ) -> None:
-        self._write_verdicts(
-            {
-                "model-a": ["entailment", "entailment"],
-                "model-b": ["neutral", "neutral"],
-                "model-c": ["contradiction", "contradiction"],
-            }
-        )
-
-        result = self.service.propose_update(
-            verdicts_dir=self.verdicts_dir,
-            calibration_input=self.calibration_input,
-            generator_skill_name="generator_plain",
-        )
-
-        self.assertEqual(result.decision, "needs_prompt_update")
-        self.assertLess(result.kappa, result.threshold)
-        self.assertIsNotNone(result.proposal)
-        assert result.proposal is not None
-        self.assertIn("below", result.proposal.reason)
-        self.assertEqual(result.proposal.evidence_uids, ["row-1", "row-2"])
-        self.assertIn("generator_plain.md", result.proposal.suggested_action)
-
     def test_mixed_numeric_and_named_labels_agree(self) -> None:
         for model, labels in {
             "model-a": [0, 1],

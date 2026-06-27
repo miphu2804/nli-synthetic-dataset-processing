@@ -167,7 +167,8 @@ class ValidationRunService(BaseRunService):
             self._progress_tracking_service.get_outputs_dir(run_id) / f"{batch_id}.csv"
         )
         self._write_rows(output_path, rows)
-        counts = self._count_acceptance(rows)
+        accepted_count = sum(1 for row in rows if row["accepted"])
+        counts = {"accepted": accepted_count, "rejected": len(rows) - accepted_count}
         self._log_validation_events(
             run_id,
             agent_id,
@@ -262,7 +263,7 @@ class ValidationRunService(BaseRunService):
         run_id: str,
         agent_id: str | None = None,
     ) -> ProgressVerificationResponse:
-        """Verify validation progress-log integrity and row reconciliation."""
+        """Check validation progress-log consistency and row reconciliation."""
         return self._verify_progress_log(run_id, agent_id)
 
     def list_validation_runs(self) -> ListValidationRunsResponse:
@@ -368,7 +369,7 @@ class ValidationRunService(BaseRunService):
         counts = {"total": 0, "accepted": 0, "rejected": 0}
 
         def tally(row):
-            if self._csv_bool(row["accepted"]):
+            if row["accepted"].strip().lower() == "true":
                 counts["accepted"] += 1
             else:
                 counts["rejected"] += 1
@@ -395,22 +396,6 @@ class ValidationRunService(BaseRunService):
         Raises ValueError if expected_label is not a valid NLI label.
         """
         return to_label_name(expected_label) == to_label_name(predicted_label)
-
-    @staticmethod
-    def _count_acceptance(rows):
-        """Count accepted and rejected validation rows."""
-        counts = {"accepted": 0, "rejected": 0}
-        for row in rows:
-            if row["accepted"]:
-                counts["accepted"] += 1
-            else:
-                counts["rejected"] += 1
-        return counts
-
-    @staticmethod
-    def _csv_bool(value):
-        """Parse a CSV cell into a bool (True only for the literal 'true', case-insensitive)."""
-        return value.strip().lower() == "true"
 
     @staticmethod
     def _resolve_output_dir(input_path, output_dir):

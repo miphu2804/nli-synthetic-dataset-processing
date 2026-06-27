@@ -137,7 +137,10 @@ class GenerationToolProvider(ToolProvider):
 
     @tool(
         name="verify_progress_log",
-        description="Verify the integrity of a generation run progress log.",
+        description=(
+            "Check generation progress consistency, row reconciliation, "
+            "and batch output references."
+        ),
     )
     def verify_progress_log(
         self,

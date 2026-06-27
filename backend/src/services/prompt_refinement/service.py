@@ -4,37 +4,27 @@ import re
 from pathlib import Path
 
 from src.app_config import app_config
-from src.schemas.prompt_refinement_schema import (
-    PromptRefinementProposal,
-    PromptRefinementProposalResponse,
-    PromptRefinementResponse,
-)
+from src.schemas.prompt_refinement_schema import PromptRefinementResponse
 from src.services.prompt_refinement.evaluator import (
     KAPPA_THRESHOLD,
     PromptRefinementEvaluator,
 )
 from src.services.prompt_refinement.mlflow_store import PromptRefinementMlflowStore
-from src.services.prompt_refinement.refinement_strategy import (
-    PromptRefinementContext,
-    PromptRefinementStrategy,
-)
 
 SKILL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class PromptRefinementService:
-    """Facade for prompt calibration evaluation and manual update proposals."""
+    """Facade for prompt calibration evaluation."""
 
     def __init__(
         self,
         skills_dir: Path = Path("skills"),
         evaluator: PromptRefinementEvaluator | None = None,
-        refinement_strategy: PromptRefinementStrategy | None = None,
         mlflow_store: PromptRefinementMlflowStore | None = None,
     ) -> None:
         self._skills_dir = skills_dir
         self._evaluator = evaluator or PromptRefinementEvaluator()
-        self._refinement_strategy = refinement_strategy or PromptRefinementStrategy()
         self._mlflow_store = mlflow_store or PromptRefinementMlflowStore()
 
     def evaluate(
@@ -82,47 +72,6 @@ class PromptRefinementService:
             bundle_id=logged_run.bundle_id,
             mlflow_run_id=logged_run.run_id,
             rejected_sample_count=evaluation.rejected_sample_count,
-        )
-
-    def propose_update(
-        self,
-        verdicts_dir: str | Path,
-        calibration_input: str | Path,
-        generator_skill_name: str = "generator",
-    ) -> PromptRefinementProposalResponse:
-        """Return the explicit user-facing prompt-update proposal."""
-        self._validate_generator_skill_name(generator_skill_name)
-        evaluation = self._evaluator.evaluate_inputs(
-            verdicts_dir,
-            calibration_input,
-        )
-        generator_skill_file = f"{generator_skill_name}.md"
-        validator_skill_file = "validator.md"
-        self._read_skill(generator_skill_file)
-        self._read_skill(validator_skill_file)
-
-        proposal = None
-        if evaluation.kappa < KAPPA_THRESHOLD:
-            proposed = self._refinement_strategy.propose(
-                PromptRefinementContext(
-                    evaluation=evaluation,
-                    threshold=KAPPA_THRESHOLD,
-                    generator_skill_file=generator_skill_file,
-                    validator_skill_file=validator_skill_file,
-                )
-            )
-            proposal = PromptRefinementProposal(
-                reason=proposed.reason,
-                suggested_action=proposed.suggested_action,
-                evidence_uids=proposed.evidence_uids,
-            )
-
-        return PromptRefinementProposalResponse(
-            kappa=evaluation.kappa,
-            threshold=KAPPA_THRESHOLD,
-            decision=evaluation.decision,
-            rejected_sample_count=evaluation.rejected_sample_count,
-            proposal=proposal,
         )
 
     @staticmethod

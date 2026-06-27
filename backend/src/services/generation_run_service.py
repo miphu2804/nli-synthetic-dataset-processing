@@ -257,7 +257,7 @@ class GenerationRunService(BaseRunService):
         run_id: str,
         agent_id: str | None = None,
     ) -> ProgressVerificationResponse:
-        """Verify generation progress-log integrity and row reconciliation."""
+        """Check generation progress-log consistency and row reconciliation."""
         return self._verify_progress_log(run_id, agent_id)
 
     def list_generation_runs(self) -> ListGenerationRunsResponse:

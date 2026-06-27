@@ -13,7 +13,7 @@ class BaseRunService:
     Subclasses set the class-level configuration (run id / batch id prefixes and
     the persisted settings model) and assemble their own public responses. This
     base owns the parts that are identical for both: argument validation, dataset
-    slicing, claim selection, progress verification, and finalize checks/cleanup.
+    slicing, claim selection, progress consistency checks, and finalize checks/cleanup.
     """
 
     REQUIRED_COLUMNS = ("premise", "hypothesis", "label")
@@ -134,7 +134,7 @@ class BaseRunService:
         return self._progress_snapshot(run_id, run_settings.total_target_rows)
 
     def _verify_progress_log(self, run_id, agent_id=None):
-        """Verify progress-log integrity and reconcile snapshot row counts against the run total."""
+        """Check progress-log consistency and reconcile snapshot row counts against the run total."""
         run_settings = self._load_run_settings(run_id)
         verification = self._progress_tracking_service.verify_progress_log(
             run_id,

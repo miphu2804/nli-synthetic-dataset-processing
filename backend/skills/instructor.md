@@ -63,7 +63,6 @@ verify_validation_progress_log
 finalize_validation_run
 list_validation_runs
 evaluate_prompt_refinement
-propose_prompt_refinement_update
 ```
 
 ## Resource Map
@@ -80,7 +79,7 @@ Load only the resources needed by the current phase:
 | `skill://delegation` | When processing at least 100 assigned rows with subagents. |
 | `skill://aggregator` | Before finalizing a completed local run. |
 | `skill://validator` | Before validating generated rows with blank labels. |
-| `skill://prompt_refinement` | Before large-scale generation when prompts need three-model calibration and optional user-facing prompt proposals. |
+| `skill://prompt_refinement` | Before large-scale generation when prompts need three-model calibration and evidence-backed agent review. |
 
 ## Optional Prompt Refinement
 
@@ -93,13 +92,14 @@ load prompt_refinement
   -> main agent validates and persists one verdict file per model
   -> evaluate_prompt_refinement
   -> kappa < 0.85 returns needs_prompt_update
-  -> optionally call propose_prompt_refinement_update for a user-facing proposal
+  -> main agent reviews logged disagreement evidence and reports the next step
   -> kappa >= 0.85 returns accepted
   -> user manually updates prompts after the calibration if needed
 ```
 
-MLflow is started separately by the operator. The backend does not start it
-automatically.
+The connected MCP runtime owns tool execution and calibration logging. Agents
+should report tool failures as blockers instead of adding service-startup steps
+to the prompt.
 
 ## Generation Phase
 

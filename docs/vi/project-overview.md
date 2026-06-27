@@ -72,6 +72,6 @@ data/batches/{run_id}/
 ```
 
 Batch CSV là runtime artifact, không phải final output. Finalize thành công sẽ
-merge batch files, verify progress integrity và row counts, sau đó xóa cả run
+merge batch files, check progress consistency và row counts, sau đó xóa cả run
 state và `data/batches/{run_id}`. Nếu verification fail thì giữ artifacts để
 debug.
