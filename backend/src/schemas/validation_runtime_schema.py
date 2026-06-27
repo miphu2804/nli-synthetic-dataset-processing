@@ -108,14 +108,3 @@ class ValidationRunListItem(BaseModel):
 
 class ListValidationRunsResponse(BaseModel):
     runs: list[ValidationRunListItem] = Field(default_factory=list)
-
-
-class ValidationProgressVerificationResponse(BaseModel):
-    ok: bool
-    run_id: str
-    checked_agents: list[str] = Field(default_factory=list)
-    duplicate_done_source_uids: list[str | int] = Field(default_factory=list)
-    done_skip_overlap_source_uids: list[str | int] = Field(default_factory=list)
-    missing_batch_files: list[str] = Field(default_factory=list)
-    count_mismatches: list[str] = Field(default_factory=list)
-    active_claims: list[str] = Field(default_factory=list)

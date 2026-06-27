@@ -1,3 +1,24 @@
+### [2026-06-27 23:23] — [Validation] Remove duplicate verification schema
+
+**Đã làm:**
+- Xoá schema verification riêng của validation vì runtime đang dùng shared response từ progress tracker.
+- Gỡ export schema trùng khỏi `backend/src/schemas/__init__.py`.
+- Rà validation runtime/provider sau gen cleanup: các provider methods còn lại là MCP public boundary; private service helpers còn lại đều có logic domain hoặc CSV/runtime responsibility.
+
+**Files thay đổi:**
+- `backend/src/schemas/validation_runtime_schema.py` — modified
+- `backend/src/schemas/__init__.py` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Validation progress verification dùng chung `ProgressTrackingService.verify_progress_log(...)`, nên response shape không cần schema validation-specific riêng. Blind validation vẫn giữ flow: start validation run, claim masked rows, submit verdicts, compare against hidden label with `to_label_name(...)`, write batch CSVs, finalize into `validation_results.csv`, then cleanup state.
+
+---
+
 ### [2026-06-27 23:06] — [Generation] Remove thin private helpers
 
 **Đã làm:**

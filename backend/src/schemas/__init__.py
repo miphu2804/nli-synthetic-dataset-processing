@@ -42,7 +42,6 @@ from src.schemas.validation_runtime_schema import (
     ReleaseValidationBatchClaimResponse,
     StartValidationRunResponse,
     SubmitValidationResultResponse,
-    ValidationProgressVerificationResponse,
     ValidationRunListItem,
     ValidationRunManifest,
     ValidatorVerdict,
@@ -86,6 +85,5 @@ __all__ = [
     "SubmitValidationResultResponse",
     "ValidationRunListItem",
     "ValidationRunManifest",
-    "ValidationProgressVerificationResponse",
     "ValidatorVerdict",
 ]
