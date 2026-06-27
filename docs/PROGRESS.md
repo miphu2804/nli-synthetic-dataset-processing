@@ -1,4 +1,28 @@
-### [2026-06-27 23:20] — [Generation] Remove stale scheduling guidance
+### [2026-06-27 23:06] — [Generation] Remove thin private helpers
+
+**Đã làm:**
+- Inline generation finalize merge call trực tiếp sang shared `_merge_batch_csv(...)`.
+- Inline label comparison trong batch-result validation thay vì giữ helper một dòng.
+- Sửa mô tả MCP `start_generation_run` để nói đúng public contract `from_sample`/`to_sample` là one-based sample range.
+- Đồng bộ ví dụ output path trong provider/execution skill về `data/generated/...`
+  để khớp convention runtime hiện tại.
+
+**Files thay đổi:**
+- `backend/src/services/generation_run_service.py` — modified
+- `backend/src/providers/generation_provider.py` — modified
+- `backend/skills/execution.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Generation service vẫn giữ nguyên lifecycle: start, claim, validate submit, write batch, finalize/cleanup. Cleanup này chỉ bỏ hai wrapper private không còn mang domain meaning sau khi merge logic chung vào `BaseRunService`; provider vẫn là MCP boundary public nên không inline xuống service.
+
+---
+
+### [2026-06-27 23:00] — [Generation] Remove stale scheduling guidance
 
 **Đã làm:**
 - Xoá tool lập kế hoạch batch cũ khỏi generation tool map và generation phase trong MCP instructor skill.
@@ -218,32 +242,5 @@ Prompt-refinement vẫn expose cùng workflow/tool như cũ, nhưng naming nội
 
 **Flow explained:**
 Prompt-refinement MLflow round logging giờ explicit hơn: code trước hết thử lấy experiment/session run hiện có, nếu chưa có mới gọi create path tương ứng. Helper không còn giấu side effect dưới tên `resolve`, nên nhìn vào `log_evaluated_round(...)` là thấy ngay chỗ nào chỉ đọc và chỗ nào có thể mutate MLflow state.
-
----
-
-### [2026-06-26 22:35] — [PromptRefinement] Drop MLflow run URL from responses
-
-**Đã làm:**
-- Bỏ `mlflow_run_url` khỏi prompt-refinement response schema cho cả evaluate-round và lock-confirmation path.
-- Xoá `build_run_url` khỏi shared MLflow support vì feature không còn trả UI link.
-- Giữ lại MLflow identifiers thật sự cần cho flow: `mlflow_run_id`, `mlflow_session_run_id`, `bundle_id`, prompt versions.
-- Đồng bộ template/skill text để report chỉ còn MLflow run ID thay vì run URL.
-
-**Files thay đổi:**
-- `backend/src/schemas/prompt_refinement_schema.py` — modified
-- `backend/src/services/prompt_refinement/mlflow_support.py` — modified
-- `backend/src/services/prompt_refinement/mlflow_store.py` — modified
-- `backend/src/services/prompt_refinement/locking.py` — modified
-- `backend/src/services/prompt_refinement/service.py` — modified
-- `backend/skills/prompt_refinement.md` — modified
-- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** Prompt-refinement vẫn còn vài tên thiên về orchestration như `evidence_pack`; chưa đổi trong vòng này để giữ scope hẹp.
-
-**Flow explained:**
-Prompt-refinement giờ chỉ expose MLflow identifiers để operator hoặc automation tự truy cập qua API/UI khi cần. Feature code không còn ghép browser URL presentation string, nên lock/evaluate responses gọn hơn và ít dính UI concern hơn.
 
 ---

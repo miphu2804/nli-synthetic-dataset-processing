@@ -19,7 +19,7 @@ class GenerationToolProvider(ToolProvider):
     @tool(
         name="start_generation_run",
         description=(
-            "Create one local generation run for a zero-based dataset slice. "
+            "Create one local generation run for a one-based sample range. "
             "Call once before claiming batches."
         ),
     )
@@ -32,7 +32,7 @@ class GenerationToolProvider(ToolProvider):
         output_path: Annotated[
             str | None,
             Field(
-                description="Final CSV path inside the server container, such as /data/generated/result.csv."
+                description="Final CSV path inside the server container, such as data/generated/result.csv."
             ),
         ] = None,
         from_sample: Annotated[
