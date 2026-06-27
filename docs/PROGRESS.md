@@ -1,3 +1,27 @@
+### [2026-06-27 23:20] — [Generation] Remove stale scheduling guidance
+
+**Đã làm:**
+- Xoá tool lập kế hoạch batch cũ khỏi generation tool map và generation phase trong MCP instructor skill.
+- Bỏ công thức pool worker khỏi delegation skill; subagent scheduling giờ là trách nhiệm của connected harness khi user/template yêu cầu.
+- Cập nhật generator templates EN/VI để không hướng dẫn suy ra số worker từ backend.
+- Xoá mô tả integrity-log cũ khỏi progress-tracking skill và thay bằng mô tả JSONL verification thực tế.
+
+**Files thay đổi:**
+- `backend/skills/instructor.md` — modified
+- `backend/skills/progress_tracking.md` — modified
+- `backend/skills/delegation.md` — modified
+- `docs/en/template/generator.md`, `docs/vi/template/generator.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Generation MCP flow hiện chỉ còn runtime tools thật: `start_generation_run`, `claim_next_batch`, `submit_batch_result`, progress/claim release, verify, finalize, list. Backend không còn được mô tả như nơi tính kế hoạch worker; nếu prompt/user muốn dùng subagents thì connected harness tự schedule sau khi đã claim batch qua MCP. Progress log vẫn là append-only JSONL; verification hiện kiểm consistency/reconciliation theo event content.
+
+---
+
 ### [2026-06-27 13:06] — [PromptRefinement] Switch to single-run proposal tool
 
 **Đã làm:**
@@ -221,29 +245,5 @@ Prompt-refinement MLflow round logging giờ explicit hơn: code trước hết 
 
 **Flow explained:**
 Prompt-refinement giờ chỉ expose MLflow identifiers để operator hoặc automation tự truy cập qua API/UI khi cần. Feature code không còn ghép browser URL presentation string, nên lock/evaluate responses gọn hơn và ít dính UI concern hơn.
-
----
-
-### [2026-06-26 22:15] — [PromptRefinement] Extract prompt lock service
-
-**Đã làm:**
-- Tách `confirm_prompt_lock` khỏi `mlflow_store.py` sang module riêng `locking.py`.
-- Tạo `mlflow_support.py` để share MLflow client setup và prompt-name constants giữa round logging với lock flow.
-- Đổi `PromptRefinementService` sang compose `PromptRefinementLockService` thay vì để `PromptRefinementMlflowStore` ôm cả logging lẫn locking.
-- Giữ nguyên MCP/provider/service API và verify lại regression suite của prompt refinement.
-
-**Files thay đổi:**
-- `backend/src/services/prompt_refinement/locking.py` — created
-- `backend/src/services/prompt_refinement/mlflow_support.py` — created
-- `backend/src/services/prompt_refinement/mlflow_store.py` — modified
-- `backend/src/services/prompt_refinement/service.py` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** `mlflow_store.py` vẫn còn là module round-logging khá dày; vòng sau có thể tách tiếp registration/logging steps nếu cần. Nếu tiếp tục tối giản contract, có thể bỏ hẳn URL presentation concern khỏi prompt-refinement response.
-
-**Flow explained:**
-Prompt-refinement giờ tách lock path ra rõ hơn: `PromptRefinementService.confirm_prompt_lock()` chỉ delegate sang `PromptRefinementLockService`, module này chịu trách nhiệm load eligible run, validate exact evaluated prompt URIs/versions, set `locked` aliases, và mark session/run state. `PromptRefinementMlflowStore` chỉ còn ownership cho evaluate-round logging/register/candidate alias, nên boundary giữa `round logging` và `lock confirmation` rõ hơn mà không đổi public contract.
 
 ---

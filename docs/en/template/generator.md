@@ -43,7 +43,7 @@ Flow:
    - skill://generator_plain or skill://generator_adversarial, matching
      generation_policy
 2. Call start_generation_run with from_sample and to_sample.
-3. Decide locally whether to use subagents or stay sequential.
+3. Use subagents only if the active user request or template asks for them.
 4. Loop:
    - claim_next_batch
    - transform each claimed row according to the chosen generation policy
@@ -61,8 +61,8 @@ Rules:
 - Use `generator_plain` for ANLI-derived or already-adversarial NLI source rows.
 - Use `generator_adversarial` only when creating a new controlled adversarial
   variant is the explicit goal.
-- The harness decides if and how many subagents to spawn. Do not derive a
-  worker count from backend rules.
+- If subagents are explicitly requested, the connected harness owns scheduling
+  outside backend state.
 - Only MCP runtime tools write progress.
 - Subagents, if used, return JSON only and never call MCP tools.
 - Batch CSV artifacts are runtime files under data/batches/{run_id}; finalize

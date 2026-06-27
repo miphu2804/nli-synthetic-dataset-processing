@@ -42,7 +42,6 @@ Generation tools:
 
 ```text
 start_generation_run
-calculate_dispatch_plan
 claim_next_batch
 submit_batch_result
 get_run_progress
@@ -109,9 +108,8 @@ load execution
   -> load progress_tracking
   -> choose and load generator_plain or generator_adversarial
   -> start_generation_run
-  -> calculate_dispatch_plan
   -> claim_next_batch
-  -> transform directly or load delegation and dispatch subagents
+  -> transform claimed rows directly or hand them to subagents when requested
   -> self-check generated rows
   -> submit_batch_result
   -> refill free slots until claim_next_batch returns complete

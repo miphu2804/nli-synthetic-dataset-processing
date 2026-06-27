@@ -1,7 +1,8 @@
 # Delegation - Stateless Subagent Handoff
 
-Use subagents only when processing at least 100 assigned rows. Subagents are
-pure workers: they receive one batch, return JSON and are destroyed.
+Use subagents only when the active user request or template asks for them.
+Subagents are pure workers: they receive one claimed batch, return JSON and are
+destroyed.
 
 ## Ownership
 
@@ -57,22 +58,15 @@ Return:
 ]
 ```
 
-## Parallel Flow
+## Optional Handoff Flow
 
-Calculate the pool before claiming:
+The connected main agent owns scheduling outside backend state. If subagents are
+used:
 
-```text
-total_batches = ceil(samples / batch_size)
-parallel_workers = min(total_batches, max_parallel_workers)
-```
-
-1. Call `calculate_dispatch_plan(samples=total_target_rows, batch_size=batch_size)`.
-2. Claim `parallel_workers` different batches by calling `claim_next_batch`
-   sequentially.
-3. Spawn all claimed batches in parallel immediately.
-4. As each worker returns, validate and call `submit_batch_result`.
-5. Claim and dispatch one replacement batch immediately to refill the free slot.
-6. Failed rows are retried up to 3 times, then submitted as skipped rows.
-7. After all claims resolve, call `finalize_generation_run`.
-
-Keep the sliding window full. Do not scale gradually from 3 workers.
+1. Claim batches through `claim_next_batch`.
+2. Send only already-claimed rows to workers.
+3. Validate each returned JSON payload.
+4. Call `submit_batch_result` for each resolved claim.
+5. Retry failed rows up to 3 times, then submit them as skipped rows.
+6. Continue until `claim_next_batch` returns complete, then call
+   `finalize_generation_run`.

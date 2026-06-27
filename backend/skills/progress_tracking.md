@@ -24,7 +24,6 @@ Use MCP tools instead of manually appending JSONL:
 
 | Tool | Purpose |
 |------|---------|
-| `calculate_dispatch_plan` | Calculate the adaptive subagent pool before claiming |
 | `start_generation_run` | Create run manifest and `run.start` |
 | `claim_next_batch` | Append `claim` and return the next batch |
 | `submit_batch_result` | Write one batch and append row/batch events |
@@ -46,8 +45,10 @@ run.start
   → delete .pipeline/runs/{run_id} and data/batches/{run_id}
 ```
 
-Every event contains `id`, `ts`, `event`, `agent` and `prev_hash`. The hash chain
-provides local audit integrity. The server manages hashes automatically.
+Events are plain JSONL records with `id`, `event`, `agent` and payload fields
+such as `ts`, `batch_id`, `source_uid`, and `file`. Progress verification checks
+duplicate done rows, done/skip overlap, missing batch files, and count
+reconciliation.
 
 `get_run_progress` rebuilds a snapshot from the log with `done_rows`,
 `skipped_rows`, `claimed_rows`, `pending_rows`, `completed_batches`,
