@@ -195,14 +195,13 @@ class ValidationToolProvider(ToolProvider):
         )
 
     @tool(
-        name="evaluate_prompt_refinement_round",
+        name="evaluate_prompt_refinement",
         description=(
             "Compute Fleiss kappa from exactly three independent verdict files, "
-            "log the calibration round, and return a manual prompt-update "
-            "proposal when agreement is below threshold."
+            "log the calibration run, and return the decision."
         ),
     )
-    def evaluate_prompt_refinement_round(
+    def evaluate_prompt_refinement(
         self,
         verdicts_dir: Annotated[
             str,
@@ -220,40 +219,72 @@ class ValidationToolProvider(ToolProvider):
                 )
             ),
         ],
-        round_number: Annotated[
-            int,
-            Field(ge=1, description="One-based refinement round number."),
-        ],
-        change_summary: Annotated[
-            str,
-            Field(description="Short description of prompt changes in this round."),
-        ],
         tracking_uri: Annotated[
             str,
-            Field(description="MLflow tracking URI for prompt calibration rounds."),
+            Field(description="MLflow tracking URI for prompt calibration."),
         ] = app_config.MLFLOW_URL,
         experiment_name: Annotated[
             str,
-            Field(description="MLflow experiment used for prompt calibration rounds."),
+            Field(description="MLflow experiment used for prompt calibration."),
         ] = app_config.MLFLOW_EXPERIMENT_NAME,
         generator_skill_name: Annotated[
             str,
             Field(
                 description=(
-                    "Generator skill stem used for this round. Use generator "
+                    "Generator skill stem used for this calibration. Use generator "
                     "for legacy prompts, generator_plain for ANLI-style translation, "
                     "or generator_adversarial for controlled adversarial generation."
                 )
             ),
         ] = "generator",
     ) -> dict[str, Any]:
-        return self._prompt_refinement_service.evaluate_round(
+        return self._prompt_refinement_service.evaluate(
             verdicts_dir=verdicts_dir,
             calibration_input=calibration_input,
-            round_number=round_number,
-            change_summary=change_summary,
             tracking_uri=tracking_uri,
             experiment_name=experiment_name,
+            generator_skill_name=generator_skill_name,
+        ).model_dump(mode="json")
+
+    @tool(
+        name="propose_prompt_refinement_update",
+        description=(
+            "Return a deterministic manual prompt-update proposal from the "
+            "same calibration inputs after a prompt-refinement run."
+        ),
+    )
+    def propose_prompt_refinement_update(
+        self,
+        verdicts_dir: Annotated[
+            str,
+            Field(
+                description=(
+                    "Directory containing exactly three CSV or Parquet verdict files."
+                )
+            ),
+        ],
+        calibration_input: Annotated[
+            str,
+            Field(
+                description=(
+                    "Fixed calibration CSV or Parquet used by all three validators."
+                )
+            ),
+        ],
+        generator_skill_name: Annotated[
+            str,
+            Field(
+                description=(
+                    "Generator skill stem used for this calibration. Use generator "
+                    "for legacy prompts, generator_plain for ANLI-style translation, "
+                    "or generator_adversarial for controlled adversarial generation."
+                )
+            ),
+        ] = "generator",
+    ) -> dict[str, Any]:
+        return self._prompt_refinement_service.propose_update(
+            verdicts_dir=verdicts_dir,
+            calibration_input=calibration_input,
             generator_skill_name=generator_skill_name,
         ).model_dump(mode="json")
 

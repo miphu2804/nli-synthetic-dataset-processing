@@ -1,17 +1,17 @@
-### [2026-06-27 13:06] — [PromptRefinement] Switch to proposal-only kappa rounds
+### [2026-06-27 13:06] — [PromptRefinement] Switch to single-run proposal tool
 
 **Đã làm:**
-- Thêm `PromptAugmentStrategy.propose(...)` để tạo proposal deterministic khi Fleiss' kappa thấp hơn threshold.
-- Đổi decision prompt-refinement thành `needs_prompt_update` / `accepted`; bỏ ngôn ngữ `eligible_to_lock`.
-- Xoá public lock path: không còn `confirm_prompt_lock`, prompt registry version fields, candidate/locked alias promotion, hoặc prompt lock manager.
-- MLflow round giờ chỉ log metrics, verdicts, prompt snapshots, `disagreement_rows.csv`, `round_summary.json`, và `prompt_augment_proposal.json` khi cần user update prompt.
-- Xoá template editor-subagent cũ vì backend/harness không còn tự loop hoặc spawn reviewer để sửa prompt.
-- Cập nhật README, skill, provider schema, validator flow docs, templates, và tests theo handoff proposal-only.
+- Đổi proposal boundary từ auto artifact trong `evaluate_prompt_refinement` sang MCP tool riêng `propose_prompt_refinement_update` để harness chủ động lấy proposal cho user sau khi calibration kết thúc.
+- Rename strategy nội bộ thành `PromptRefinementStrategy.propose(...)`; bỏ naming `PromptAugmentStrategy` khỏi service code.
+- `evaluate_prompt_refinement` giờ chỉ evaluate/log một calibration và trả kappa/decision/MLflow run; không còn `round_number` hoặc `change_summary`.
+- Đổi field đếm disagreement sang `rejected_sample_count` trong response schema, MLflow metric, tests, và docs để nói rõ đây là số sample không chấp nhận.
+- Giữ behavior single-run: backend không register prompt versions, không promote aliases, không lock prompts, không spawn editor agents, và không tự rerun.
+- Cập nhật README, skill, provider schema, validator flow docs, templates, và tests theo handoff proposal-tool.
 
 **Files thay đổi:**
-- `backend/src/services/prompt_refinement/augment_strategy.py` — created
-- `backend/src/services/prompt_refinement/models.py` — created
-- `backend/src/services/prompt_refinement/locking.py` — deleted
+- `backend/src/services/prompt_refinement/refinement_strategy.py` — created/renamed from augment strategy
+- `backend/src/services/prompt_refinement/augment_strategy.py` — deleted
+- `backend/src/services/prompt_refinement/models.py` — modified
 - `backend/src/services/prompt_refinement/service.py` — modified
 - `backend/src/services/prompt_refinement/mlflow_store.py` — modified
 - `backend/src/services/prompt_refinement/evaluator.py` — modified
@@ -31,7 +31,7 @@
 **Còn lại:** None
 
 **Flow explained:**
-Prompt-refinement backend giờ dừng ở một round kappa. Nếu `kappa < 0.85`, service gọi `PromptAugmentStrategy.propose(...)`, log `prompt_augment_proposal.json` kèm reason/evidence/source_uid, rồi trả `needs_prompt_update` để user tự sửa prompt ngoài round. Nếu `kappa >= 0.85`, service trả `accepted`. Backend không register prompt versions, không set aliases, không lock, không spawn editor agents, và không tự chạy round tiếp theo.
+Prompt-refinement backend giờ dừng ở một lần calibration kappa. `evaluate_prompt_refinement` log metrics/verdicts/prompt snapshots/`disagreement_rows.csv` vào MLflow và trả `needs_prompt_update` hoặc `accepted`; nó không tự tạo proposal artifact. Nếu `kappa < 0.85`, harness gọi `propose_prompt_refinement_update` với cùng `verdicts_dir`, `calibration_input`, và `generator_skill_name` để nhận `reason`, `suggested_action`, và `evidence_uids` rồi report cho user. User vẫn tự sửa skill thủ công nếu muốn; backend không lock, không version/promote prompt, không spawn editor agents, và không tự chạy calibration tiếp theo.
 
 ---
 

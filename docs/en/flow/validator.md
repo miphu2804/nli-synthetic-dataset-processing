@@ -19,17 +19,19 @@ Layer 0 — optional prompt refinement before large-scale generation:
 fixed labeled calibration dataset
   -> generate with the selected generator policy
   -> exactly three independent validators judge the same rows
-  -> evaluate_prompt_refinement_round
-  -> kappa < 0.85: needs_prompt_update + prompt_augment_proposal.json
-  -> user manually updates prompts outside the completed round
+  -> evaluate_prompt_refinement
+  -> kappa < 0.85: needs_prompt_update
+  -> optionally call propose_prompt_refinement_update for a user-facing proposal
+  -> user manually updates prompts after the completed calibration
   -> kappa >= 0.85: accepted
   -> start large-scale generation
 ```
 
-Start MLflow separately; the backend never starts it automatically. Each round
-records Fleiss' kappa, verdict files, prompt snapshots, disagreements, the
-decision, and a proposal artifact when agreement is too low. Keep the same
-calibration source UID set across comparable rounds by operator convention. If
+Start MLflow separately; the backend never starts it automatically. Each calibration
+records Fleiss' kappa, verdict files, prompt snapshots, rejected sample count,
+and the decision. The proposal tool is separate so the harness explicitly requests the
+user-facing prompt suggestion after the calibration. Keep the same
+calibration source UID set across comparable calibrations by operator convention. If
 the selected generator policy changes,
 regenerate that UID set; if only the validator prompt changes, reuse the same
 generated calibration file. Read
@@ -40,7 +42,7 @@ dispatches three isolated validator subagents; each receives masked rows only
 and returns verdicts without reading expected labels or other models' outputs.
 Prompt files stay unchanged from subagent dispatch through MCP evaluation.
 The backend does not register prompt versions, promote aliases, lock prompts, or
-run the next round automatically.
+run the next calibration automatically.
 
 PMI is not a prompt-refinement trigger. It belongs to Layer 3 after generation
 and consensus validation.
@@ -313,7 +315,7 @@ source_uid,<model>_label...,expected_label,agree_count,decision
   different layers: `accepted` = does this one model match `expected_label`;
   `decision` = do ≥ 2 of 3 models match `expected_label`.
 - Prompt-calibration kappa is available through
-  `evaluate_prompt_refinement_round` and logged to MLflow. The deterministic
+  `evaluate_prompt_refinement` and logged to MLflow. The deterministic
   CLI stages `aggregate`, `pmi`, and `apply-paraphrase` remain operator-run.
   The combined/stable stages `consensus-pmi` and `promote-paraphrase` also have
   thin MCP wrappers: `run_consensus_pmi` and

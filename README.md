@@ -98,11 +98,11 @@ uv run mlflow server \
 
 Open `http://127.0.0.1:5000`, then ask the agent to read
 `skill://prompt_refinement`. The agent collects exactly three independent
-verdict files and calls `evaluate_prompt_refinement_round`. Kappa below `0.85`
-returns `needs_prompt_update` with a `prompt_augment_proposal.json` artifact for
-manual prompt updates. Kappa at least `0.85` returns `accepted`. The backend does
-not register prompt versions, promote aliases, lock prompts, or run another
-round automatically.
+verdict files and calls `evaluate_prompt_refinement`. Kappa below `0.85`
+returns `needs_prompt_update`; the agent may then call
+`propose_prompt_refinement_update` to get a user-facing manual prompt-update
+proposal. Kappa at least `0.85` returns `accepted`. The backend does not register
+prompt versions, promote aliases, lock prompts, or run another calibration automatically.
 
 ## Resources (MCP server: `nli-tools`)
 

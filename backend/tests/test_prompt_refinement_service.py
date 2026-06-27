@@ -1,4 +1,3 @@
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -66,11 +65,9 @@ class PromptRefinementServiceTest(unittest.TestCase):
             ).to_csv(self.verdicts_dir / f"{model}.csv", index=False)
 
     def _evaluate(self):
-        return self.service.evaluate_round(
+        return self.service.evaluate(
             verdicts_dir=self.verdicts_dir,
             calibration_input=self.calibration_input,
-            round_number=1,
-            change_summary="Initial calibration.",
             tracking_uri=self.tracking_uri,
             experiment_name="test-calibration",
             artifact_root=self.artifact_root,
@@ -90,7 +87,9 @@ class PromptRefinementServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exactly 3"):
             self._evaluate()
 
-    def test_logs_accepted_round_without_prompt_versions_or_proposal(self) -> None:
+    def test_logs_accepted_calibration_without_prompt_versions_or_proposal(
+        self,
+    ) -> None:
         self._write_verdicts(
             {
                 "model-a": ["entailment", "neutral"],
@@ -106,14 +105,12 @@ class PromptRefinementServiceTest(unittest.TestCase):
         self.assertEqual(result.n_items, 2)
         self.assertEqual(result.n_raters, 3)
         self.assertEqual(result.models, ["model-a", "model-b", "model-c"])
-        self.assertEqual(result.n_disagreements, 0)
-        self.assertIsNone(result.proposal)
-        self.assertIsNone(result.proposal_artifact_path)
+        self.assertEqual(result.rejected_sample_count, 0)
 
         client = self._client()
         run = client.get_run(result.mlflow_run_id)
         self.assertEqual(run.data.metrics["fleiss_kappa"], 1.0)
-        self.assertEqual(run.data.metrics["n_disagreements"], 0)
+        self.assertEqual(run.data.metrics["rejected_sample_count"], 0)
         self.assertEqual(run.data.tags["decision"], "accepted")
         self.assertNotIn("generator_prompt_uri", run.data.params)
         self.assertNotIn("validator_prompt_uri", run.data.params)
@@ -121,7 +118,7 @@ class PromptRefinementServiceTest(unittest.TestCase):
         artifact_paths = {
             artifact.path for artifact in client.list_artifacts(result.mlflow_run_id)
         }
-        self.assertIn("round_summary.json", artifact_paths)
+        self.assertIn("calibration_summary.json", artifact_paths)
         self.assertIn("disagreement_rows.csv", artifact_paths)
         self.assertIn("prompts", artifact_paths)
         self.assertIn("verdicts", artifact_paths)
@@ -130,7 +127,7 @@ class PromptRefinementServiceTest(unittest.TestCase):
         with self.assertRaises(MlflowException):
             client.get_prompt_version_by_alias("nli-generator", "candidate")
 
-    def test_evaluate_round_logs_selected_generator_skill_snapshot(self) -> None:
+    def test_evaluate_logs_selected_generator_skill_snapshot(self) -> None:
         self._write_verdicts(
             {
                 "model-a": ["entailment", "neutral"],
@@ -139,11 +136,9 @@ class PromptRefinementServiceTest(unittest.TestCase):
             }
         )
 
-        result = self.service.evaluate_round(
+        result = self.service.evaluate(
             verdicts_dir=self.verdicts_dir,
             calibration_input=self.calibration_input,
-            round_number=1,
-            change_summary="Plain generator calibration.",
             tracking_uri=self.tracking_uri,
             experiment_name="test-calibration",
             artifact_root=self.artifact_root,
@@ -162,7 +157,7 @@ class PromptRefinementServiceTest(unittest.TestCase):
         self.assertIn("prompts/generator_plain.md", prompt_artifacts)
         self.assertIn("prompts/validator.md", prompt_artifacts)
 
-    def test_evaluate_round_marks_run_failed_when_artifact_logging_fails(
+    def test_evaluate_marks_run_failed_when_artifact_logging_fails(
         self,
     ) -> None:
         self._write_verdicts(
@@ -195,7 +190,7 @@ class PromptRefinementServiceTest(unittest.TestCase):
         self.assertEqual(len(runs), 1)
         self.assertEqual(runs[0].info.status, "FAILED")
 
-    def test_logs_low_agreement_round_with_manual_update_proposal(self) -> None:
+    def test_logs_low_agreement_calibration_without_automatic_proposal(self) -> None:
         self._write_verdicts(
             {
                 "model-a": ["entailment", "entailment"],
@@ -208,27 +203,41 @@ class PromptRefinementServiceTest(unittest.TestCase):
 
         self.assertEqual(result.decision, "needs_prompt_update")
         self.assertLess(result.kappa, result.threshold)
-        self.assertGreater(result.n_disagreements, 0)
-        self.assertIsNotNone(result.proposal)
-        self.assertEqual(
-            result.proposal_artifact_path,
-            "prompt_augment_proposal.json",
-        )
-        assert result.proposal is not None
-        self.assertIn("below", result.proposal.reason)
-        self.assertEqual(result.proposal.evidence_uids, ["row-1", "row-2"])
+        self.assertGreater(result.rejected_sample_count, 0)
 
         client = self._client()
         run = client.get_run(result.mlflow_run_id)
-        self.assertGreater(run.data.metrics["n_disagreements"], 0)
+        self.assertGreater(run.data.metrics["rejected_sample_count"], 0)
         self.assertEqual(run.data.tags["decision"], "needs_prompt_update")
-        artifact_path = client.download_artifacts(
-            result.mlflow_run_id,
-            result.proposal_artifact_path,
+        artifact_paths = {
+            artifact.path for artifact in client.list_artifacts(result.mlflow_run_id)
+        }
+        self.assertNotIn("prompt_augment_proposal.json", artifact_paths)
+
+    def test_propose_update_returns_manual_update_proposal_for_low_agreement(
+        self,
+    ) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "entailment"],
+                "model-b": ["neutral", "neutral"],
+                "model-c": ["contradiction", "contradiction"],
+            }
         )
-        proposal = json.loads(Path(artifact_path).read_text(encoding="utf-8"))
-        self.assertEqual(proposal["evidence_uids"], ["row-1", "row-2"])
-        self.assertIn("manually update", proposal["suggested_action"])
+
+        result = self.service.propose_update(
+            verdicts_dir=self.verdicts_dir,
+            calibration_input=self.calibration_input,
+            generator_skill_name="generator_plain",
+        )
+
+        self.assertEqual(result.decision, "needs_prompt_update")
+        self.assertLess(result.kappa, result.threshold)
+        self.assertIsNotNone(result.proposal)
+        assert result.proposal is not None
+        self.assertIn("below", result.proposal.reason)
+        self.assertEqual(result.proposal.evidence_uids, ["row-1", "row-2"])
+        self.assertIn("generator_plain.md", result.proposal.suggested_action)
 
     def test_mixed_numeric_and_named_labels_agree(self) -> None:
         for model, labels in {
@@ -250,9 +259,8 @@ class PromptRefinementServiceTest(unittest.TestCase):
         result = self._evaluate()
 
         self.assertEqual(result.kappa, 1.0)
-        self.assertEqual(result.n_disagreements, 0)
+        self.assertEqual(result.rejected_sample_count, 0)
         self.assertEqual(result.decision, "accepted")
-        self.assertIsNone(result.proposal)
 
 
 if __name__ == "__main__":

@@ -40,14 +40,14 @@ uv run mlflow server \
 
 Mở `http://127.0.0.1:5000`, sau đó yêu cầu agent đọc
 `skill://prompt_refinement`. Agent phải dùng cùng một calibration dataset, thu
-đúng ba file verdict độc lập, rồi gọi `evaluate_prompt_refinement_round`.
+đúng ba file verdict độc lập, rồi gọi `evaluate_prompt_refinement`.
 
-- Fleiss' kappa `< 0.85`: harness inspect MLflow round artifacts, đề xuất thay
-  đổi prompt nhỏ nhất qua `prompt_augment_proposal.json`, rồi dừng để user tự
-  update prompt nếu phù hợp.
-- Fleiss' kappa `>= 0.85`: round trả `accepted`.
+- Fleiss' kappa `< 0.85`: calibration trả `needs_prompt_update`; harness có thể gọi
+  `propose_prompt_refinement_update` để lấy proposal user-facing, rồi dừng để
+  user tự update prompt nếu phù hợp.
+- Fleiss' kappa `>= 0.85`: calibration trả `accepted`.
 - Backend không register prompt version, promote alias, lock prompt, hoặc tự
-  chạy round tiếp theo.
+  chạy calibration tiếp theo.
 
 PMI không nằm trong refinement loop. PMI chạy sau generation và validation để
 phát hiện artifact token cần paraphrase.
@@ -61,7 +61,7 @@ phát hiện artifact token cần paraphrase.
 | `skill://generator_adversarial` | Quy tắc adversarial generation có kiểm soát |
 | `skill://generator` | Legacy adversarial generator alias |
 | `skill://validator` | Blind validation 3 class |
-| `skill://prompt_refinement` | Calibration ba model, kappa, và proposal artifact |
+| `skill://prompt_refinement` | Calibration ba model, kappa, và proposal user-facing |
 
 Tài liệu chi tiết:
 

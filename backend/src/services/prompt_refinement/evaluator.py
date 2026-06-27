@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-from src.services.prompt_refinement.models import PromptRoundEvaluation
+from src.services.prompt_refinement.models import PromptRefinementEvaluation
 from src.utils.nli_labels import to_label_name
 from src.utils.validation_aggregation import compute_fleiss_kappa
 
@@ -15,11 +15,11 @@ VERDICT_COLUMNS = {"source_uid", "predicted_label", "reason"}
 class PromptRefinementEvaluator:
     """Evaluate calibration/verdict inputs without MLflow side effects."""
 
-    def evaluate_round_inputs(
+    def evaluate_inputs(
         self,
         verdicts_dir: str | Path,
         calibration_input: str | Path,
-    ) -> PromptRoundEvaluation:
+    ) -> PromptRefinementEvaluation:
         verdict_paths = self._discover_valid_verdict_files(Path(verdicts_dir))
         model_label_paths = {path.stem: path for path in verdict_paths}
         kappa_result = compute_fleiss_kappa(model_label_paths)
@@ -30,19 +30,19 @@ class PromptRefinementEvaluator:
         kappa = float(kappa_result["kappa"])
         disagreements = self._build_disagreement_rows(model_label_paths)
 
-        return PromptRoundEvaluation(
+        return PromptRefinementEvaluation(
             model_label_paths=model_label_paths,
             kappa_result=kappa_result,
             kappa=kappa,
-            decision=self.decide_round_outcome(kappa),
+            decision=self.decide_outcome(kappa),
             calibration_path=calibration_path,
             sample_count=sample_count,
             disagreements=disagreements,
-            n_disagreements=len(disagreements),
+            rejected_sample_count=len(disagreements),
         )
 
     @staticmethod
-    def decide_round_outcome(kappa: float) -> str:
+    def decide_outcome(kappa: float) -> str:
         if kappa >= KAPPA_THRESHOLD:
             return "accepted"
         return "needs_prompt_update"

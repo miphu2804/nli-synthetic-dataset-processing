@@ -3,13 +3,13 @@ from typing import Literal
 from pydantic import BaseModel
 
 
-class PromptAugmentProposalResponse(BaseModel):
+class PromptRefinementProposal(BaseModel):
     reason: str
     suggested_action: str
     evidence_uids: list[str]
 
 
-class PromptRefinementRoundResponse(BaseModel):
+class PromptRefinementResponse(BaseModel):
     kappa: float
     threshold: float
     decision: Literal["needs_prompt_update", "accepted"]
@@ -18,6 +18,12 @@ class PromptRefinementRoundResponse(BaseModel):
     models: list[str]
     bundle_id: str
     mlflow_run_id: str
-    n_disagreements: int
-    proposal: PromptAugmentProposalResponse | None = None
-    proposal_artifact_path: str | None = None
+    rejected_sample_count: int
+
+
+class PromptRefinementProposalResponse(BaseModel):
+    kappa: float
+    threshold: float
+    decision: Literal["needs_prompt_update", "accepted"]
+    rejected_sample_count: int
+    proposal: PromptRefinementProposal | None = None

@@ -34,12 +34,13 @@ class SkillServiceTest(unittest.TestCase):
         skill = skill_service.get_skill("prompt_refinement")
         instructor = skill_service.get_skill("instructor")
 
-        self.assertIn("evaluate_prompt_refinement_round", skill)
+        self.assertIn("evaluate_prompt_refinement", skill)
         self.assertNotIn("confirm_prompt_lock", skill)
         self.assertIn("0.85", skill)
         self.assertIn("needs_prompt_update", skill)
         self.assertIn("accepted", skill)
-        self.assertIn("prompt_augment_proposal.json", skill)
+        self.assertIn("propose_prompt_refinement_update", skill)
+        self.assertNotIn("prompt_augment_proposal.json", skill)
         self.assertIn("exactly three", skill.lower())
         self.assertIn("skill://prompt_refinement", instructor)
 
@@ -59,7 +60,7 @@ class SkillServiceTest(unittest.TestCase):
             self.assertIn("do not call mcp", document.lower())
             self.assertIn("expected label", document.lower())
             self.assertIn("one verdict file", document.lower())
-            self.assertIn("evaluate_prompt_refinement_round", document)
+            self.assertIn("evaluate_prompt_refinement", document)
 
     def test_prompt_refinement_documents_manual_proposal_handoff(self) -> None:
         skill = SkillService().get_skill("prompt_refinement")
@@ -74,7 +75,8 @@ class SkillServiceTest(unittest.TestCase):
         for document in (skill, english_template, vietnamese_template):
             lower_document = document.lower()
             self.assertIn("disagreement_rows.csv", document)
-            self.assertIn("prompt_augment_proposal.json", document)
+            self.assertIn("propose_prompt_refinement_update", document)
+            self.assertNotIn("prompt_augment_proposal.json", document)
             self.assertNotIn("prepare_prompt_refinement_evidence_pack", document)
             self.assertNotIn("prepare_prompt_refinement_editor_tasks", document)
             self.assertNotIn("validator-rubric reviewer", document)

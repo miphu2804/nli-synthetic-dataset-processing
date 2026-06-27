@@ -63,7 +63,8 @@ release_validation_batch_claim
 verify_validation_progress_log
 finalize_validation_run
 list_validation_runs
-evaluate_prompt_refinement_round
+evaluate_prompt_refinement
+propose_prompt_refinement_update
 ```
 
 ## Resource Map
@@ -80,7 +81,7 @@ Load only the resources needed by the current phase:
 | `skill://delegation` | When processing at least 100 assigned rows with subagents. |
 | `skill://aggregator` | Before finalizing a completed local run. |
 | `skill://validator` | Before validating generated rows with blank labels. |
-| `skill://prompt_refinement` | Before large-scale generation when prompts need three-model calibration and manual proposal artifacts. |
+| `skill://prompt_refinement` | Before large-scale generation when prompts need three-model calibration and optional user-facing prompt proposals. |
 
 ## Optional Prompt Refinement
 
@@ -91,10 +92,11 @@ load prompt_refinement
   -> generate one fixed calibration sample
   -> main agent dispatches exactly three independent validator subagents
   -> main agent validates and persists one verdict file per model
-  -> evaluate_prompt_refinement_round
-  -> kappa < 0.85 returns needs_prompt_update + prompt_augment_proposal.json
+  -> evaluate_prompt_refinement
+  -> kappa < 0.85 returns needs_prompt_update
+  -> optionally call propose_prompt_refinement_update for a user-facing proposal
   -> kappa >= 0.85 returns accepted
-  -> user manually updates prompts outside the round if needed
+  -> user manually updates prompts after the calibration if needed
 ```
 
 MLflow is started separately by the operator. The backend does not start it

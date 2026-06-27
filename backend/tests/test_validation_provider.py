@@ -48,18 +48,32 @@ class ValidationProviderTest(unittest.TestCase):
 
     def test_prompt_refinement_tool_exposes_explicit_mlflow_parameters(self) -> None:
         async def scenario() -> None:
-            tool = await self.mcp.get_tool("evaluate_prompt_refinement_round")
+            tool = await self.mcp.get_tool("evaluate_prompt_refinement")
             properties = tool.parameters["properties"]
 
             self.assertIn("verdicts_dir", properties)
             self.assertIn("calibration_input", properties)
-            self.assertIn("round_number", properties)
-            self.assertIn("change_summary", properties)
             self.assertIn("tracking_uri", properties)
             self.assertIn("experiment_name", properties)
             self.assertIn("generator_skill_name", properties)
+            self.assertNotIn("round_number", properties)
+            self.assertNotIn("change_summary", properties)
             self.assertNotIn("confirm_lock", properties)
             self.assertNotIn("session_id", properties)
+
+        asyncio.run(scenario())
+
+    def test_prompt_refinement_proposal_tool_is_harness_accessible(self) -> None:
+        async def scenario() -> None:
+            tool = await self.mcp.get_tool("propose_prompt_refinement_update")
+            properties = tool.parameters["properties"]
+
+            self.assertIn("verdicts_dir", properties)
+            self.assertIn("calibration_input", properties)
+            self.assertIn("generator_skill_name", properties)
+            self.assertNotIn("round_number", properties)
+            self.assertNotIn("tracking_uri", properties)
+            self.assertNotIn("experiment_name", properties)
 
         asyncio.run(scenario())
 

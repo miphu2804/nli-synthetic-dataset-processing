@@ -8,7 +8,7 @@ import pandas as pd
 
 
 @dataclass(frozen=True)
-class PromptRoundEvaluation:
+class PromptRefinementEvaluation:
     model_label_paths: dict[str, Path]
     kappa_result: dict[str, Any]
     kappa: float
@@ -16,18 +16,17 @@ class PromptRoundEvaluation:
     calibration_path: Path
     sample_count: int
     disagreements: pd.DataFrame
-    n_disagreements: int
+    rejected_sample_count: int
 
 
 @dataclass(frozen=True)
-class PromptAugmentProposal:
+class PromptRefinementProposal:
     reason: str
     suggested_action: str
     evidence_uids: list[str]
 
 
 @dataclass(frozen=True)
-class PromptRoundLog:
+class PromptRefinementLog:
     run_id: str
     bundle_id: str
-    proposal_artifact_path: str | None

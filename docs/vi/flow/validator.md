@@ -18,17 +18,19 @@ Lớp 0 — prompt refinement tùy chọn trước large-scale generation:
 fixed labeled calibration dataset
   -> generate bằng generator policy đã chọn
   -> đúng ba validator độc lập chấm cùng các row
-  -> evaluate_prompt_refinement_round
-  -> kappa < 0.85: needs_prompt_update + prompt_augment_proposal.json
-  -> user tự update prompt ngoài round đã hoàn tất
+  -> evaluate_prompt_refinement
+  -> kappa < 0.85: needs_prompt_update
+  -> tùy chọn gọi propose_prompt_refinement_update để lấy proposal cho user
+  -> user tự update prompt sau calibration đã hoàn tất
   -> kappa >= 0.85: accepted
   -> bắt đầu large-scale generation
 ```
 
-MLflow được operator chạy riêng; backend không tự khởi động MLflow. Mỗi round
-ghi Fleiss' kappa, verdict files, prompt snapshots, disagreements, decision, và
-proposal artifact khi agreement quá thấp. Giữ cố định source UID set giữa các
-round bằng quy ước operator khi các round cần so sánh trực tiếp. Nếu generator
+MLflow được operator chạy riêng; backend không tự khởi động MLflow. Mỗi calibration
+ghi Fleiss' kappa, verdict files, prompt snapshots, rejected sample count, và decision.
+Proposal tool được tách riêng để harness chủ động lấy gợi ý user-facing sau
+calibration. Giữ cố định source UID set giữa các
+calibration bằng quy ước operator khi cần so sánh trực tiếp. Nếu generator
 policy đã chọn đổi, regenerate đúng UID set đó; nếu chỉ validator prompt đổi,
 reuse generated calibration file. Đọc
 `skill://prompt_refinement` để chạy đúng flow.
@@ -38,7 +40,7 @@ validator subagent cô lập; mỗi subagent chỉ nhận masked rows và trả 
 không đọc expected label hoặc output của model khác.
 Prompt file phải giữ nguyên từ lúc dispatch đến khi MCP evaluation hoàn tất.
 Backend không register prompt versions, promote aliases, lock prompts, hoặc tự
-chạy round tiếp theo.
+chạy calibration tiếp theo.
 
 PMI không phải trigger sửa prompt. PMI thuộc Lớp 3 sau generation và consensus
 validation.
@@ -308,7 +310,7 @@ source_uid,<model>_label...,expected_label,agree_count,decision
   khác nhau: `accepted` = một model này có khớp `expected_label` không; `decision`
   = có ≥ 2 trong 3 model khớp `expected_label` không.
 - Kappa cho prompt calibration đã có qua
-  `evaluate_prompt_refinement_round` và được log vào MLflow. Các CLI stage
+  `evaluate_prompt_refinement` và được log vào MLflow. Các CLI stage
   deterministic `aggregate`, `pmi`, và `apply-paraphrase` vẫn do operator chạy.
   Hai combined/stable stages `consensus-pmi` và `promote-paraphrase` cũng có
   MCP wrappers mỏng: `run_consensus_pmi` và
