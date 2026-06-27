@@ -3,16 +3,24 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import mlflow
 from mlflow import MlflowClient
 from src.schemas.prompt_refinement_schema import (
     PromptBundleRegistration,
     PromptRoundEvaluation,
 )
-from src.services.prompt_refinement.mlflow_support import (
-    GENERATOR_PROMPT_NAME,
-    VALIDATOR_PROMPT_NAME,
-    create_mlflow_client,
-)
+
+GENERATOR_PROMPT_NAME = "nli-generator"
+VALIDATOR_PROMPT_NAME = "nli-validator"
+
+
+def _create_mlflow_client(tracking_uri: str) -> MlflowClient:
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_registry_uri(tracking_uri)
+    return MlflowClient(
+        tracking_uri=tracking_uri,
+        registry_uri=tracking_uri,
+    )
 
 
 class PromptRefinementMlflowStore:
@@ -34,7 +42,7 @@ class PromptRefinementMlflowStore:
         validator_text: str,
         bundle_id: str,
     ) -> PromptBundleRegistration:
-        client = create_mlflow_client(tracking_uri)
+        client = _create_mlflow_client(tracking_uri)
         experiment = self._get_experiment_by_name(client, experiment_name)
         if experiment is None:
             experiment_id = self._create_experiment(
@@ -46,12 +54,6 @@ class PromptRefinementMlflowStore:
             experiment_id = experiment.experiment_id
 
         session_run_id = None
-        round_tags = {
-            "decision": evaluation.decision,
-            "change_summary": change_summary,
-            "bundle_id": bundle_id,
-            "generator_skill_name": generator_skill_name,
-        }
         if session_id:
             session_run = self._get_active_session_run(
                 client,
@@ -66,30 +68,32 @@ class PromptRefinementMlflowStore:
                 )
             else:
                 session_run_id = session_run.info.run_id
-            round_tags["mlflow.parentRunId"] = session_run_id
-
-        run = client.create_run(
+        round_tags = self._build_round_tags(
+            evaluation=evaluation,
+            change_summary=change_summary,
+            bundle_id=bundle_id,
+            generator_skill_name=generator_skill_name,
+            session_run_id=session_run_id,
+        )
+        run = self._create_round_run(
+            client,
             experiment_id=experiment_id,
-            run_name=f"prompt-refinement-round-{round_number:02d}",
+            round_number=round_number,
             tags=round_tags,
         )
         run_id = run.info.run_id
         try:
-            generator_prompt = client.register_prompt(
-                name=GENERATOR_PROMPT_NAME,
-                template=generator_text,
-                commit_message=change_summary,
-                tags={"round": str(round_number), "bundle_id": bundle_id},
-            )
-            validator_prompt = client.register_prompt(
-                name=VALIDATOR_PROMPT_NAME,
-                template=validator_text,
-                commit_message=change_summary,
-                tags={"round": str(round_number), "bundle_id": bundle_id},
+            generator_prompt, validator_prompt = self._register_round_prompts(
+                client,
+                round_number=round_number,
+                change_summary=change_summary,
+                bundle_id=bundle_id,
+                generator_text=generator_text,
+                validator_text=validator_text,
             )
             generator_version = int(generator_prompt.version)
             validator_version = int(validator_prompt.version)
-            self._log_round(
+            self._log_round_metadata_and_artifacts(
                 client=client,
                 run_id=run_id,
                 round_number=round_number,
@@ -100,33 +104,22 @@ class PromptRefinementMlflowStore:
                 generator_skill_name=generator_skill_name,
                 generator_skill_file=generator_skill_file,
             )
-            client.set_prompt_alias(
-                GENERATOR_PROMPT_NAME, "candidate", generator_version
-            )
-            client.set_prompt_alias(
-                VALIDATOR_PROMPT_NAME, "candidate", validator_version
+            self._set_candidate_aliases(
+                client,
+                generator_version=generator_version,
+                validator_version=validator_version,
             )
             client.set_terminated(run_id, status="FINISHED")
         except Exception:
             client.set_terminated(run_id, status="FAILED")
             raise
 
-        if session_run_id:
-            try:
-                client.log_metric(
-                    session_run_id,
-                    "fleiss_kappa",
-                    evaluation.kappa,
-                    step=round_number,
-                )
-                client.log_metric(
-                    session_run_id,
-                    "n_disagreements",
-                    evaluation.n_disagreements,
-                    step=round_number,
-                )
-            except Exception:
-                pass
+        self._log_session_metrics_best_effort(
+            client,
+            session_run_id=session_run_id,
+            evaluation=evaluation,
+            round_number=round_number,
+        )
 
         return PromptBundleRegistration(
             run_id=run_id,
@@ -152,6 +145,39 @@ class PromptRefinementMlflowStore:
         return client.create_experiment(
             experiment_name,
             artifact_location=artifact_root,
+        )
+
+    @staticmethod
+    def _build_round_tags(
+        *,
+        evaluation: PromptRoundEvaluation,
+        change_summary: str,
+        bundle_id: str,
+        generator_skill_name: str,
+        session_run_id: str | None,
+    ) -> dict[str, str]:
+        round_tags = {
+            "decision": evaluation.decision,
+            "change_summary": change_summary,
+            "bundle_id": bundle_id,
+            "generator_skill_name": generator_skill_name,
+        }
+        if session_run_id:
+            round_tags["mlflow.parentRunId"] = session_run_id
+        return round_tags
+
+    @staticmethod
+    def _create_round_run(
+        client: MlflowClient,
+        *,
+        experiment_id: str,
+        round_number: int,
+        tags: dict[str, str],
+    ):
+        return client.create_run(
+            experiment_id=experiment_id,
+            run_name=f"prompt-refinement-round-{round_number:02d}",
+            tags=tags,
         )
 
     @staticmethod
@@ -195,7 +221,32 @@ class PromptRefinementMlflowStore:
         )
         return run.info.run_id
 
-    def _log_round(
+    @staticmethod
+    def _register_round_prompts(
+        client: MlflowClient,
+        *,
+        round_number: int,
+        change_summary: str,
+        bundle_id: str,
+        generator_text: str,
+        validator_text: str,
+    ):
+        prompt_tags = {"round": str(round_number), "bundle_id": bundle_id}
+        generator_prompt = client.register_prompt(
+            name=GENERATOR_PROMPT_NAME,
+            template=generator_text,
+            commit_message=change_summary,
+            tags=prompt_tags,
+        )
+        validator_prompt = client.register_prompt(
+            name=VALIDATOR_PROMPT_NAME,
+            template=validator_text,
+            commit_message=change_summary,
+            tags=prompt_tags,
+        )
+        return generator_prompt, validator_prompt
+
+    def _log_round_metadata_and_artifacts(
         self,
         *,
         client: MlflowClient,
@@ -257,3 +308,39 @@ class PromptRefinementMlflowStore:
                 copied_path = temporary_root / f"{model}{verdict_path.suffix.lower()}"
                 copied_path.write_bytes(verdict_path.read_bytes())
                 client.log_artifact(run_id, str(copied_path), artifact_path="verdicts")
+
+    @staticmethod
+    def _set_candidate_aliases(
+        client: MlflowClient,
+        *,
+        generator_version: int,
+        validator_version: int,
+    ) -> None:
+        client.set_prompt_alias(GENERATOR_PROMPT_NAME, "candidate", generator_version)
+        client.set_prompt_alias(VALIDATOR_PROMPT_NAME, "candidate", validator_version)
+
+    @staticmethod
+    def _log_session_metrics_best_effort(
+        client: MlflowClient,
+        *,
+        session_run_id: str | None,
+        evaluation: PromptRoundEvaluation,
+        round_number: int,
+    ) -> None:
+        if not session_run_id:
+            return
+        try:
+            client.log_metric(
+                session_run_id,
+                "fleiss_kappa",
+                evaluation.kappa,
+                step=round_number,
+            )
+            client.log_metric(
+                session_run_id,
+                "n_disagreements",
+                evaluation.n_disagreements,
+                step=round_number,
+            )
+        except Exception:
+            pass

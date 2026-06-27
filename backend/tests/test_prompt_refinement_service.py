@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 from mlflow import MlflowClient
@@ -166,6 +167,49 @@ class PromptRefinementServiceTest(unittest.TestCase):
         self.assertIn("without extra adversarial", generator_candidate.template)
         self.assertEqual(run.data.params["generator_skill_name"], "generator_plain")
         self.assertEqual(run.data.params["generator_skill_file"], "generator_plain.md")
+
+    def test_evaluate_round_marks_run_failed_when_prompt_registration_fails(
+        self,
+    ) -> None:
+        self._write_verdicts(
+            {
+                "model-a": ["entailment", "neutral"],
+                "model-b": ["entailment", "neutral"],
+                "model-c": ["entailment", "neutral"],
+            }
+        )
+
+        original_register_prompt = MlflowClient.register_prompt
+        observed_run_ids: list[str] = []
+
+        def fail_validator_prompt(self_client, *args, **kwargs):
+            if not observed_run_ids:
+                runs = self_client.search_runs(
+                    experiment_ids=["1"],
+                    filter_string="attributes.run_name = 'prompt-refinement-round-01'",
+                )
+                observed_run_ids.extend(run.info.run_id for run in runs)
+            if kwargs.get("name") == "nli-validator":
+                raise MlflowException("validator prompt registration failed")
+            return original_register_prompt(self_client, *args, **kwargs)
+
+        with patch.object(
+            MlflowClient,
+            "register_prompt",
+            fail_validator_prompt,
+        ):
+            with self.assertRaisesRegex(
+                MlflowException,
+                "validator prompt registration failed",
+            ):
+                self._evaluate()
+
+        self.assertEqual(len(observed_run_ids), 1)
+        client = MlflowClient(
+            tracking_uri=self.tracking_uri, registry_uri=self.tracking_uri
+        )
+        run = client.get_run(observed_run_ids[0])
+        self.assertEqual(run.info.status, "FAILED")
 
     def test_prepare_evidence_pack_writes_editor_inputs(self) -> None:
         self._write_verdicts(

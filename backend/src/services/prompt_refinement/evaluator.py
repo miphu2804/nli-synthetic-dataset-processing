@@ -15,23 +15,23 @@ VERDICT_COLUMNS = {"source_uid", "predicted_label", "reason"}
 class PromptRefinementEvaluator:
     """Evaluate calibration/verdict inputs without MLflow side effects."""
 
-    def evaluate_inputs(
+    def evaluate_round_inputs(
         self,
         verdicts_dir: str | Path,
         calibration_input: str | Path,
         *,
         include_summary_fields: bool = True,
     ) -> PromptRoundEvaluation:
-        verdict_paths = self.discover_verdicts(Path(verdicts_dir))
+        verdict_paths = self._discover_valid_verdict_files(Path(verdicts_dir))
         model_label_paths = {path.stem: path for path in verdict_paths}
         kappa_result = compute_fleiss_kappa(model_label_paths)
         calibration_path = Path(calibration_input)
         (
             sample_count,
             calibration,
-        ) = self.validate_calibration_input(calibration_path, verdict_paths[0])
+        ) = self._load_validated_calibration(calibration_path, verdict_paths[0])
         kappa = float(kappa_result["kappa"])
-        disagreements = self.build_disagreement_rows(model_label_paths)
+        disagreements = self._build_disagreement_rows(model_label_paths)
 
         calibration_with_source_uid = calibration.copy()
         calibration_with_source_uid["source_uid"] = calibration_with_source_uid[
@@ -43,37 +43,39 @@ class PromptRefinementEvaluator:
             model_label_paths=model_label_paths,
             kappa_result=kappa_result,
             kappa=kappa,
-            decision=self.decision(kappa),
+            decision=self.decide_round_outcome(kappa),
             calibration_path=calibration_path,
             sample_count=sample_count,
             calibration=calibration_with_source_uid,
             disagreements=disagreements,
             n_disagreements=len(disagreements),
             label_distribution=(
-                self.label_distribution(calibration) if include_summary_fields else {}
+                self._build_label_distribution(calibration)
+                if include_summary_fields
+                else {}
             ),
             model_summaries=(
-                self.model_summaries(model_label_paths)
+                self._build_model_summaries(model_label_paths)
                 if include_summary_fields
                 else []
             ),
         )
 
     @staticmethod
-    def decision(kappa: float) -> str:
+    def decide_round_outcome(kappa: float) -> str:
         if kappa >= KAPPA_THRESHOLD:
             return "eligible_to_lock"
         return "refine_prompt"
 
     @classmethod
-    def discover_verdicts(cls, verdicts_dir: Path) -> list[Path]:
+    def _discover_valid_verdict_files(cls, verdicts_dir: Path) -> list[Path]:
         if not verdicts_dir.is_dir():
             raise FileNotFoundError(f"Verdicts directory not found: {verdicts_dir}")
         valid_paths = []
         for path in sorted(verdicts_dir.iterdir()):
             if not path.is_file() or path.suffix.lower() not in DATASET_SUFFIXES:
                 continue
-            dataframe = cls.read_table(path)
+            dataframe = cls._read_dataset(path)
             if VERDICT_COLUMNS.issubset(dataframe.columns):
                 valid_paths.append(path)
         if len(valid_paths) != 3:
@@ -84,7 +86,7 @@ class PromptRefinementEvaluator:
         return valid_paths
 
     @classmethod
-    def validate_calibration_input(
+    def _load_validated_calibration(
         cls,
         calibration_path: Path,
         verdict_path: Path,
@@ -93,7 +95,7 @@ class PromptRefinementEvaluator:
             raise FileNotFoundError(
                 f"Calibration dataset not found: {calibration_path}"
             )
-        calibration = cls.read_table(calibration_path)
+        calibration = cls._read_dataset(calibration_path)
         if (
             "source_uid" not in calibration.columns
             or "label" not in calibration.columns
@@ -106,7 +108,7 @@ class PromptRefinementEvaluator:
             raise ValueError(
                 "Calibration dataset contains duplicate source UID values."
             )
-        verdict = cls.read_table(verdict_path)
+        verdict = cls._read_dataset(verdict_path)
         verdict_uids = set(verdict["source_uid"].astype(str))
         if set(calibration_uids) != verdict_uids:
             raise ValueError(
@@ -115,7 +117,7 @@ class PromptRefinementEvaluator:
         return len(calibration), calibration
 
     @staticmethod
-    def label_distribution(dataframe: pd.DataFrame) -> dict[str, int]:
+    def _build_label_distribution(dataframe: pd.DataFrame) -> dict[str, int]:
         if "label" not in dataframe.columns:
             raise ValueError("Calibration dataset must contain label.")
         labels = dataframe["label"].apply(to_label_name)
@@ -124,10 +126,10 @@ class PromptRefinementEvaluator:
         }
 
     @classmethod
-    def model_summaries(cls, model_label_paths: dict[str, Path]) -> list[dict]:
+    def _build_model_summaries(cls, model_label_paths: dict[str, Path]) -> list[dict]:
         summaries = []
         for model, path in sorted(model_label_paths.items()):
-            dataframe = cls.read_table(path)
+            dataframe = cls._read_dataset(path)
             labels = dataframe["predicted_label"].apply(to_label_name)
             summaries.append(
                 {
@@ -143,7 +145,7 @@ class PromptRefinementEvaluator:
         return summaries
 
     @classmethod
-    def build_disagreement_rows(
+    def _build_disagreement_rows(
         cls,
         model_label_paths: dict[str, Path],
     ) -> pd.DataFrame:
@@ -151,7 +153,7 @@ class PromptRefinementEvaluator:
         label_columns = []
         for model, path in model_label_paths.items():
             dataframe: pd.DataFrame = (
-                cls.read_table(path)
+                cls._read_dataset(path)
                 .loc[:, ["source_uid", "predicted_label", "reason"]]
                 .copy()
             )
@@ -177,7 +179,7 @@ class PromptRefinementEvaluator:
         return merged[disagreement_mask].reset_index(drop=True)
 
     @staticmethod
-    def read_table(path: Path) -> pd.DataFrame:
+    def _read_dataset(path: Path) -> pd.DataFrame:
         if path.suffix.lower() == ".parquet":
             return pd.read_parquet(path)
         return pd.read_csv(path)

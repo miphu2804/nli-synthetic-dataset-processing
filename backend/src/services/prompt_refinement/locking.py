@@ -2,15 +2,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import mlflow
 from mlflow import MlflowClient
 from src.app_config import app_config
 from src.schemas.prompt_refinement_schema import PromptLockConfirmationResponse
 from src.services.prompt_refinement.evaluator import KAPPA_THRESHOLD
-from src.services.prompt_refinement.mlflow_support import (
-    GENERATOR_PROMPT_NAME,
-    VALIDATOR_PROMPT_NAME,
-    create_mlflow_client,
-)
+
+GENERATOR_PROMPT_NAME = "nli-generator"
+VALIDATOR_PROMPT_NAME = "nli-validator"
+
+
+def _create_mlflow_client(tracking_uri: str) -> MlflowClient:
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_registry_uri(tracking_uri)
+    return MlflowClient(
+        tracking_uri=tracking_uri,
+        registry_uri=tracking_uri,
+    )
 
 
 @dataclass(frozen=True)
@@ -25,7 +33,7 @@ class LockablePromptRound:
 
 class PromptRefinementLockService:
     def __init__(self) -> None:
-        self._create_client = create_mlflow_client
+        self._create_client = _create_mlflow_client
 
     def confirm_prompt_lock(
         self,
@@ -36,7 +44,15 @@ class PromptRefinementLockService:
         lockable_round = self._load_lockable_round(client, lock_run_id)
         self._set_locked_aliases(client, lockable_round)
         self._mark_lock_confirmed(client, lockable_round)
-        return self._build_response(lockable_round)
+        return PromptLockConfirmationResponse(
+            decision="lock_prompt",
+            bundle_id=lockable_round.bundle_id,
+            generator_prompt_version=lockable_round.generator_prompt_version,
+            validator_prompt_version=lockable_round.validator_prompt_version,
+            kappa=lockable_round.kappa,
+            threshold=KAPPA_THRESHOLD,
+            mlflow_run_id=lockable_round.run_id,
+        )
 
     def _load_lockable_round(
         self,
@@ -175,17 +191,3 @@ class PromptRefinementLockService:
                 client.set_terminated(lockable_round.session_run_id, status="FINISHED")
             except Exception:
                 pass
-
-    @staticmethod
-    def _build_response(
-        lockable_round: LockablePromptRound,
-    ) -> PromptLockConfirmationResponse:
-        return PromptLockConfirmationResponse(
-            decision="lock_prompt",
-            bundle_id=lockable_round.bundle_id,
-            generator_prompt_version=lockable_round.generator_prompt_version,
-            validator_prompt_version=lockable_round.validator_prompt_version,
-            kappa=lockable_round.kappa,
-            threshold=KAPPA_THRESHOLD,
-            mlflow_run_id=lockable_round.run_id,
-        )

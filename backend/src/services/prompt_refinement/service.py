@@ -53,7 +53,7 @@ class PromptRefinementService:
             )
         self._validate_generator_skill_name(generator_skill_name)
 
-        evaluation = self._evaluator.evaluate_inputs(
+        evaluation = self._evaluator.evaluate_round_inputs(
             verdicts_dir,
             calibration_input,
             include_summary_fields=False,
@@ -110,7 +110,10 @@ class PromptRefinementService:
             raise ValueError("round_number must be at least 1.")
         self._validate_generator_skill_name(generator_skill_name)
 
-        evaluation = self._evaluator.evaluate_inputs(verdicts_dir, calibration_input)
+        evaluation = self._evaluator.evaluate_round_inputs(
+            verdicts_dir,
+            calibration_input,
+        )
         generator_text = self._read_skill(f"{generator_skill_name}.md")
         validator_text = self._read_skill("validator.md")
         return self._review_artifacts_writer.write_review_artifacts(
