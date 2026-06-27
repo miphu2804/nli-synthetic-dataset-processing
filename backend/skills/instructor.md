@@ -99,8 +99,9 @@ load prompt_refinement
   -> user manually updates prompts after the calibration if needed
 ```
 
-MLflow is started separately by the operator. The backend does not start it
-automatically.
+The connected MCP runtime owns tool execution and calibration logging. Agents
+should report tool failures as blockers instead of adding service-startup steps
+to the prompt.
 
 ## Generation Phase
 

@@ -1,7 +1,6 @@
 # Template điều phối Prompt Refinement
 
-Dùng prompt này khi Codex đã kết nối MCP server `nli-tools` và operator đã tự
-khởi động các service cần thiết.
+Dùng prompt này khi Codex đã kết nối MCP server `nli-tools`.
 
 ```text
 Bạn là main agent đang kết nối MCP server `nli-tools`.
@@ -14,18 +13,16 @@ Input:
 - sample_count: <N>
 - generator_skill_name: <generator_plain_OR_generator_adversarial_OR_generator>
 - output_root: data/prompt-refinement/<SESSION_ID_OR_DATASET_ID>
-- tracking_uri: <MLFLOW_TRACKING_URI>
-- experiment_name: <MLFLOW_EXPERIMENT_NAME>
 - validator_models: <THREE_REAL_INDEPENDENT_MODEL_IDENTIFIERS>
 
-MCP resources bắt buộc:
-- skill://instructor
-- skill://prompt_refinement
-- skill://validator
-- skill://<generator_skill_name>
+Skills cần load từ skill lookup của `nli-tools` đang connect:
+- instructor
+- prompt_refinement
+- validator
+- <generator_skill_name>
 
 Task:
-1. Chỉ đọc MCP resources bắt buộc và calibration_source đã được cung cấp.
+1. Chỉ đọc skills bắt buộc và calibration_source đã được cung cấp.
 2. Giữ cố định source_uid set đã chọn cho calibration này.
 3. Tạo output_root/calibration/calibration.csv với:
    source_uid,premise,hypothesis,label
@@ -46,8 +43,6 @@ Sau đó gọi:
 evaluate_prompt_refinement(
   verdicts_dir="output_root/calibration/verdicts",
   calibration_input="output_root/calibration/calibration.csv",
-  tracking_uri="<MLFLOW_TRACKING_URI>",
-  experiment_name="<MLFLOW_EXPERIMENT_NAME>",
   generator_skill_name="<GENERATOR_SKILL_NAME>"
 )
 
@@ -72,7 +67,8 @@ Rules:
 - Không sửa generator hoặc validator instructions trong lúc calibration đang chạy.
 - Không dùng PMI trong loop này.
 - Không register prompt versions, promote aliases, hoặc lock prompts.
-- Nếu MCP hoặc MLflow unavailable, báo blocker; không tự start services.
+- Nếu thiếu required skills, tools, hoặc ba validator execution độc lập, báo
+  blocker.
 
 Report:
 - verdict file paths

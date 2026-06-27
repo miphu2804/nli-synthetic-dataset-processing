@@ -1,3 +1,27 @@
+### [2026-06-27 17:15] — [PromptRefinement] Align docs with connected-agent flow
+
+**Đã làm:**
+- Bỏ hướng dẫn MLflow URL/port/startup khỏi README prompt-refinement section và prompt-refinement templates.
+- Cập nhật template EN/VI để agent chỉ tập trung load skills, tạo calibration dataset, dispatch ba validator độc lập, ghi verdicts, rồi gọi `evaluate_prompt_refinement` và `propose_prompt_refinement_update` khi cần.
+- Cập nhật skill/validator flow docs để nói rõ connected `nli-tools` runtime sở hữu tool execution và calibration logging.
+- Thêm regression guard để prompt-refinement templates không quay lại `tracking_uri`, `experiment_name`, local URL, hoặc server-start commands.
+
+**Files thay đổi:**
+- `README.md`, `README.vi.md` — modified
+- `backend/skills/instructor.md`, `backend/skills/prompt_refinement.md` — modified
+- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
+- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md` — modified
+- `backend/tests/test_skill_service.py` — modified
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Prompt-refinement template giờ giả định agent đã connect sẵn với `nli-tools` và thấy skill/tool surface. Template không còn yêu cầu agent truyền MLflow tracking config hoặc đọc hướng dẫn service startup; phần cần làm chỉ còn chuẩn bị fixed calibration rows, giữ validators blind, persist đúng ba verdict files, chạy `evaluate_prompt_refinement`, và gọi `propose_prompt_refinement_update` khi `needs_prompt_update`.
+
+---
+
 ### [2026-06-27 13:06] — [PromptRefinement] Switch to single-run proposal tool
 
 **Đã làm:**
@@ -221,29 +245,3 @@ Prompt-refinement MLflow round logging giờ explicit hơn: code trước hết 
 
 **Flow explained:**
 Prompt-refinement giờ chỉ expose MLflow identifiers để operator hoặc automation tự truy cập qua API/UI khi cần. Feature code không còn ghép browser URL presentation string, nên lock/evaluate responses gọn hơn và ít dính UI concern hơn.
-
----
-
-### [2026-06-26 22:15] — [PromptRefinement] Extract prompt lock service
-
-**Đã làm:**
-- Tách `confirm_prompt_lock` khỏi `mlflow_store.py` sang module riêng `locking.py`.
-- Tạo `mlflow_support.py` để share MLflow client setup và prompt-name constants giữa round logging với lock flow.
-- Đổi `PromptRefinementService` sang compose `PromptRefinementLockService` thay vì để `PromptRefinementMlflowStore` ôm cả logging lẫn locking.
-- Giữ nguyên MCP/provider/service API và verify lại regression suite của prompt refinement.
-
-**Files thay đổi:**
-- `backend/src/services/prompt_refinement/locking.py` — created
-- `backend/src/services/prompt_refinement/mlflow_support.py` — created
-- `backend/src/services/prompt_refinement/mlflow_store.py` — modified
-- `backend/src/services/prompt_refinement/service.py` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** `mlflow_store.py` vẫn còn là module round-logging khá dày; vòng sau có thể tách tiếp registration/logging steps nếu cần. Nếu tiếp tục tối giản contract, có thể bỏ hẳn URL presentation concern khỏi prompt-refinement response.
-
-**Flow explained:**
-Prompt-refinement giờ tách lock path ra rõ hơn: `PromptRefinementService.confirm_prompt_lock()` chỉ delegate sang `PromptRefinementLockService`, module này chịu trách nhiệm load eligible run, validate exact evaluated prompt URIs/versions, set `locked` aliases, và mark session/run state. `PromptRefinementMlflowStore` chỉ còn ownership cho evaluate-round logging/register/candidate alias, nên boundary giữa `round logging` và `lock confirmation` rõ hơn mà không đổi public contract.
-
----

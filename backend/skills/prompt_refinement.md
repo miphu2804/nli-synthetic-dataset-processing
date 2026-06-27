@@ -5,7 +5,8 @@ validator instructions need calibration.
 
 ## Preconditions
 
-- Start MLflow separately and keep its tracking URI available.
+- Work in a connected `nli-tools` session where the main agent can read skills
+  and call MCP tools.
 - Freeze one calibration source_uid set.
 - Produce exactly three independent verdict CSV or Parquet files. Each file
   must contain `source_uid,predicted_label,reason`.
@@ -54,8 +55,8 @@ successful model's verdict file.
 3. Validate the three returned verdict sets and save one verdict file per model
    in a dedicated calibration directory.
 4. The main agent calls `evaluate_prompt_refinement` with the verdict
-   directory, generated labeled calibration file path, MLflow tracking URI,
-   experiment name, and `generator_skill_name`.
+   directory, generated labeled calibration file path, and
+   `generator_skill_name`.
 5. Follow the returned decision:
 
 | Decision | Action |

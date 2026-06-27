@@ -1,7 +1,6 @@
 # Prompt Refinement Orchestration Template
 
-Use this prompt when Codex is connected to MCP server `nli-tools` and the
-operator has already started the required services.
+Use this prompt when Codex is already connected to MCP server `nli-tools`.
 
 ```text
 You are the main agent connected to MCP server `nli-tools`.
@@ -15,18 +14,16 @@ Inputs:
 - sample_count: <N>
 - generator_skill_name: <generator_plain_OR_generator_adversarial_OR_generator>
 - output_root: data/prompt-refinement/<SESSION_ID_OR_DATASET_ID>
-- tracking_uri: <MLFLOW_TRACKING_URI>
-- experiment_name: <MLFLOW_EXPERIMENT_NAME>
 - validator_models: <THREE_REAL_INDEPENDENT_MODEL_IDENTIFIERS>
 
-Required MCP resources:
-- skill://instructor
-- skill://prompt_refinement
-- skill://validator
-- skill://<generator_skill_name>
+Skills to load from the connected `nli-tools` skill lookup:
+- instructor
+- prompt_refinement
+- validator
+- <generator_skill_name>
 
 Task:
-1. Read only the required MCP resources and the provided calibration_source.
+1. Read only the required skills and the provided calibration_source.
 2. Freeze the selected source_uid set for this calibration.
 3. Create output_root/calibration/calibration.csv with:
    source_uid,premise,hypothesis,label
@@ -47,8 +44,6 @@ Then call:
 evaluate_prompt_refinement(
   verdicts_dir="output_root/calibration/verdicts",
   calibration_input="output_root/calibration/calibration.csv",
-  tracking_uri="<MLFLOW_TRACKING_URI>",
-  experiment_name="<MLFLOW_EXPERIMENT_NAME>",
   generator_skill_name="<GENERATOR_SKILL_NAME>"
 )
 
@@ -73,7 +68,8 @@ Rules:
 - Do not edit generator or validator instructions during calibration.
 - Do not use PMI in this loop.
 - Do not register prompt versions, promote aliases, or lock prompts.
-- If MCP or MLflow is unavailable, report the blocker; do not start services.
+- If required skills, tools, or three independent validator executions are
+  unavailable, report the blocker.
 
 Report:
 - verdict file paths

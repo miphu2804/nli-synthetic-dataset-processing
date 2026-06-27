@@ -82,27 +82,19 @@ MCP endpoint:
 http://localhost:8000/mcp/
 ```
 
-### Optional prompt refinement with MLflow
+### Optional prompt refinement
 
-Start MLflow only when calibrating prompts:
+Use prompt refinement before large-scale generation when the generator policy or
+validator rubric needs calibration. In the connected agent workflow, the agent
+already has the `nli-tools` MCP tools and skill lookup available. It loads
+`prompt_refinement`, prepares one fixed calibration dataset, collects exactly
+three independent verdict files, then calls `evaluate_prompt_refinement`.
 
-```bash
-cd backend
-mkdir -p .mlflow/artifacts
-uv run mlflow server \
-  --backend-store-uri "sqlite:///$PWD/.mlflow/mlflow.db" \
-  --default-artifact-root "file://$PWD/.mlflow/artifacts" \
-  --host 127.0.0.1 \
-  --port 5000
-```
-
-Open `http://127.0.0.1:5000`, then ask the agent to read
-`skill://prompt_refinement`. The agent collects exactly three independent
-verdict files and calls `evaluate_prompt_refinement`. Kappa below `0.85`
-returns `needs_prompt_update`; the agent may then call
+Kappa below `0.85` returns `needs_prompt_update`; the agent may then call
 `propose_prompt_refinement_update` to get a user-facing manual prompt-update
-proposal. Kappa at least `0.85` returns `accepted`. The backend does not register
-prompt versions, promote aliases, lock prompts, or run another calibration automatically.
+proposal. Kappa at least `0.85` returns `accepted`. The backend logs the
+calibration evidence and does not register prompt versions, promote aliases,
+lock prompts, or run another calibration automatically.
 
 ## Resources (MCP server: `nli-tools`)
 
@@ -117,7 +109,7 @@ prompt versions, promote aliases, lock prompts, or run another calibration autom
 | `skill://execution` | Runtime ownership boundaries |
 | `skill://aggregator` | Finalize behavior |
 | `skill://validator` | Masked validation scoring rubric and verdict contract |
-| `skill://prompt_refinement` | Optional three-model prompt calibration with MLflow |
+| `skill://prompt_refinement` | Optional three-model prompt calibration with evidence logging |
 
 ## Phase Guides
 

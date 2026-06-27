@@ -26,14 +26,14 @@ fixed labeled calibration dataset
   -> bắt đầu large-scale generation
 ```
 
-MLflow được operator chạy riêng; backend không tự khởi động MLflow. Mỗi calibration
-ghi Fleiss' kappa, verdict files, prompt snapshots, rejected sample count, và decision.
-Proposal tool được tách riêng để harness chủ động lấy gợi ý user-facing sau
-calibration. Giữ cố định source UID set giữa các
+Connected runtime của `nli-tools` sở hữu tool execution và calibration logging.
+Mỗi calibration ghi Fleiss' kappa, verdict files, prompt snapshots, rejected
+sample count, và decision. Proposal tool được tách riêng để harness chủ động
+lấy gợi ý user-facing sau calibration. Giữ cố định source UID set giữa các
 calibration bằng quy ước operator khi cần so sánh trực tiếp. Nếu generator
 policy đã chọn đổi, regenerate đúng UID set đó; nếu chỉ validator prompt đổi,
-reuse generated calibration file. Đọc
-`skill://prompt_refinement` để chạy đúng flow.
+reuse generated calibration file. Load skill `prompt_refinement` qua skill
+lookup của session đang connect để chạy đúng flow.
 
 Codex main agent sở hữu MCP calls và file persistence. Main agent dispatch ba
 validator subagent cô lập; mỗi subagent chỉ nhận masked rows và trả verdict mà

@@ -26,28 +26,18 @@ MCP endpoint: `http://localhost:8000/mcp/`.
 
 ## Prompt refinement tùy chọn
 
-MLflow không chạy chung với backend. Chỉ bật khi cần calibrate prompt:
-
-```bash
-cd backend
-mkdir -p .mlflow/artifacts
-uv run mlflow server \
-  --backend-store-uri "sqlite:///$PWD/.mlflow/mlflow.db" \
-  --default-artifact-root "file://$PWD/.mlflow/artifacts" \
-  --host 127.0.0.1 \
-  --port 5000
-```
-
-Mở `http://127.0.0.1:5000`, sau đó yêu cầu agent đọc
-`skill://prompt_refinement`. Agent phải dùng cùng một calibration dataset, thu
-đúng ba file verdict độc lập, rồi gọi `evaluate_prompt_refinement`.
+Chạy trước large-scale generation khi generator policy hoặc validator rubric
+cần calibration. Trong workflow agent đã connect sẵn, agent đã thấy MCP tools
+và skill lookup của `nli-tools`. Agent load `prompt_refinement`, chuẩn bị một
+calibration dataset cố định, thu đúng ba file verdict độc lập, rồi gọi
+`evaluate_prompt_refinement`.
 
 - Fleiss' kappa `< 0.85`: calibration trả `needs_prompt_update`; harness có thể gọi
   `propose_prompt_refinement_update` để lấy proposal user-facing, rồi dừng để
   user tự update prompt nếu phù hợp.
 - Fleiss' kappa `>= 0.85`: calibration trả `accepted`.
-- Backend không register prompt version, promote alias, lock prompt, hoặc tự
-  chạy calibration tiếp theo.
+- Backend log calibration evidence nhưng không register prompt version, promote
+  alias, lock prompt, hoặc tự chạy calibration tiếp theo.
 
 PMI không nằm trong refinement loop. PMI chạy sau generation và validation để
 phát hiện artifact token cần paraphrase.

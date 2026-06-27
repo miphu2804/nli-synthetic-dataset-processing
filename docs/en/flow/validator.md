@@ -27,15 +27,15 @@ fixed labeled calibration dataset
   -> start large-scale generation
 ```
 
-Start MLflow separately; the backend never starts it automatically. Each calibration
-records Fleiss' kappa, verdict files, prompt snapshots, rejected sample count,
-and the decision. The proposal tool is separate so the harness explicitly requests the
-user-facing prompt suggestion after the calibration. Keep the same
-calibration source UID set across comparable calibrations by operator convention. If
-the selected generator policy changes,
+The connected `nli-tools` runtime owns tool execution and calibration logging.
+Each calibration records Fleiss' kappa, verdict files, prompt snapshots,
+rejected sample count, and the decision. The proposal tool is separate so the
+harness explicitly requests the user-facing prompt suggestion after the
+calibration. Keep the same calibration source UID set across comparable
+calibrations by operator convention. If the selected generator policy changes,
 regenerate that UID set; if only the validator prompt changes, reuse the same
-generated calibration file. Read
-`skill://prompt_refinement` for the agent procedure.
+generated calibration file. Load the `prompt_refinement` skill through the
+connected skill lookup for the agent procedure.
 
 The Codex main agent owns MCP calls and file persistence. It
 dispatches three isolated validator subagents; each receives masked rows only
