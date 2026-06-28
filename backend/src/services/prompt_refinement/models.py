@@ -9,7 +9,7 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class PromptRefinementEvaluation:
-    model_label_paths: dict[str, Path]
+    model_prediction_paths: dict[str, Path]
     kappa_result: dict[str, Any]
     kappa: float
     decision: str

@@ -1,7 +1,7 @@
 import unittest
 
 import pandas as pd
-from src.utils.dataset_split import split_dataset_by_group
+from src.services.post_validation.dataset_split import split_dataset_by_group
 
 
 def _distribution_error(
@@ -91,9 +91,7 @@ class DatasetSplitTest(unittest.TestCase):
             )
         self.assertEqual(first.manifest, second.manifest)
 
-    def test_grouped_stratified_improves_label_balance_over_grouped_shuffle(
-        self,
-    ) -> None:
+    def test_split_dataset_by_group_records_grouped_stratified_strategy(self) -> None:
         dataframe = pd.DataFrame(
             [
                 {"source_uid": "g1a", "premise": "p1", "hypothesis": "h1", "label": 0},
@@ -112,35 +110,21 @@ class DatasetSplitTest(unittest.TestCase):
         )
         ratios = {"train": 0.5, "dev": 0.25, "test": 0.25}
 
-        stratified = split_dataset_by_group(
+        result = split_dataset_by_group(
             dataframe,
             train_ratio=ratios["train"],
             dev_ratio=ratios["dev"],
             test_ratio=ratios["test"],
             seed=2,
-            strategy="grouped-stratified",
-        )
-        grouped_shuffle = split_dataset_by_group(
-            dataframe,
-            train_ratio=ratios["train"],
-            dev_ratio=ratios["dev"],
-            test_ratio=ratios["test"],
-            seed=2,
-            strategy="grouped-shuffle",
         )
 
-        stratified_error = _distribution_error(
-            stratified.splits,
+        label_error = _distribution_error(
+            result.splits,
             column="label",
             ratios=ratios,
         )
-        grouped_shuffle_error = _distribution_error(
-            grouped_shuffle.splits,
-            column="label",
-            ratios=ratios,
-        )
-        self.assertLess(stratified_error, grouped_shuffle_error)
-        self.assertEqual(stratified.manifest["strategy"], "grouped-stratified")
+        self.assertLessEqual(label_error, 2.5)
+        self.assertEqual(result.manifest["strategy"], "grouped-stratified")
 
     def test_grouped_stratified_can_use_domain_distribution(self) -> None:
         dataframe = pd.DataFrame(

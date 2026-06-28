@@ -1,15 +1,15 @@
 from pathlib import Path
 
 import pandas as pd
-from src.utils.validation_aggregation.dataset_builders import attach_masked_text
-from src.utils.validation_aggregation.model_labels import SOURCE_UID_COLUMN
-from src.utils.validation_aggregation.voting import build_validation_vote_table
+from src.services.post_validation.dataset_builders import attach_masked_text
+from src.services.post_validation.model_predictions import SOURCE_UID_COLUMN
+from src.services.post_validation.voting import build_validation_vote_table
 
 
 def promote_revalidated_paraphrases(
     paraphrased_dataset: pd.DataFrame,
     revalidation_queue: pd.DataFrame,
-    model_label_paths: dict[str, str | Path],
+    model_prediction_paths: dict[str, str | Path],
     expected_labels: dict[str, str | int],
     uid_column: str = SOURCE_UID_COLUMN,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -20,10 +20,10 @@ def promote_revalidated_paraphrases(
     promoted dataset; changed rows with `review` or `discard` are removed from
     the publishable output and written to the review artifact.
     """
-    if len(model_label_paths) != 3:
+    if len(model_prediction_paths) != 3:
         raise ValueError(
             f"Paraphrase promotion requires exactly 3 verdict files, "
-            f"found {len(model_label_paths)}."
+            f"found {len(model_prediction_paths)}."
         )
     _validate_dataset_uids(paraphrased_dataset, uid_column, "paraphrased dataset")
     _validate_revalidation_queue(revalidation_queue, uid_column)
@@ -53,7 +53,7 @@ def promote_revalidated_paraphrases(
         uid: normalized_expected_labels[uid] for uid in sorted(changed_uids)
     }
     vote_table = build_validation_vote_table(
-        model_label_paths,
+        model_prediction_paths,
         revalidation_expected_labels,
     )
 

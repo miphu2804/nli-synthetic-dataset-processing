@@ -1,7 +1,4 @@
 import argparse
-import json
-import shutil
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,41 +6,51 @@ import pandas as pd
 from rich.console import Console
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
-from src.utils.dataset_split import split_dataset_by_group
-from src.utils.validation_aggregation import (
-    apply_paraphrases,
-    build_retained_dataset,
-    build_review_dataset,
-    build_validation_vote_table,
+from src.services.post_validation import (
+    DEV_RATIO,
+    GROUP_COLUMN,
+    LABEL_COLUMN,
+    MIN_JOINT_COUNT,
+    PMI_THRESHOLD,
+    SPLIT_SEED,
+    TEST_RATIO,
+    TRAIN_RATIO,
+    ArtifactDetectionService,
+    DatasetSplitService,
+    ParaphraseService,
+    ValidationAggregationService,
+    VerdictFileCandidate,
+    build_verdict_candidates,
     compute_fleiss_kappa,
-    flag_pmi_artifacts,
-    promote_revalidated_paraphrases,
+    default_consensus_output_dir,
+    discover_verdict_files,
+    load_expected_labels,
 )
+from src.utils.tabular_io import read_tabular, read_tabular_columns
 from src.utils.validation_masking import write_masked_validation_dataset
 
 DATASET_SUFFIXES = (".csv", ".parquet")
-MASK_DEFAULT_SEARCH_DIRS = (
+MASK_SEARCH_DIRS = (
     Path("data/generated"),
     Path("data/processed"),
     Path("data/original"),
 )
-VERDICT_DEFAULT_SEARCH_DIRS = (
+VERDICT_SEARCH_DIRS = (
     Path("data/validation"),
     Path("data/validated"),
 )
-VERDICT_REQUIRED_COLUMNS = {"source_uid", "predicted_label", "reason"}
+VALIDATION_AGGREGATION_SERVICE = ValidationAggregationService()
+ARTIFACT_DETECTION_SERVICE = ArtifactDetectionService()
+PARAPHRASE_SERVICE = ParaphraseService()
+DATASET_SPLIT_SERVICE = DatasetSplitService()
 
 
 def read_dataset(path: Path) -> pd.DataFrame:
-    if path.suffix.lower() == ".parquet":
-        return pd.read_parquet(path)
-    return pd.read_csv(path)
+    return read_tabular(path)
 
 
 def read_columns(path: Path) -> list[str]:
-    if path.suffix.lower() == ".parquet":
-        return list(pd.read_parquet(path, columns=[]).columns)
-    return list(pd.read_csv(path, nrows=0).columns)
+    return read_tabular_columns(path)
 
 
 # --------------------------------------------------------------------------- #
@@ -131,9 +138,7 @@ def run_masking(
 
 
 def _run_mask_command(args: argparse.Namespace, console: Console) -> int:
-    search_dirs = [Path(item) for item in args.search_dir] or list(
-        MASK_DEFAULT_SEARCH_DIRS
-    )
+    search_dirs = [Path(item) for item in args.search_dir] or list(MASK_SEARCH_DIRS)
     input_path = Path(args.input).expanduser() if args.input else None
 
     if input_path is None:
@@ -207,43 +212,6 @@ def _run_mask_command(args: argparse.Namespace, console: Console) -> int:
 # --------------------------------------------------------------------------- #
 # aggregate command
 # --------------------------------------------------------------------------- #
-@dataclass(frozen=True)
-class VerdictFileCandidate:
-    path: Path
-    columns: list[str]
-    model_name: str
-    is_valid: bool
-
-
-def discover_verdict_files(search_dir: Path) -> list[Path]:
-    if not search_dir.exists():
-        return []
-    return sorted(
-        path
-        for path in search_dir.iterdir()
-        if path.is_file() and path.suffix.lower() in DATASET_SUFFIXES
-    )
-
-
-def build_verdict_candidates(paths: list[Path]) -> list[VerdictFileCandidate]:
-    candidates = []
-    for path in paths:
-        try:
-            columns = read_columns(path)
-        except Exception:
-            columns = []
-        is_valid = VERDICT_REQUIRED_COLUMNS.issubset(set(columns))
-        candidates.append(
-            VerdictFileCandidate(
-                path=path,
-                columns=columns,
-                model_name=path.stem,
-                is_valid=is_valid,
-            )
-        )
-    return candidates
-
-
 def render_verdict_candidates_table(
     console: Console,
     candidates: list[VerdictFileCandidate],
@@ -266,96 +234,26 @@ def render_verdict_candidates_table(
     console.print(table)
 
 
-def load_expected_labels(
-    path: Path, uid_column: str, label_column: str
-) -> dict[str, object]:
-    df = read_dataset(path)
-    for col in (uid_column, label_column):
-        if col not in df.columns:
-            raise ValueError(f"Expected-label dataset is missing column: {col}")
-    if df[uid_column].isnull().any():
-        raise ValueError(f"Expected-label dataset contains null {uid_column} values.")
-    uid_strs = df[uid_column].astype(str)
-    duplicates = sorted(uid_strs[uid_strs.duplicated()].unique())
-    if duplicates:
-        raise ValueError(
-            f"Expected-label dataset contains duplicate {uid_column}: "
-            f"{', '.join(duplicates[:5])}"
-        )
-    return {str(uid): label for uid, label in zip(df[uid_column], df[label_column])}
-
-
 def run_aggregation(
     valid_candidates: list[VerdictFileCandidate],
     masked_dataset_path: Path,
     output_dir: Path,
     expected_labels: dict,
 ) -> dict:
-    # Phase 1: validate and build all outputs in memory before touching the filesystem.
-    model_label_paths = {
-        candidate.model_name: candidate.path for candidate in valid_candidates
-    }
-    vote_table = build_validation_vote_table(model_label_paths, expected_labels)
-    masked_df = read_dataset(masked_dataset_path)
-    if "source_uid" not in masked_df.columns:
-        raise ValueError("masked dataset is missing required column: source_uid")
-    if masked_df["source_uid"].isnull().any():
-        raise ValueError("masked dataset contains null source_uid values.")
-    masked_uid_strs = masked_df["source_uid"].astype(str)
-    dups = sorted(masked_uid_strs[masked_uid_strs.duplicated()].unique())
-    if dups:
-        raise ValueError(
-            f"masked dataset contains duplicate source_uid: {', '.join(dups[:5])}"
-        )
-    masked_uid_set = set(masked_uid_strs)
-    expected_uid_set = set(str(k) for k in expected_labels)
-    if masked_uid_set != expected_uid_set:
-        missing = sorted(expected_uid_set - masked_uid_set)
-        extra = sorted(masked_uid_set - expected_uid_set)
-        parts = []
-        if missing:
-            parts.append(f"masked dataset is missing UIDs: {', '.join(missing[:5])}")
-        if extra:
-            parts.append(
-                f"masked dataset has extra UIDs not in expected labels: {', '.join(extra[:5])}"
-            )
-        raise ValueError("; ".join(parts))
-    retained_df = build_retained_dataset(masked_df, vote_table)
-    review_df = build_review_dataset(masked_df, vote_table)
-
-    # Phase 2: write to a staging area, then atomically replace final files.
-    votes_output = output_dir / "validation_votes.csv"
-    validated_output = output_dir / "validated_dataset.csv"
-    review_output = output_dir / "review_dataset.csv"
-    with tempfile.TemporaryDirectory(dir=output_dir) as staging_dir:
-        staging = Path(staging_dir)
-        vote_table.to_csv(staging / "validation_votes.csv", index=False)
-        retained_df.to_csv(staging / "validated_dataset.csv", index=False)
-        review_df.to_csv(staging / "review_dataset.csv", index=False)
-        shutil.move(str(staging / "validation_votes.csv"), votes_output)
-        shutil.move(str(staging / "validated_dataset.csv"), validated_output)
-        shutil.move(str(staging / "review_dataset.csv"), review_output)
-
-    decision_counts = vote_table["decision"].value_counts().to_dict()
-    return {
-        "votes_output": votes_output,
-        "validated_output": validated_output,
-        "review_output": review_output,
-        "total_rows": len(vote_table),
-        "keep": decision_counts.get("keep", 0),
-        "discard": decision_counts.get("discard", 0),
-        "review": decision_counts.get("review", 0),
-        "retained_rows": len(retained_df),
-        "review_rows": len(review_df),
-    }
+    return VALIDATION_AGGREGATION_SERVICE.aggregate(
+        valid_candidates=valid_candidates,
+        masked_dataset_path=masked_dataset_path,
+        output_dir=output_dir,
+        expected_labels=expected_labels,
+    )
 
 
 def _resolve_verdicts_dir(args: argparse.Namespace, console: Console) -> Path | None:
     if args.verdicts_dir:
         return Path(args.verdicts_dir).expanduser()
-    for default_dir in VERDICT_DEFAULT_SEARCH_DIRS:
-        if default_dir.exists():
-            return default_dir
+    for verdict_dir in VERDICT_SEARCH_DIRS:
+        if verdict_dir.exists():
+            return verdict_dir
     raw = Prompt.ask("Path to directory containing model verdict files")
     return Path(raw).expanduser()
 
@@ -467,27 +365,15 @@ def run_pmi(
     pmi_threshold: float,
     min_joint_count: int,
 ) -> dict:
-    dataframe = read_dataset(input_path)
-    artifact_tokens, flagged_rows = flag_pmi_artifacts(
-        dataframe,
+    return ARTIFACT_DETECTION_SERVICE.detect(
+        input_path=input_path,
+        output_dir=output_dir,
         label_column=label_column,
         text_column=text_column,
         uid_column=uid_column,
         pmi_threshold=pmi_threshold,
         min_joint_count=min_joint_count,
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
-    tokens_output = output_dir / "pmi_artifact_tokens.csv"
-    rows_output = output_dir / "pmi_flagged_rows.csv"
-    artifact_tokens.to_csv(tokens_output, index=False)
-    flagged_rows.to_csv(rows_output, index=False)
-    return {
-        "tokens_output": tokens_output,
-        "rows_output": rows_output,
-        "total_rows": len(dataframe),
-        "artifact_tokens": len(artifact_tokens),
-        "flagged_rows": len(flagged_rows),
-    }
 
 
 def _run_pmi_command(args: argparse.Namespace, console: Console) -> int:
@@ -534,12 +420,6 @@ def _run_pmi_command(args: argparse.Namespace, console: Console) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# consensus-pmi command
-# --------------------------------------------------------------------------- #
-def default_consensus_output_dir(expected_input_path: Path) -> Path:
-    return Path("data/validated") / expected_input_path.stem
-
-
 def run_consensus_pmi(
     valid_candidates: list[VerdictFileCandidate],
     masked_dataset_path: Path,
@@ -671,11 +551,11 @@ def run_kappa(verdicts_dir: Path) -> dict:
             f"Fleiss' Kappa requires exactly 3 valid verdict files, "
             f"found {len(valid_candidates)}."
         )
-    model_label_paths = {
+    model_prediction_paths = {
         candidate.model_name: candidate.path for candidate in valid_candidates
     }
-    result = compute_fleiss_kappa(model_label_paths)
-    result["models"] = list(model_label_paths.keys())
+    result = compute_fleiss_kappa(model_prediction_paths)
+    result["models"] = list(model_prediction_paths.keys())
     return result
 
 
@@ -728,36 +608,14 @@ def run_apply_paraphrase(
     paraphrases_path: Path,
     output_path: Path,
     revalidation_path: Path,
-    uid_column: str,
-    text_column: str,
 ) -> dict:
-    dataset = read_dataset(input_path)
-    flagged_rows = read_dataset(flagged_rows_path)
-    paraphrases = read_dataset(paraphrases_path)
-    paraphrased, replaced = apply_paraphrases(
-        dataset,
-        flagged_rows,
-        paraphrases,
-        uid_column=uid_column,
-        text_column=text_column,
+    return PARAPHRASE_SERVICE.apply(
+        input_path=input_path,
+        flagged_rows_path=flagged_rows_path,
+        paraphrases_path=paraphrases_path,
+        output_path=output_path,
+        revalidation_path=revalidation_path,
     )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    paraphrased.to_csv(output_path, index=False)
-
-    # Emit revalidation queue for changed rows.
-    changed_uids = set(str(uid) for uid in paraphrases[uid_column])
-    revalidation = paraphrased[paraphrased[uid_column].astype(str).isin(changed_uids)][
-        [uid_column, "premise", text_column]
-    ].copy()
-    revalidation["label"] = ""
-    revalidation.to_csv(revalidation_path, index=False)
-
-    return {
-        "output_path": output_path,
-        "revalidation_path": revalidation_path,
-        "total_rows": len(paraphrased),
-        "replaced_rows": replaced,
-    }
 
 
 def _run_apply_paraphrase_command(args: argparse.Namespace, console: Console) -> int:
@@ -794,8 +652,6 @@ def _run_apply_paraphrase_command(args: argparse.Namespace, console: Console) ->
             paraphrases_path=paraphrases_path,
             output_path=output_path,
             revalidation_path=revalidation_path,
-            uid_column=args.uid_column,
-            text_column=args.text_column,
         )
     except Exception as exc:
         console.print(f"[red]Failed:[/red] {exc}")
@@ -826,41 +682,17 @@ def run_promote_paraphrase(
     uid_column: str,
     label_column: str,
 ) -> dict:
-    dataset = read_dataset(input_path)
-    revalidation_queue = read_dataset(revalidation_input_path)
-    expected_labels = load_expected_labels(
-        expected_input_path,
-        uid_column,
-        label_column,
-    )
-    model_label_paths = {
-        candidate.model_name: candidate.path for candidate in verdict_candidates
-    }
-    promoted, review, votes = promote_revalidated_paraphrases(
-        paraphrased_dataset=dataset,
-        revalidation_queue=revalidation_queue,
-        model_label_paths=model_label_paths,
-        expected_labels=expected_labels,
+    return PARAPHRASE_SERVICE.promote(
+        input_path=input_path,
+        revalidation_input_path=revalidation_input_path,
+        verdict_candidates=verdict_candidates,
+        expected_input_path=expected_input_path,
+        output_path=output_path,
+        review_output_path=review_output_path,
+        votes_output_path=votes_output_path,
         uid_column=uid_column,
+        label_column=label_column,
     )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    review_output_path.parent.mkdir(parents=True, exist_ok=True)
-    votes_output_path.parent.mkdir(parents=True, exist_ok=True)
-    promoted.to_csv(output_path, index=False)
-    review.to_csv(review_output_path, index=False)
-    votes.to_csv(votes_output_path, index=False)
-    decision_counts = votes["decision"].value_counts().to_dict()
-    return {
-        "output_path": output_path,
-        "review_output_path": review_output_path,
-        "votes_output_path": votes_output_path,
-        "total_rows": len(dataset),
-        "promoted_rows": len(promoted),
-        "revalidated_rows": len(votes),
-        "accepted_rewrites": decision_counts.get("keep", 0),
-        "review_rewrites": decision_counts.get("review", 0),
-        "discarded_rewrites": decision_counts.get("discard", 0),
-    }
 
 
 def _run_promote_paraphrase_command(
@@ -957,9 +789,9 @@ def run_split(
     test_ratio: float,
     seed: int,
 ) -> dict:
-    dataframe = read_dataset(input_path)
-    result = split_dataset_by_group(
-        dataframe,
+    return DATASET_SPLIT_SERVICE.split(
+        input_path=input_path,
+        output_dir=output_dir,
         group_column=group_column,
         label_column=label_column,
         domain_column=domain_column,
@@ -968,44 +800,6 @@ def run_split(
         test_ratio=test_ratio,
         seed=seed,
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_paths = {
-        "train": output_dir / "train.csv",
-        "dev": output_dir / "dev.csv",
-        "test": output_dir / "test.csv",
-        "manifest": output_dir / "split_manifest.json",
-    }
-    with tempfile.TemporaryDirectory(dir=output_dir) as staging_dir:
-        staging = Path(staging_dir)
-        for split_name in ("train", "dev", "test"):
-            result.splits[split_name].to_csv(
-                staging / f"{split_name}.csv",
-                index=False,
-            )
-        (staging / "split_manifest.json").write_text(
-            json.dumps(result.manifest, ensure_ascii=False, indent=2, sort_keys=True)
-            + "\n"
-        )
-        for split_name in ("train", "dev", "test"):
-            shutil.move(str(staging / f"{split_name}.csv"), output_paths[split_name])
-        shutil.move(
-            str(staging / "split_manifest.json"),
-            output_paths["manifest"],
-        )
-
-    return {
-        "train_output": output_paths["train"],
-        "dev_output": output_paths["dev"],
-        "test_output": output_paths["test"],
-        "manifest_output": output_paths["manifest"],
-        "total_rows": result.manifest["total_rows"],
-        "total_groups": result.manifest["total_groups"],
-        "strategy": result.manifest["strategy"],
-        "domain_status": result.manifest["domain"]["status"],
-        "train_rows": result.manifest["splits"]["train"]["rows"],
-        "dev_rows": result.manifest["splits"]["dev"]["rows"],
-        "test_rows": result.manifest["splits"]["test"]["rows"],
-    }
 
 
 def _run_split_command(args: argparse.Namespace, console: Console) -> int:
@@ -1199,7 +993,7 @@ def _add_pmi_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     pmi.add_argument(
         "--label-column",
-        default="label",
+        default=LABEL_COLUMN,
         help="Label column to score against. Default: label "
         "(matches validated_dataset.csv).",
     )
@@ -1216,14 +1010,14 @@ def _add_pmi_parser(subparsers: argparse._SubParsersAction) -> None:
     pmi.add_argument(
         "--pmi-threshold",
         type=float,
-        default=1.0,
+        default=PMI_THRESHOLD,
         help="Minimum PMI for a (token, label) pair to count as an artifact. "
         "Default: 1.0. Tune per dataset.",
     )
     pmi.add_argument(
         "--min-joint-count",
         type=int,
-        default=3,
+        default=MIN_JOINT_COUNT,
         help="Minimum joint token-label count included in PMI. Default: 3.",
     )
     pmi.add_argument(
@@ -1264,7 +1058,7 @@ def _add_consensus_pmi_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     consensus.add_argument(
         "--label-column",
-        default="label",
+        default=LABEL_COLUMN,
         help="Expected-label column in --expected-input. Default: label.",
     )
     consensus.add_argument(
@@ -1275,13 +1069,13 @@ def _add_consensus_pmi_parser(subparsers: argparse._SubParsersAction) -> None:
     consensus.add_argument(
         "--pmi-threshold",
         type=float,
-        default=1.0,
+        default=PMI_THRESHOLD,
         help="Minimum PMI for a token-label artifact. Default: 1.0.",
     )
     consensus.add_argument(
         "--min-joint-count",
         type=int,
-        default=3,
+        default=MIN_JOINT_COUNT,
         help="Minimum joint token-label count included in PMI. Default: 3.",
     )
     consensus.add_argument(
@@ -1341,16 +1135,6 @@ def _add_apply_paraphrase_parser(subparsers: argparse._SubParsersAction) -> None
     apply.add_argument(
         "--output",
         help="Output path. Defaults to paraphrased_dataset.csv next to --input.",
-    )
-    apply.add_argument(
-        "--uid-column",
-        default="source_uid",
-        help="Row identifier column. Default: source_uid.",
-    )
-    apply.add_argument(
-        "--text-column",
-        default="hypothesis",
-        help="Text column to overwrite. Default: hypothesis.",
     )
     apply.add_argument(
         "--quiet",
@@ -1430,12 +1214,12 @@ def _add_split_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     split.add_argument(
         "--group-column",
-        default="premise",
+        default=GROUP_COLUMN,
         help="Grouping column that must not cross splits. Default: premise.",
     )
     split.add_argument(
         "--label-column",
-        default="label",
+        default=LABEL_COLUMN,
         help="Label column used for manifest distributions. Default: label.",
     )
     split.add_argument(
@@ -1445,25 +1229,25 @@ def _add_split_parser(subparsers: argparse._SubParsersAction) -> None:
     split.add_argument(
         "--train-ratio",
         type=float,
-        default=0.8,
+        default=TRAIN_RATIO,
         help="Train split ratio. Default: 0.8.",
     )
     split.add_argument(
         "--dev-ratio",
         type=float,
-        default=0.1,
+        default=DEV_RATIO,
         help="Dev split ratio. Default: 0.1.",
     )
     split.add_argument(
         "--test-ratio",
         type=float,
-        default=0.1,
+        default=TEST_RATIO,
         help="Test split ratio. Default: 0.1.",
     )
     split.add_argument(
         "--seed",
         type=int,
-        default=13,
+        default=SPLIT_SEED,
         help="Deterministic group shuffle seed. Default: 13.",
     )
     split.add_argument(

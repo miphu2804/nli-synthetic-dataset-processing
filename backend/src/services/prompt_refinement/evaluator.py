@@ -3,9 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+from src.services.post_validation import compute_fleiss_kappa
 from src.services.prompt_refinement.models import PromptRefinementEvaluation
 from src.utils.nli_labels import to_label_name
-from src.utils.validation_aggregation import compute_fleiss_kappa
+from src.utils.tabular_io import read_tabular
 
 KAPPA_THRESHOLD = 0.85
 DATASET_SUFFIXES = {".csv", ".parquet"}
@@ -21,17 +22,17 @@ class PromptRefinementEvaluator:
         calibration_input: str | Path,
     ) -> PromptRefinementEvaluation:
         verdict_paths = self._discover_valid_verdict_files(Path(verdicts_dir))
-        model_label_paths = {path.stem: path for path in verdict_paths}
-        kappa_result = compute_fleiss_kappa(model_label_paths)
+        model_prediction_paths = {path.stem: path for path in verdict_paths}
+        kappa_result = compute_fleiss_kappa(model_prediction_paths)
         calibration_path = Path(calibration_input)
         sample_count = self._load_validated_calibration(
             calibration_path, verdict_paths[0]
         )
         kappa = float(kappa_result["kappa"])
-        disagreements = self._build_disagreement_rows(model_label_paths)
+        disagreements = self._build_disagreement_rows(model_prediction_paths)
 
         return PromptRefinementEvaluation(
-            model_label_paths=model_label_paths,
+            model_prediction_paths=model_prediction_paths,
             kappa_result=kappa_result,
             kappa=kappa,
             decision=self.decide_outcome(kappa),
@@ -99,11 +100,11 @@ class PromptRefinementEvaluator:
     @classmethod
     def _build_disagreement_rows(
         cls,
-        model_label_paths: dict[str, Path],
+        model_prediction_paths: dict[str, Path],
     ) -> pd.DataFrame:
         merged = None
         label_columns = []
-        for model, path in model_label_paths.items():
+        for model, path in model_prediction_paths.items():
             dataframe: pd.DataFrame = (
                 cls._read_dataset(path)
                 .loc[:, ["source_uid", "predicted_label", "reason"]]
@@ -132,6 +133,4 @@ class PromptRefinementEvaluator:
 
     @staticmethod
     def _read_dataset(path: Path) -> pd.DataFrame:
-        if path.suffix.lower() == ".parquet":
-            return pd.read_parquet(path)
-        return pd.read_csv(path)
+        return read_tabular(path)

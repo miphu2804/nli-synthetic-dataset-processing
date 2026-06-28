@@ -138,7 +138,7 @@ class PromptRefinementMlflowStore:
             "generator_skill_file": generator_skill_file,
             "validator_skill_file": validator_skill_file,
             "sample_count": evaluation.sample_count,
-            "model_names": ",".join(sorted(evaluation.model_label_paths)),
+            "model_names": ",".join(sorted(evaluation.model_prediction_paths)),
         }
         for key, value in params.items():
             client.log_param(run_id, key, value)
@@ -209,7 +209,7 @@ class PromptRefinementMlflowStore:
             validator_path.write_text(validator_text, encoding="utf-8")
             client.log_artifact(run_id, str(validator_path), artifact_path="prompts")
 
-            for model, verdict_path in evaluation.model_label_paths.items():
+            for model, verdict_path in evaluation.model_prediction_paths.items():
                 copied_path = temporary_root / f"{model}{verdict_path.suffix.lower()}"
                 copied_path.write_bytes(verdict_path.read_bytes())
                 client.log_artifact(run_id, str(copied_path), artifact_path="verdicts")

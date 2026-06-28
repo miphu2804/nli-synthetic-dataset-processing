@@ -1,3 +1,34 @@
+### [2026-06-28 01:00] — [PostValidation] Move phase logic into services
+
+**Đã làm:**
+- Tạo package `backend/src/services/post_validation/` cho các phase sau validation: aggregation, artifact detection, paraphrase, và dataset split.
+- Đổi CLI và validation MCP provider thành adapter gọi service thay vì giữ business logic trong `src.cli`.
+- Đổi import prompt-refinement kappa sang public surface `src.services.post_validation`.
+- Đưa CSV/parquet tabular I/O chung vào `backend/src/utils/tabular_io.py`; service phase không còn sở hữu helper đọc bảng.
+- Rename helper đọc output dự đoán của model sang `model_predictions.py` để tránh lẫn với truth labels.
+- Bỏ config OpenAI không còn được backend dùng khỏi `app_config.py` và `.env.example`; giữ phase defaults cạnh service, không đưa vào app config/YAML.
+- Đổi hằng phase sang tên không có tiền tố `DEFAULT_` và dọn reference cũ `src.utils.validation_aggregation` / `src.utils.dataset_split`.
+
+**Files thay đổi:**
+- `backend/src/services/post_validation/` — created
+- `backend/src/cli.py`, `backend/src/providers/validation_provider.py` — modified
+- `backend/src/app_config.py`, `backend/.env.example` — modified
+- `backend/src/utils/tabular_io.py` — created
+- `backend/src/services/prompt_refinement/evaluator.py` — modified
+- `backend/src/utils/dataset_split.py`, `backend/src/utils/validation_aggregation/*` — deleted
+- `backend/tests/test_dataset_split.py`, `backend/tests/test_validation_aggregation.py` — modified
+- `docs/en/template/post-validation.md`, `docs/vi/template/post-validation.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Post-validation giờ có service boundary theo phase: `ValidationAggregationService` tạo vote/validated/review outputs, `ArtifactDetectionService` chạy PMI artifact detection, `ParaphraseService` apply/promote paraphrase, và `DatasetSplitService` ghi train/dev/test split. CLI command và MCP provider vẫn giữ public command/tool name hiện tại để tương thích, nhưng không còn sở hữu business logic. Config runtime/env chỉ còn MLflow trong `app_config`; các default như PMI threshold, split ratio, seed, group/label column sống cạnh service vì là behavior mặc định của phase.
+
+---
+
 ### [2026-06-27 23:23] — [Validation] Remove duplicate verification schema
 
 **Đã làm:**
@@ -228,32 +259,3 @@ Prompt-refinement template giờ giả định agent đã connect sẵn với `n
 
 **Flow explained:**
 Prompt-refinement backend giờ dừng ở một lần calibration kappa. `evaluate_prompt_refinement` log metrics/verdicts/prompt snapshots/`disagreement_rows.csv` vào MLflow và trả `needs_prompt_update` hoặc `accepted`; nó không tự tạo proposal artifact. Nếu `kappa < 0.85`, harness gọi `propose_prompt_refinement_update` với cùng `verdicts_dir`, `calibration_input`, và `generator_skill_name` để nhận `reason`, `suggested_action`, và `evidence_uids` rồi report cho user. User vẫn tự sửa skill thủ công nếu muốn; backend không lock, không version/promote prompt, không spawn editor agents, và không tự chạy calibration tiếp theo.
-
----
-
-### [2026-06-27 02:35] — [PromptRefinement] Remove backend evidence-pack helper
-
-**Đã làm:**
-- Xoá MCP tool `prepare_prompt_refinement_evidence_pack` khỏi validation provider.
-- Xoá `PromptRefinementService.prepare_evidence_pack(...)`, response schema tương ứng, và writer module `review_artifacts.py`.
-- Cập nhật prompt-refinement skill/template/docs để failed-round refine do harness tự inspect MLflow artifacts và tự loop round tiếp theo.
-- Cập nhật tests để assert evidence-pack helper không còn là backend-owned tool.
-
-**Files thay đổi:**
-- `backend/src/providers/validation_provider.py` — modified
-- `backend/src/services/prompt_refinement/service.py` — modified
-- `backend/src/schemas/prompt_refinement_schema.py` — modified
-- `backend/src/services/prompt_refinement/review_artifacts.py` — deleted
-- `backend/tests/test_prompt_refinement_service.py`, `backend/tests/test_validation_provider.py`, `backend/tests/test_skill_service.py` — modified
-- `backend/skills/instructor.md`, `backend/skills/prompt_refinement.md` — modified
-- `README.md`, `README.vi.md` — modified
-- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
-- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Prompt-refinement backend giờ chỉ đo một round, ghi MLflow artifacts, trả decision và hỗ trợ explicit lock. Khi `decision=refine_prompt`, harness đọc artifacts của MLflow run như `disagreement_rows.csv`, `prompt_bundle.json`, calibration manifest và verdict files để quyết định sửa prompt hoặc chạy round tiếp theo; backend không còn tạo local evidence pack, không spawn editor agents, và không giữ method thủ công cho refine loop.

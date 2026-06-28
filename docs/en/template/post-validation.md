@@ -50,8 +50,6 @@ Task:
        --flagged-rows output_dir/pmi_flagged_rows.csv
        --paraphrases output_dir/paraphrases.csv
        --output output_dir/paraphrased_dataset.csv
-       --uid-column source_uid
-       --text-column hypothesis
    - This creates output_dir/paraphrase_revalidation_masked.csv.
    - Dispatch exactly three independent validator subagents on
      output_dir/paraphrase_revalidation_masked.csv.

@@ -1,7 +1,7 @@
 from collections import Counter
 
 import pandas as pd
-from src.utils.validation_aggregation.model_labels import SOURCE_UID_COLUMN
+from src.services.post_validation.model_predictions import SOURCE_UID_COLUMN
 
 
 def attach_masked_text(
@@ -85,7 +85,7 @@ def build_review_dataset(
     """Build the manual-review queue from vote-table rows decided 'review' (agree==1).
 
     Joins masked premise/hypothesis text onto the review rows and keeps the full
-    vote context (per-model labels, expected_label, agree_count) so a human can
+    vote context (per-model predicted labels, expected_label, agree_count) so a human can
     see the disagreement. expected_label is NOT renamed to label — these rows are
     unverified and must not be published as-is.
     """

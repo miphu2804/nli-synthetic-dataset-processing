@@ -49,8 +49,6 @@ Task:
        --flagged-rows output_dir/pmi_flagged_rows.csv
        --paraphrases output_dir/paraphrases.csv
        --output output_dir/paraphrased_dataset.csv
-       --uid-column source_uid
-       --text-column hypothesis
    - Lệnh này tạo output_dir/paraphrase_revalidation_masked.csv.
    - Dispatch đúng ba validator subagents độc lập trên
      output_dir/paraphrase_revalidation_masked.csv.

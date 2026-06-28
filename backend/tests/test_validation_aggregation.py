@@ -4,10 +4,10 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
-from src.utils.nli_labels import to_label_name
-from src.utils.validation_aggregation import (
+from src.services.post_validation import (
     apply_paraphrases,
     attach_masked_text,
+    build_paraphrase_revalidation_queue,
     build_retained_dataset,
     build_review_dataset,
     build_validation_vote_table,
@@ -16,6 +16,7 @@ from src.utils.validation_aggregation import (
     flag_pmi_artifacts,
     promote_revalidated_paraphrases,
 )
+from src.utils.nli_labels import to_label_name
 
 
 class RequireCanonicalLabelTest(unittest.TestCase):
@@ -43,7 +44,7 @@ class RequireCanonicalLabelTest(unittest.TestCase):
 
 
 class InvalidLabelAggregationTest(unittest.TestCase):
-    def test_vote_table_rejects_invalid_model_label(self) -> None:
+    def test_vote_table_rejects_invalid_model_prediction(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             p1 = root / "model1.csv"
@@ -128,6 +129,26 @@ class AgreementPolicyTest(unittest.TestCase):
                 build_validation_vote_table(
                     paths, {"r1": "entailment"}, min_agreement=4
                 )
+
+    def test_vote_table_normalizes_expected_uid_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("m1", "m2"):
+                pd.DataFrame(
+                    [
+                        {
+                            "source_uid": 1,
+                            "predicted_label": "entailment",
+                            "reason": "ok",
+                        }
+                    ]
+                ).to_csv(root / f"{name}.csv", index=False)
+            paths = {name: root / f"{name}.csv" for name in ("m1", "m2")}
+
+            vote_table = build_validation_vote_table(paths, {1: "entailment"})
+
+            self.assertEqual(vote_table.loc[0, "decision"], "keep")
+            self.assertEqual(vote_table.loc[0, "expected_label"], "entailment")
 
 
 class UidCoverageTest(unittest.TestCase):
@@ -395,10 +416,12 @@ class FlagPmiArtifactsTest(unittest.TestCase):
 
 
 class ValidationAggregationTest(unittest.TestCase):
-    def test_build_validation_vote_table_merges_three_model_label_files(self) -> None:
+    def test_build_validation_vote_table_merges_three_model_prediction_files(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            model_paths = self._write_model_label_files(root)
+            model_paths = self._write_model_prediction_files(root)
 
             # row-1: all 3 predict 1, expected 1 -> 3 agree -> keep
             # row-2: predict 0,0,1, expected 2 -> 0 agree -> discard
@@ -739,6 +762,48 @@ class ValidationAggregationTest(unittest.TestCase):
         self.assertEqual(list(processed["hypothesis"]), ["h1", "h2-rewritten", "h3"])
         self.assertEqual(list(processed["label"]), [0, 1, 2])
 
+    def test_build_paraphrase_revalidation_queue_uses_changed_rows(self) -> None:
+        paraphrased = pd.DataFrame(
+            [
+                {
+                    "source_uid": "row-1",
+                    "premise": "p1",
+                    "hypothesis": "h1-rewritten",
+                    "label": 0,
+                },
+                {
+                    "source_uid": "row-2",
+                    "premise": "p2",
+                    "hypothesis": "h2",
+                    "label": 1,
+                },
+                {
+                    "source_uid": "row-3",
+                    "premise": "p3",
+                    "hypothesis": "h3-rewritten",
+                    "label": 2,
+                },
+            ]
+        )
+        paraphrases = pd.DataFrame(
+            [
+                {"source_uid": "row-3", "hypothesis": "h3-rewritten"},
+                {"source_uid": "row-1", "hypothesis": "h1-rewritten"},
+            ]
+        )
+
+        revalidation = build_paraphrase_revalidation_queue(paraphrased, paraphrases)
+
+        self.assertEqual(
+            list(revalidation.columns),
+            ["source_uid", "premise", "hypothesis", "label"],
+        )
+        self.assertEqual(list(revalidation["source_uid"]), ["row-1", "row-3"])
+        self.assertEqual(
+            list(revalidation["hypothesis"]), ["h1-rewritten", "h3-rewritten"]
+        )
+        self.assertEqual(list(revalidation["label"]), ["", ""])
+
     def test_apply_paraphrases_rejects_unknown_uid(self) -> None:
         dataset = pd.DataFrame([{"source_uid": "row-1", "hypothesis": "h1"}])
         flagged = pd.DataFrame([{"source_uid": "row-9", "artifact_tokens": "x"}])
@@ -933,7 +998,7 @@ class ValidationAggregationTest(unittest.TestCase):
         return paths
 
     @staticmethod
-    def _write_model_label_files(root: Path) -> dict[str, Path]:
+    def _write_model_prediction_files(root: Path) -> dict[str, Path]:
         model_rows = {
             "gpt4o": [
                 {"source_uid": "row-1", "predicted_label": 1, "reason": "ok"},

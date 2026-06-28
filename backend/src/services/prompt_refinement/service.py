@@ -68,7 +68,7 @@ class PromptRefinementService:
             decision=evaluation.decision,
             n_items=int(evaluation.kappa_result["n_items"]),
             n_raters=int(evaluation.kappa_result["n_raters"]),
-            models=sorted(evaluation.model_label_paths),
+            models=sorted(evaluation.model_prediction_paths),
             bundle_id=logged_run.bundle_id,
             mlflow_run_id=logged_run.run_id,
             rejected_sample_count=evaluation.rejected_sample_count,

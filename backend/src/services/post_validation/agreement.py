@@ -1,20 +1,20 @@
 from collections import Counter
 from pathlib import Path
 
+from src.services.post_validation.model_predictions import _merge_model_predictions
 from src.utils.nli_labels import LABEL_NAMES, to_label_name
-from src.utils.validation_aggregation.model_labels import _merge_model_labels
 
 
 def compute_fleiss_kappa(
-    model_label_paths: dict[str, str | Path],
+    model_prediction_paths: dict[str, str | Path],
     categories: list[str] | None = None,
 ) -> dict:
-    """Compute Fleiss' Kappa inter-model agreement across the models' label files.
+    """Compute Fleiss' Kappa inter-model agreement across model prediction files.
 
     Returns a dict with the kappa score, item/rater counts, the resolved categories, and per-category
     proportions. Raises if fewer than 2 models, no items, or labels fall outside the provided categories.
     """
-    merged, label_columns = _merge_model_labels(model_label_paths)
+    merged, label_columns = _merge_model_predictions(model_prediction_paths)
     n_raters = len(label_columns)
     n_items = len(merged)
     if n_raters < 2:

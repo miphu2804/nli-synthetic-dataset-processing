@@ -1,11 +1,22 @@
+import json
 import random
+import shutil
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from src.utils.tabular_io import read_tabular
 
 SPLIT_NAMES: tuple[str, str, str] = ("train", "dev", "test")
-SPLIT_STRATEGIES: tuple[str, str] = ("grouped-stratified", "grouped-shuffle")
+SPLIT_STRATEGY = "grouped-stratified"
+TRAIN_RATIO = 0.8
+DEV_RATIO = 0.1
+TEST_RATIO = 0.1
+SPLIT_SEED = 13
+GROUP_COLUMN = "premise"
+LABEL_COLUMN = "label"
 _MISSING_DOMAIN_VALUE = "__missing__"
 
 
@@ -13,6 +24,76 @@ _MISSING_DOMAIN_VALUE = "__missing__"
 class GroupedSplitResult:
     splits: dict[str, pd.DataFrame]
     manifest: dict[str, Any]
+
+
+class DatasetSplitService:
+    def split(
+        self,
+        input_path,
+        output_dir,
+        group_column: str,
+        label_column: str,
+        domain_column: str | None,
+        train_ratio: float,
+        dev_ratio: float,
+        test_ratio: float,
+        seed: int,
+    ) -> dict:
+        input_path = Path(input_path)
+        output_dir = Path(output_dir)
+        dataframe = read_tabular(input_path)
+        result = split_dataset_by_group(
+            dataframe,
+            group_column=group_column,
+            label_column=label_column,
+            domain_column=domain_column,
+            train_ratio=train_ratio,
+            dev_ratio=dev_ratio,
+            test_ratio=test_ratio,
+            seed=seed,
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_paths = {
+            "train": output_dir / "train.csv",
+            "dev": output_dir / "dev.csv",
+            "test": output_dir / "test.csv",
+            "manifest": output_dir / "split_manifest.json",
+        }
+        with tempfile.TemporaryDirectory(dir=output_dir) as staging_dir:
+            staging = Path(staging_dir)
+            for split_name in SPLIT_NAMES:
+                result.splits[split_name].to_csv(
+                    staging / f"{split_name}.csv",
+                    index=False,
+                )
+            (staging / "split_manifest.json").write_text(
+                json.dumps(
+                    result.manifest, ensure_ascii=False, indent=2, sort_keys=True
+                )
+                + "\n"
+            )
+            for split_name in SPLIT_NAMES:
+                shutil.move(
+                    str(staging / f"{split_name}.csv"), output_paths[split_name]
+                )
+            shutil.move(
+                str(staging / "split_manifest.json"),
+                output_paths["manifest"],
+            )
+
+        return {
+            "train_output": output_paths["train"],
+            "dev_output": output_paths["dev"],
+            "test_output": output_paths["test"],
+            "manifest_output": output_paths["manifest"],
+            "total_rows": result.manifest["total_rows"],
+            "total_groups": result.manifest["total_groups"],
+            "strategy": result.manifest["strategy"],
+            "domain_status": result.manifest["domain"]["status"],
+            "train_rows": result.manifest["splits"]["train"]["rows"],
+            "dev_rows": result.manifest["splits"]["dev"]["rows"],
+            "test_rows": result.manifest["splits"]["test"]["rows"],
+        }
 
 
 @dataclass(frozen=True)
@@ -43,13 +124,12 @@ class _DomainConfig:
 def split_dataset_by_group(
     dataframe: pd.DataFrame,
     *,
-    group_column: str = "premise",
-    label_column: str = "label",
-    train_ratio: float = 0.8,
-    dev_ratio: float = 0.1,
-    test_ratio: float = 0.1,
-    seed: int = 13,
-    strategy: str = "grouped-stratified",
+    group_column: str = GROUP_COLUMN,
+    label_column: str = LABEL_COLUMN,
+    train_ratio: float = TRAIN_RATIO,
+    dev_ratio: float = DEV_RATIO,
+    test_ratio: float = TEST_RATIO,
+    seed: int = SPLIT_SEED,
     domain_column: str | None = None,
 ) -> GroupedSplitResult:
     ratios = {
@@ -57,9 +137,9 @@ def split_dataset_by_group(
         "dev": dev_ratio,
         "test": test_ratio,
     }
-    _validate_split_input(dataframe, group_column, label_column, ratios, strategy)
+    _validate_split_input(dataframe, group_column, label_column, ratios)
 
-    domain_config = _build_domain_config(dataframe, domain_column, strategy)
+    domain_config = _build_domain_config(dataframe, domain_column)
     groups = _build_groups(
         dataframe,
         group_column=group_column,
@@ -74,7 +154,6 @@ def split_dataset_by_group(
         shuffled_groups,
         total_rows=len(dataframe),
         ratios=ratios,
-        strategy=strategy,
         label_distribution=label_distribution,
         domain_distribution=domain_config.distribution,
     )
@@ -92,7 +171,6 @@ def split_dataset_by_group(
         label_column=label_column,
         ratios=ratios,
         seed=seed,
-        strategy=strategy,
         domain_config=domain_config,
     )
     return GroupedSplitResult(splits=splits, manifest=manifest)
@@ -103,7 +181,15 @@ def _validate_split_input(
     group_column: str,
     label_column: str,
     ratios: dict[str, float],
-    strategy: str,
+) -> None:
+    _validate_required_split_columns(dataframe, group_column, label_column)
+    _validate_split_ratios(ratios)
+
+
+def _validate_required_split_columns(
+    dataframe: pd.DataFrame,
+    group_column: str,
+    label_column: str,
 ) -> None:
     if dataframe.empty:
         raise ValueError("Input dataset is empty.")
@@ -120,6 +206,9 @@ def _validate_split_input(
         raise ValueError(f"Dataset contains null {group_column} values.")
     if dataframe[label_column].isnull().any():
         raise ValueError(f"Dataset contains null {label_column} values.")
+
+
+def _validate_split_ratios(ratios: dict[str, float]) -> None:
     if ratios["train"] <= 0:
         raise ValueError("train_ratio must be greater than 0.")
     if any(ratio < 0 for ratio in ratios.values()):
@@ -127,17 +216,11 @@ def _validate_split_input(
     ratio_sum = sum(ratios.values())
     if abs(ratio_sum - 1.0) > 1e-9:
         raise ValueError("Split ratios must sum to 1.0.")
-    if strategy not in SPLIT_STRATEGIES:
-        raise ValueError(
-            f"Unsupported split strategy: {strategy}. "
-            f"Expected one of: {', '.join(SPLIT_STRATEGIES)}"
-        )
 
 
 def _build_domain_config(
     dataframe: pd.DataFrame,
     domain_column: str | None,
-    strategy: str,
 ) -> _DomainConfig:
     if not domain_column:
         return _DomainConfig(
@@ -165,17 +248,6 @@ def _build_domain_config(
             distribution={},
             values=None,
         )
-    if strategy != "grouped-stratified":
-        return _DomainConfig(
-            requested_column=domain_column,
-            active_column=None,
-            status="disabled_by_strategy",
-            distribution=_value_distribution(
-                normalized.fillna(_MISSING_DOMAIN_VALUE).astype(str)
-            ),
-            values=None,
-        )
-
     values = normalized.fillna(_MISSING_DOMAIN_VALUE).astype(str)
     return _DomainConfig(
         requested_column=domain_column,
@@ -227,118 +299,48 @@ def _assign_groups(
     *,
     total_rows: int,
     ratios: dict[str, float],
-    strategy: str,
-    label_distribution: dict[str, int],
-    domain_distribution: dict[str, int],
-) -> dict[str, list[_Group]]:
-    if strategy == "grouped-shuffle":
-        return _assign_groups_by_row_target(groups, total_rows, ratios)
-    return _assign_groups_grouped_stratified(
-        groups,
-        total_rows=total_rows,
-        ratios=ratios,
-        label_distribution=label_distribution,
-        domain_distribution=domain_distribution,
-    )
-
-
-def _assign_groups_by_row_target(
-    groups: list[_Group],
-    total_rows: int,
-    ratios: dict[str, float],
-) -> dict[str, list[_Group]]:
-    split_order = {name: index for index, name in enumerate(SPLIT_NAMES)}
-    active_splits = [name for name in SPLIT_NAMES if ratios[name] > 0]
-    targets = {name: total_rows * ratios[name] for name in SPLIT_NAMES}
-    assignments: dict[str, list[_Group]] = {name: [] for name in SPLIT_NAMES}
-    row_counts = {name: 0 for name in SPLIT_NAMES}
-
-    for group in groups:
-        split_name = max(
-            active_splits,
-            key=lambda name: (
-                targets[name] - row_counts[name],
-                -split_order[name],
-            ),
-        )
-        assignments[split_name].append(group)
-        row_counts[split_name] += group.size
-
-    _backfill_empty_splits(
-        assignments=assignments,
-        row_counts=row_counts,
-        targets=targets,
-        active_splits=active_splits,
-    )
-    return assignments
-
-
-def _assign_groups_grouped_stratified(
-    groups: list[_Group],
-    *,
-    total_rows: int,
-    ratios: dict[str, float],
     label_distribution: dict[str, int],
     domain_distribution: dict[str, int],
 ) -> dict[str, list[_Group]]:
     split_order = {name: index for index, name in enumerate(SPLIT_NAMES)}
-    active_splits = [name for name in SPLIT_NAMES if ratios[name] > 0]
+    active_splits = _active_split_names(ratios)
     row_targets = {name: total_rows * ratios[name] for name in SPLIT_NAMES}
     label_targets = _scaled_targets(label_distribution, ratios)
     domain_targets = _scaled_targets(domain_distribution, ratios)
     assignments: dict[str, list[_Group]] = {name: [] for name in SPLIT_NAMES}
     row_counts = {name: 0 for name in SPLIT_NAMES}
-    split_label_counts = {
-        split_name: {label: 0 for label in label_distribution}
-        for split_name in SPLIT_NAMES
-    }
-    split_domain_counts = {
-        split_name: {domain: 0 for domain in domain_distribution}
-        for split_name in SPLIT_NAMES
-    }
+    split_label_counts = _empty_split_counts(label_distribution)
+    split_domain_counts = _empty_split_counts(domain_distribution)
 
-    ordered_groups = sorted(
-        enumerate(groups),
-        key=lambda item: (
-            -item[1].size,
-            -_group_rarity_score(
-                item[1],
-                label_distribution=label_distribution,
-                domain_distribution=domain_distribution,
-            ),
-            item[0],
-        ),
-    )
     assigned_rows = 0
-    for _, group in ordered_groups:
-        split_name = min(
-            active_splits,
-            key=lambda name: (
-                _row_priority_key(
-                    split_name=name,
-                    group=group,
-                    row_counts=row_counts,
-                    row_targets=row_targets,
-                    assigned_rows=assigned_rows,
-                    total_rows=total_rows,
-                ),
-                _distribution_priority_key(
-                    split_name=name,
-                    group=group,
-                    split_label_counts=split_label_counts,
-                    label_targets=label_targets,
-                    label_distribution=label_distribution,
-                    split_domain_counts=split_domain_counts,
-                    domain_targets=domain_targets,
-                    domain_distribution=domain_distribution,
-                ),
-                split_order[name],
-            ),
+    for _, group in _ordered_groups(
+        groups,
+        label_distribution=label_distribution,
+        domain_distribution=domain_distribution,
+    ):
+        split_name = _select_split_for_group(
+            group=group,
+            active_splits=active_splits,
+            split_order=split_order,
+            row_counts=row_counts,
+            row_targets=row_targets,
+            assigned_rows=assigned_rows,
+            total_rows=total_rows,
+            split_label_counts=split_label_counts,
+            label_targets=label_targets,
+            label_distribution=label_distribution,
+            split_domain_counts=split_domain_counts,
+            domain_targets=domain_targets,
+            domain_distribution=domain_distribution,
         )
-        assignments[split_name].append(group)
-        row_counts[split_name] += group.size
-        _apply_counts(split_label_counts[split_name], group.label_counts, direction=1)
-        _apply_counts(split_domain_counts[split_name], group.domain_counts, direction=1)
+        _add_group_to_split(
+            group=group,
+            split_name=split_name,
+            assignments=assignments,
+            row_counts=row_counts,
+            split_label_counts=split_label_counts,
+            split_domain_counts=split_domain_counts,
+        )
         assigned_rows += group.size
 
     _backfill_empty_splits(
@@ -350,6 +352,93 @@ def _assign_groups_grouped_stratified(
         split_domain_counts=split_domain_counts,
     )
     return assignments
+
+
+def _active_split_names(ratios: dict[str, float]) -> list[str]:
+    return [name for name in SPLIT_NAMES if ratios[name] > 0]
+
+
+def _empty_split_counts(distribution: dict[str, int]) -> dict[str, dict[str, int]]:
+    return {
+        split_name: {value: 0 for value in distribution} for split_name in SPLIT_NAMES
+    }
+
+
+def _ordered_groups(
+    groups: list[_Group],
+    *,
+    label_distribution: dict[str, int],
+    domain_distribution: dict[str, int],
+) -> list[tuple[int, _Group]]:
+    return sorted(
+        enumerate(groups),
+        key=lambda item: (
+            -item[1].size,
+            -_group_rarity_score(
+                item[1],
+                label_distribution=label_distribution,
+                domain_distribution=domain_distribution,
+            ),
+            item[0],
+        ),
+    )
+
+
+def _select_split_for_group(
+    *,
+    group: _Group,
+    active_splits: list[str],
+    split_order: dict[str, int],
+    row_counts: dict[str, int],
+    row_targets: dict[str, float],
+    assigned_rows: int,
+    total_rows: int,
+    split_label_counts: dict[str, dict[str, int]],
+    label_targets: dict[str, dict[str, float]],
+    label_distribution: dict[str, int],
+    split_domain_counts: dict[str, dict[str, int]],
+    domain_targets: dict[str, dict[str, float]],
+    domain_distribution: dict[str, int],
+) -> str:
+    return min(
+        active_splits,
+        key=lambda name: (
+            _row_priority_key(
+                split_name=name,
+                group=group,
+                row_counts=row_counts,
+                row_targets=row_targets,
+                assigned_rows=assigned_rows,
+                total_rows=total_rows,
+            ),
+            _distribution_priority_key(
+                split_name=name,
+                group=group,
+                split_label_counts=split_label_counts,
+                label_targets=label_targets,
+                label_distribution=label_distribution,
+                split_domain_counts=split_domain_counts,
+                domain_targets=domain_targets,
+                domain_distribution=domain_distribution,
+            ),
+            split_order[name],
+        ),
+    )
+
+
+def _add_group_to_split(
+    *,
+    group: _Group,
+    split_name: str,
+    assignments: dict[str, list[_Group]],
+    row_counts: dict[str, int],
+    split_label_counts: dict[str, dict[str, int]],
+    split_domain_counts: dict[str, dict[str, int]],
+) -> None:
+    assignments[split_name].append(group)
+    row_counts[split_name] += group.size
+    _apply_counts(split_label_counts[split_name], group.label_counts, direction=1)
+    _apply_counts(split_domain_counts[split_name], group.domain_counts, direction=1)
 
 
 def _scaled_targets(
@@ -533,11 +622,10 @@ def _build_manifest(
     label_column: str,
     ratios: dict[str, float],
     seed: int,
-    strategy: str,
     domain_config: _DomainConfig,
 ) -> dict[str, Any]:
     manifest = {
-        "strategy": strategy,
+        "strategy": SPLIT_STRATEGY,
         "seed": seed,
         "group_column": group_column,
         "label_column": label_column,

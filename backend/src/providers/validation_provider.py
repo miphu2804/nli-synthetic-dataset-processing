@@ -5,16 +5,20 @@ from fastmcp import FastMCP
 from fastmcp.tools import tool
 from pydantic import Field
 from src.app_config import app_config
-from src.cli import (
-    build_verdict_candidates,
-    default_consensus_output_dir,
-    discover_verdict_files,
-)
-from src.cli import run_consensus_pmi as run_consensus_pmi_stage
-from src.cli import run_promote_paraphrase as run_promote_paraphrase_stage
 from src.providers.base import ToolProvider
 from src.services.base_run_service import DEFAULT_BATCH_SIZE
 from src.services.dataset_reader_service import DatasetReaderService
+from src.services.post_validation import (
+    MIN_JOINT_COUNT,
+    PMI_THRESHOLD,
+    ArtifactDetectionService,
+    ParaphraseService,
+    ValidationAggregationService,
+    build_verdict_candidates,
+    default_consensus_output_dir,
+    discover_verdict_files,
+    load_expected_labels,
+)
 from src.services.progress_tracking_service import ProgressTrackingService
 from src.services.prompt_refinement import PromptRefinementService
 from src.services.validation_run_service import ValidationRunService
@@ -28,6 +32,9 @@ class ValidationToolProvider(ToolProvider):
     ) -> None:
         self._validation_run_service = validation_run_service
         self._prompt_refinement_service = prompt_refinement_service
+        self._validation_aggregation_service = ValidationAggregationService()
+        self._artifact_detection_service = ArtifactDetectionService()
+        self._paraphrase_service = ParaphraseService()
 
     @tool(
         name="start_validation_run",
@@ -296,11 +303,11 @@ class ValidationToolProvider(ToolProvider):
         pmi_threshold: Annotated[
             float,
             Field(description="Minimum PMI for a token-label artifact. Default: 1.0."),
-        ] = 1.0,
+        ] = PMI_THRESHOLD,
         min_joint_count: Annotated[
             int,
             Field(ge=1, description="Minimum joint token-label count. Default: 3."),
-        ] = 3,
+        ] = MIN_JOINT_COUNT,
     ) -> dict[str, Any]:
         verdicts_path = Path(verdicts_dir).expanduser()
         masked_input_path = Path(masked_input).expanduser()
@@ -312,17 +319,34 @@ class ValidationToolProvider(ToolProvider):
         )
         valid_candidates = self._load_valid_verdict_candidates(verdicts_path)
         resolved_output_dir.mkdir(parents=True, exist_ok=True)
-        result = run_consensus_pmi_stage(
+        expected_labels = load_expected_labels(
+            expected_input_path,
+            uid_column,
+            label_column,
+        )
+        aggregate_result = self._validation_aggregation_service.aggregate(
             valid_candidates=valid_candidates,
             masked_dataset_path=masked_input_path,
-            expected_input_path=expected_input_path,
             output_dir=resolved_output_dir,
-            uid_column=uid_column,
-            label_column=label_column,
+            expected_labels=expected_labels,
+        )
+        pmi_result = self._artifact_detection_service.detect(
+            input_path=aggregate_result["validated_output"],
+            output_dir=resolved_output_dir,
+            label_column="label",
             text_column=text_column,
+            uid_column=uid_column,
             pmi_threshold=pmi_threshold,
             min_joint_count=min_joint_count,
         )
+        result = {
+            **aggregate_result,
+            "pmi_tokens_output": pmi_result["tokens_output"],
+            "pmi_rows_output": pmi_result["rows_output"],
+            "pmi_total_rows": pmi_result["total_rows"],
+            "artifact_tokens": pmi_result["artifact_tokens"],
+            "flagged_rows": pmi_result["flagged_rows"],
+        }
         return self._jsonable_paths(result)
 
     @tool(
@@ -407,7 +431,7 @@ class ValidationToolProvider(ToolProvider):
         valid_candidates = self._load_valid_verdict_candidates(
             Path(verdicts_dir).expanduser()
         )
-        result = run_promote_paraphrase_stage(
+        result = self._paraphrase_service.promote(
             input_path=input,
             revalidation_input_path=Path(revalidation_input).expanduser(),
             verdict_candidates=valid_candidates,
