@@ -21,7 +21,7 @@ data/*
 !data/generated/**
 backend/data/*
 !backend/data/generated/
-!backend/data/generated/**
+backend/data/generated/**
 .codegraph/
 
 # Harness
