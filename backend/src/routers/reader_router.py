@@ -1,12 +1,18 @@
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from src.schemas import DatasetListResponse, DatasetReadRequest, DatasetReadResponse
+from src.schemas import (
+    DatasetConversionRequest,
+    DatasetConversionResponse,
+    DatasetListResponse,
+    DatasetReadRequest,
+    DatasetReadResponse,
+)
 from src.schemas.dataset_reader_schema import FileInfo
-from src.services import DatasetReaderService
+from src.services import DataProcessingService
 
 reader_router = APIRouter(prefix="/api/datasets", tags=["reader"])
-dataset_reader_service = DatasetReaderService()
+data_processing_service = DataProcessingService()
 
 SUPPORTED_EXTENSIONS = {".csv", ".parquet"}
 
@@ -45,10 +51,27 @@ async def list_datasets() -> DatasetListResponse:
 @reader_router.post("/read", response_model=DatasetReadResponse)
 async def read_dataset(request: DatasetReadRequest) -> DatasetReadResponse:
     try:
-        return dataset_reader_service.read_dataset(
+        return data_processing_service.read_dataset(
             path=request.path,
             batch_size=request.batch_size,
             batch_offset=request.batch_offset,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@reader_router.post("/convert-to-csv", response_model=DatasetConversionResponse)
+async def convert_to_csv(
+    request: DatasetConversionRequest,
+) -> DatasetConversionResponse:
+    try:
+        return data_processing_service.convert_to_csv(
+            input_path=request.input_path,
+            output_path=request.output_path,
+            sheet_name=request.sheet_name,
+            sep=request.sep,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

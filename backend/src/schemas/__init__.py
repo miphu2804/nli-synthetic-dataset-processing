@@ -1,3 +1,7 @@
+from src.schemas.dataset_conversion_schema import (
+    DatasetConversionRequest,
+    DatasetConversionResponse,
+)
 from src.schemas.dataset_reader_schema import (
     DatasetListResponse,
     DatasetReadRequest,
@@ -49,6 +53,8 @@ from src.schemas.validation_runtime_schema import (
 
 __all__ = [
     "BrowseDriveFilesResponse",
+    "DatasetConversionRequest",
+    "DatasetConversionResponse",
     "DatasetListResponse",
     "DatasetReadRequest",
     "DatasetReadResponse",

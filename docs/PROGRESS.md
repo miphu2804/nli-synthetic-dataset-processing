@@ -1,3 +1,59 @@
+### [2026-06-29 10:11] — [DataProcessing] Merge dataset IO service
+
+**Đã làm:**
+- Tạo `DataProcessingService` làm boundary duy nhất cho tabular file IO: read CSV/parquet window, write CSV/parquet rows, và convert common tabular inputs về CSV.
+- Thêm schema/route `/api/datasets/convert-to-csv` cho `.csv`, `.tsv`, `.parquet`, `.xlsx`, `.xls`, `.jsonl`, và flat JSON record arrays.
+- Đổi generation, validation, providers, routers, và tests sang dependency `DataProcessingService`.
+- Xoá service split cũ `DatasetReaderService` / `DatasetWriterService`.
+- Cập nhật README/project overview để nói rõ downstream stages vẫn dùng explicit CSV paths và conversion không random sampling, label cleanup, hay hidden runtime cleanup.
+
+**Files thay đổi:**
+- `backend/src/services/data_processing_service.py` — created
+- `backend/src/services/dataset_reader_service.py`, `backend/src/services/dataset_writer_service.py` — deleted
+- `backend/src/schemas/dataset_conversion_schema.py`, `backend/src/schemas/__init__.py` — created/modified
+- `backend/src/services/base_run_service.py`, `backend/src/services/generation_run_service.py`, `backend/src/services/validation_run_service.py` — modified
+- `backend/src/providers/generation_provider.py`, `backend/src/providers/validation_provider.py` — modified
+- `backend/src/routers/reader_router.py`, `backend/src/routers/writer_router.py` — modified
+- `backend/tests/test_dataset_io.py`, `backend/tests/test_generation_run_service.py`, `backend/tests/test_validation_run_service.py` — modified
+- `README.md`, `README.vi.md`, `docs/en/project-overview.md`, `docs/vi/project-overview.md`, `docs/PROGRESS.md` — modified
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Data processing giờ là boundary file-level duy nhất. Generation/validation runtime vẫn gọi `read_dataset(...)` và `read_dataframe(...)` trên CSV/parquet paths, còn conversion sang CSV là bước rõ ràng qua API trước khi đưa file vào downstream stages. Service không chứa generation/validation policy, sampling policy, label normalization, PMI, split, hay cleanup ngoài việc ghi output CSV/parquet được yêu cầu.
+
+---
+
+### [2026-06-28 14:10] — [Validation] Finalize ANLI 1-1000 blind verdict artifacts
+
+**Đã làm:**
+- Verify `backend/data/generated/anli1-1000-from-sample-1.csv` parse được với 1000 rows rồi chuẩn hóa header CSV để runtime validation đọc đúng `source_uid,premise,hypothesis,label`.
+- Tạo masked input `backend/data/generated/anli1-1000-from-sample-1_validation_masked.csv` với label rỗng cho validator-facing flow.
+- Hoàn tất 3 validation runs `validation-20260628111418-27d77d7b`, `validation-20260628111418-6d50aaf0`, `validation-20260628111418-f7b97e02` và finalize thành `validation_results.csv` dưới `backend/data/validated/anli1-1000-from-sample-1/validator_{a,b,c}_medium/`.
+- Reduce 3 finalized outputs về `backend/data/validated/anli1-1000-from-sample-1/verdicts/{validator_a_medium,validator_b_medium,validator_c_medium}.csv` với đúng schema `source_uid,predicted_label,reason`.
+- Chạy integrity gate giữa generated input, masked input, và 3 verdict files; kết quả pass với 1000 rows/file, không duplicate `source_uid`, không blank reason, và chỉ có label canonical.
+
+**Files thay đổi:**
+- `backend/data/generated/anli1-1000-from-sample-1.csv` — created/normalized
+- `backend/data/generated/anli1-1000-from-sample-1.pre-normalize.csv` — created
+- `backend/data/generated/anli1-1000-from-sample-1_validation_masked.csv` — created
+- `backend/data/validated/anli1-1000-from-sample-1/validator_a_medium/validation_results.csv` — created
+- `backend/data/validated/anli1-1000-from-sample-1/validator_b_medium/validation_results.csv` — created
+- `backend/data/validated/anli1-1000-from-sample-1/validator_c_medium/validation_results.csv` — created
+- `backend/data/validated/anli1-1000-from-sample-1/verdicts/` — created
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** Exact provenance audit for “all 1000 rows came from the same 3 Codex subagents end-to-end” would require a fresh rerun from scratch; this completion resumed existing mixed-worker run state and finished the remaining claims cleanly.
+
+**Còn lại:** None for the current verdict artifacts and integrity handoff.
+
+**Flow explained:**
+Runtime validation vẫn dùng generated input có label làm source of truth và chỉ phát masked rows cho validator-facing work. Run state được resume từ `.pipeline/runs/*` + `data/batches/*`, submit nốt các claim còn active, finalize từng run thành `validation_results.csv`, rồi reduce xuống 3 verdict CSV phục vụ post-validation. Integrity gate phải so theo tập `source_uid` thực có trong generated/masked inputs, không giả định UID liên tiếp 1..1000 vì file này có 1000 rows nhưng UID kéo tới 1003.
+
+---
+
 ### [2026-06-28 01:00] — [PostValidation] Move phase logic into services
 
 **Đã làm:**
@@ -200,62 +256,3 @@ Plan này giữ public MCP tool surface ổn định: gen/val provider methods l
 Smoke run này dùng đúng template connected-agent hiện tại: main agent giữ calibration source có label, chỉ phát masked rows cho validators, kiểm schema rồi mới persist verdicts và gọi MCP evaluation. Vì `kappa` vượt ngưỡng 0.85 nên flow dừng ở `accepted`; không gọi `propose_prompt_refinement_update`, không sửa prompt, không lock/version/promote gì thêm.
 
 ---
-
-### [2026-06-27 17:15] — [PromptRefinement] Align docs with connected-agent flow
-
-**Đã làm:**
-- Bỏ hướng dẫn MLflow URL/port/startup khỏi README prompt-refinement section và prompt-refinement templates.
-- Cập nhật template EN/VI để agent chỉ tập trung load skills, tạo calibration dataset, dispatch ba validator độc lập, ghi verdicts, rồi gọi `evaluate_prompt_refinement` và `propose_prompt_refinement_update` khi cần.
-- Cập nhật skill/validator flow docs để nói rõ connected `nli-tools` runtime sở hữu tool execution và calibration logging.
-- Thêm regression guard để prompt-refinement templates không quay lại `tracking_uri`, `experiment_name`, local URL, hoặc server-start commands.
-
-**Files thay đổi:**
-- `README.md`, `README.vi.md` — modified
-- `backend/skills/instructor.md`, `backend/skills/prompt_refinement.md` — modified
-- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
-- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md` — modified
-- `backend/tests/test_skill_service.py` — modified
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Prompt-refinement template giờ giả định agent đã connect sẵn với `nli-tools` và thấy skill/tool surface. Template không còn yêu cầu agent truyền MLflow tracking config hoặc đọc hướng dẫn service startup; phần cần làm chỉ còn chuẩn bị fixed calibration rows, giữ validators blind, persist đúng ba verdict files, chạy `evaluate_prompt_refinement`, và gọi `propose_prompt_refinement_update` khi `needs_prompt_update`.
-
----
-
-### [2026-06-27 13:06] — [PromptRefinement] Switch to single-run proposal tool
-
-**Đã làm:**
-- Đổi proposal boundary từ auto artifact trong `evaluate_prompt_refinement` sang MCP tool riêng `propose_prompt_refinement_update` để harness chủ động lấy proposal cho user sau khi calibration kết thúc.
-- Rename strategy nội bộ thành `PromptRefinementStrategy.propose(...)`; bỏ naming `PromptAugmentStrategy` khỏi service code.
-- `evaluate_prompt_refinement` giờ chỉ evaluate/log một calibration và trả kappa/decision/MLflow run; không còn `round_number` hoặc `change_summary`.
-- Đổi field đếm disagreement sang `rejected_sample_count` trong response schema, MLflow metric, tests, và docs để nói rõ đây là số sample không chấp nhận.
-- Giữ behavior single-run: backend không register prompt versions, không promote aliases, không lock prompts, không spawn editor agents, và không tự rerun.
-- Cập nhật README, skill, provider schema, validator flow docs, templates, và tests theo handoff proposal-tool.
-
-**Files thay đổi:**
-- `backend/src/services/prompt_refinement/refinement_strategy.py` — created/renamed from augment strategy
-- `backend/src/services/prompt_refinement/augment_strategy.py` — deleted
-- `backend/src/services/prompt_refinement/models.py` — modified
-- `backend/src/services/prompt_refinement/service.py` — modified
-- `backend/src/services/prompt_refinement/mlflow_store.py` — modified
-- `backend/src/services/prompt_refinement/evaluator.py` — modified
-- `backend/src/schemas/prompt_refinement_schema.py` — modified
-- `backend/src/providers/validation_provider.py` — modified
-- `backend/src/cli.py` — modified
-- `backend/skills/prompt_refinement.md` — modified
-- `backend/skills/instructor.md` — modified
-- `README.md`, `README.vi.md` — modified
-- `backend/tests/test_prompt_refinement_service.py`, `backend/tests/test_validation_provider.py`, `backend/tests/test_skill_service.py` — modified
-- `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
-- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md` — modified
-- `docs/en/template/prompt-refinement-editor-*.md`, `docs/vi/template/prompt-refinement-editor-*.md` — deleted
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Prompt-refinement backend giờ dừng ở một lần calibration kappa. `evaluate_prompt_refinement` log metrics/verdicts/prompt snapshots/`disagreement_rows.csv` vào MLflow và trả `needs_prompt_update` hoặc `accepted`; nó không tự tạo proposal artifact. Nếu `kappa < 0.85`, harness gọi `propose_prompt_refinement_update` với cùng `verdicts_dir`, `calibration_input`, và `generator_skill_name` để nhận `reason`, `suggested_action`, và `evidence_uids` rồi report cho user. User vẫn tự sửa skill thủ công nếu muốn; backend không lock, không version/promote prompt, không spawn editor agents, và không tự chạy calibration tiếp theo.

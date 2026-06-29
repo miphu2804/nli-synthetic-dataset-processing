@@ -5,8 +5,7 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
-from src.services.dataset_reader_service import DatasetReaderService
-from src.services.dataset_writer_service import DatasetWriterService
+from src.services.data_processing_service import DataProcessingService
 from src.services.generation_run_service import GenerationRunService
 from src.services.progress_tracking_service import ProgressTrackingService
 
@@ -27,8 +26,7 @@ class GenerationRunServiceTest(unittest.TestCase):
         )
         dataframe.to_csv(self.input_path, index=False)
         self.service = GenerationRunService(
-            dataset_reader_service=DatasetReaderService(),
-            dataset_writer_service=DatasetWriterService(),
+            data_processing_service=DataProcessingService(),
             progress_tracking_service=ProgressTrackingService(self.pipeline_dir),
         )
 

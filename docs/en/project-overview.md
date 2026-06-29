@@ -47,6 +47,14 @@ nli-data-processing-mcp-server
 | Subagent | Transforms already-claimed generation rows and returns JSON only |
 | MCP runtime | Claims batches, writes progress, writes batch CSVs, merges, verifies, and cleans up |
 
+## Dataset Boundary
+
+`DataProcessingService` owns file-level tabular IO: CSV/parquet reads for active
+runtime paths, CSV/parquet writes for row payloads, and conversion of `.csv`,
+`.tsv`, `.parquet`, `.xlsx`, `.xls`, `.jsonl`, and flat JSON record arrays to
+canonical CSV. It does not own generation, validation, post-validation, random
+sampling, label normalization, or hidden cleanup policy.
+
 ## Sample Ranges
 
 Public MCP start tools use one-based inclusive sample ranges:

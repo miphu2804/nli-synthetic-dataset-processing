@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
-from src.services.dataset_reader_service import DatasetReaderService
+from src.services.data_processing_service import DataProcessingService
 from src.services.progress_tracking_service import ProgressTrackingService
 from src.services.validation_run_service import ValidationRunService
 
@@ -23,7 +23,7 @@ class ValidationRunServiceTest(unittest.TestCase):
             ]
         ).to_csv(self.input_path, index=False)
         self.service = ValidationRunService(
-            dataset_reader_service=DatasetReaderService(),
+            data_processing_service=DataProcessingService(),
             progress_tracking_service=ProgressTrackingService(self.pipeline_dir),
         )
 

@@ -16,8 +16,7 @@ from src.schemas.generation_runtime_schema import (
     SubmitBatchResultResponse,
 )
 from src.services.base_run_service import DEFAULT_BATCH_SIZE, BaseRunService
-from src.services.dataset_reader_service import DatasetReaderService
-from src.services.dataset_writer_service import DatasetWriterService
+from src.services.data_processing_service import DataProcessingService
 from src.services.progress_tracking_service import ProgressTrackingService
 
 FINAL_ROW_COUNT_ERROR = (
@@ -36,13 +35,12 @@ class GenerationRunService(BaseRunService):
 
     def __init__(
         self,
-        dataset_reader_service: DatasetReaderService,
-        dataset_writer_service: DatasetWriterService,
+        data_processing_service: DataProcessingService,
         progress_tracking_service: ProgressTrackingService,
     ) -> None:
-        """Wire the dataset reader, writer, and progress tracker."""
-        super().__init__(dataset_reader_service, progress_tracking_service)
-        self._dataset_writer_service = dataset_writer_service
+        """Wire tabular data IO and progress tracking dependencies."""
+        super().__init__(data_processing_service, progress_tracking_service)
+        self._data_processing_service = data_processing_service
 
     def start_generation_run(
         self,
@@ -289,7 +287,7 @@ class GenerationRunService(BaseRunService):
         output_path = (
             self._progress_tracking_service.get_outputs_dir(run_id) / f"{batch_id}.csv"
         )
-        self._dataset_writer_service.write_dataset(
+        self._data_processing_service.write_dataset(
             DatasetWriteRequest(
                 rows=[row.model_dump(mode="json") for row in normalized_rows],
                 output=DatasetOutputConfig(path=str(output_path)),

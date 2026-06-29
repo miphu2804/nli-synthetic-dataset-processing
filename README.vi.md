@@ -24,6 +24,15 @@ npm run dev
 
 MCP endpoint: `http://localhost:8000/mcp/`.
 
+## Boundary dataset
+
+Boundary dataset nhận các input tabular phổ biến và convert về CSV canonical
+trước khi đưa vào các phase sau. Dùng `/api/datasets/convert-to-csv` cho
+`.csv`, `.tsv`, `.parquet`, `.xlsx`, `.xls`, `.jsonl`, hoặc JSON array record
+phẳng. Generation, validation, và post-validation vẫn chạy trên path CSV rõ
+ràng. Conversion không random sampling, không normalize label, không cleanup dữ
+liệu, và không cleanup runtime artifact.
+
 ## Prompt refinement tùy chọn
 
 Chạy trước large-scale generation khi generator policy hoặc validator rubric

@@ -17,7 +17,7 @@ from src.schemas.validation_runtime_schema import (
     ValidatorVerdict,
 )
 from src.services.base_run_service import DEFAULT_BATCH_SIZE, BaseRunService
-from src.services.dataset_reader_service import DatasetReaderService
+from src.services.data_processing_service import DataProcessingService
 from src.services.progress_tracking_service import ProgressTrackingService
 from src.utils.nli_labels import to_label_name
 from src.utils.validation_masking import build_masked_validation_dataset
@@ -46,11 +46,11 @@ class ValidationRunService(BaseRunService):
 
     def __init__(
         self,
-        dataset_reader_service: DatasetReaderService,
+        data_processing_service: DataProcessingService,
         progress_tracking_service: ProgressTrackingService,
     ) -> None:
-        """Wire the dataset reader and progress tracker."""
-        super().__init__(dataset_reader_service, progress_tracking_service)
+        """Wire tabular data IO and progress tracking dependencies."""
+        super().__init__(data_processing_service, progress_tracking_service)
 
     def start_validation_run(
         self,

@@ -7,7 +7,7 @@ from pydantic import Field
 from src.app_config import app_config
 from src.providers.base import ToolProvider
 from src.services.base_run_service import DEFAULT_BATCH_SIZE
-from src.services.dataset_reader_service import DatasetReaderService
+from src.services.data_processing_service import DataProcessingService
 from src.services.post_validation import (
     MIN_JOINT_COUNT,
     PMI_THRESHOLD,
@@ -468,7 +468,7 @@ def register_validation_tools(
     pipeline_dir: Path | None = None,
 ) -> ValidationToolProvider:
     validation_run_service = ValidationRunService(
-        dataset_reader_service=DatasetReaderService(),
+        data_processing_service=DataProcessingService(),
         progress_tracking_service=ProgressTrackingService(
             pipeline_dir=pipeline_dir or Path(".pipeline/validation")
         ),

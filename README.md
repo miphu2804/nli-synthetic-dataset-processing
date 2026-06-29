@@ -82,6 +82,15 @@ MCP endpoint:
 http://localhost:8000/mcp/
 ```
 
+## Dataset Boundary
+
+The dataset boundary accepts common tabular inputs and converts them to
+canonical CSV before downstream work. Use `/api/datasets/convert-to-csv` for
+`.csv`, `.tsv`, `.parquet`, `.xlsx`, `.xls`, `.jsonl`, or flat JSON record
+arrays. Generation, validation, and post-validation still operate on explicit
+CSV paths. Conversion does not perform random sampling, label normalization,
+data cleanup, or runtime artifact cleanup.
+
 ### Optional prompt refinement
 
 Use prompt refinement before large-scale generation when the generator policy or

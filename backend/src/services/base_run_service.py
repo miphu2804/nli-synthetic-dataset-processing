@@ -22,15 +22,15 @@ class BaseRunService:
     RUN_SETTINGS_CLASS = None
     RUN_SETTINGS_NOT_FOUND_MESSAGE = "Run manifest not found"
 
-    def __init__(self, dataset_reader_service, progress_tracking_service) -> None:
-        """Store the dataset reader and progress tracker used by every run operation."""
-        self._dataset_reader_service = dataset_reader_service
+    def __init__(self, data_processing_service, progress_tracking_service) -> None:
+        """Store tabular data IO and progress tracking dependencies."""
+        self._data_processing_service = data_processing_service
         self._progress_tracking_service = progress_tracking_service
 
     def _prepare_new_run(self, input_path, row_offset, row_limit, batch_size):
         """Validate arguments and resolve the target slice; return (dataset_summary, uid_column, total_target_rows)."""
         self._validate_run_args(row_offset, row_limit, batch_size)
-        dataset_summary = self._dataset_reader_service.read_dataset(
+        dataset_summary = self._data_processing_service.read_dataset(
             path=input_path,
             batch_size=1,
             batch_offset=0,
@@ -284,7 +284,7 @@ class BaseRunService:
 
     def _load_target_dataframe(self, run_settings):
         """Read and return the row window described by the persisted run settings."""
-        return self._dataset_reader_service.read_dataframe(
+        return self._data_processing_service.read_dataframe(
             run_settings.input_path,
             row_offset=run_settings.row_offset,
             row_limit=run_settings.total_target_rows,
@@ -313,7 +313,7 @@ class BaseRunService:
         if available_rows == 0:
             raise ValueError("row_offset must point to an available dataset row.")
         total_target_rows = min(row_limit or available_rows, available_rows)
-        target_dataframe = self._dataset_reader_service.read_dataframe(
+        target_dataframe = self._data_processing_service.read_dataframe(
             input_path,
             row_offset=row_offset,
             row_limit=total_target_rows,

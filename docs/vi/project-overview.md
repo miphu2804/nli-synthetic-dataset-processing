@@ -47,6 +47,14 @@ nli-data-processing-mcp-server
 | Subagent | Transform generation rows đã claim và chỉ trả JSON |
 | MCP runtime | Claim batches, ghi progress, ghi batch CSV, merge, verify, cleanup |
 
+## Boundary Dataset
+
+`DataProcessingService` sở hữu file-level tabular IO: đọc CSV/parquet cho runtime
+path đang chạy, ghi CSV/parquet cho row payload, và convert `.csv`, `.tsv`,
+`.parquet`, `.xlsx`, `.xls`, `.jsonl`, cùng JSON array record phẳng về CSV
+canonical. Service này không sở hữu generation, validation, post-validation,
+random sampling, label normalization, hay hidden cleanup policy.
+
 ## Sample Ranges
 
 MCP start tools dùng sample range 1-based inclusive:

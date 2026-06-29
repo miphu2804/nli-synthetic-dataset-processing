@@ -6,8 +6,7 @@ from fastmcp.tools import tool
 from pydantic import Field
 from src.providers.base import ToolProvider
 from src.services.base_run_service import DEFAULT_BATCH_SIZE
-from src.services.dataset_reader_service import DatasetReaderService
-from src.services.dataset_writer_service import DatasetWriterService
+from src.services.data_processing_service import DataProcessingService
 from src.services.generation_run_service import GenerationRunService
 from src.services.progress_tracking_service import ProgressTrackingService
 
@@ -184,9 +183,9 @@ def register_generation_tools(
     mcp: FastMCP,
     pipeline_dir: Path | None = None,
 ) -> GenerationToolProvider:
+    data_processing_service = DataProcessingService()
     generation_run_service = GenerationRunService(
-        dataset_reader_service=DatasetReaderService(),
-        dataset_writer_service=DatasetWriterService(),
+        data_processing_service=data_processing_service,
         progress_tracking_service=ProgressTrackingService(pipeline_dir=pipeline_dir),
     )
     provider = GenerationToolProvider(generation_run_service)
