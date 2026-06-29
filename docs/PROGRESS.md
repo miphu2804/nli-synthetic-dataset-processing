@@ -1,3 +1,29 @@
+### [2026-06-29 15:46] — [Drive] Remove Google Drive stub surface
+
+**Đã làm:**
+- Xoá Google Drive stub khỏi backend router/service/schema và test riêng.
+- Gỡ Drive router khỏi FastAPI app để các route `/api/drive/*` không còn đi vào MCP surface sinh từ `FastMCP.from_fastapi(...)`.
+- Xoá Google Drive page khỏi frontend, bỏ nav item, và dọn API client types/helpers.
+
+**Files thay đổi:**
+- `backend/src/routers/drive_router.py` — deleted
+- `backend/src/services/drive_service.py` — deleted
+- `backend/src/schemas/drive_schema.py` — deleted
+- `backend/tests/test_drive_router.py` — deleted
+- `backend/src/main.py`, `backend/src/services/__init__.py`, `backend/src/schemas/__init__.py` — modified
+- `frontend/src/pages/GoogleDrive.tsx` — deleted
+- `frontend/src/App.tsx`, `frontend/src/components/Sidebar.tsx`, `frontend/src/lib/api.ts` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Google Drive trước đó chỉ là stub module được mount qua FastAPI router và hiện trên frontend. Vì FastMCP được tạo từ FastAPI app sau khi include routers, bỏ `drive_router` khỏi `main.py` cũng loại các endpoint Drive khỏi MCP-derived route surface. Core NLI runtime, dataset IO, skill resources, generation/validation MCP tools, và post-validation flow không đổi.
+
+---
+
 ### [2026-06-29 10:11] — [DataProcessing] Merge dataset IO service
 
 **Đã làm:**
@@ -228,31 +254,5 @@ Refactor này chỉ xoá helper private không còn mang domain meaning. Generat
 
 **Flow explained:**
 Plan này giữ public MCP tool surface ổn định: gen/val provider methods là transport adapters, không bị xem là dead code chỉ vì pass-through. Cleanup đề xuất trước tiên chỉ đụng private helper như `_merge_batch_outputs(...)` và `_label_key(...)`; validation helper một-dòng được xử lý tùy readability. Nếu sau này muốn tách prompt-refinement/post-validation khỏi `ValidationToolProvider`, đó là một follow-up riêng vì hiện docs/tests vẫn xem các tool đó là contract đang dùng.
-
----
-
-### [2026-06-27 17:27] — [PromptRefinement] Run low-effort 3-subagent smoke calibration
-
-**Đã làm:**
-- Freeze 10 source_uid đầu tiên từ `backend/data/generated/anli_1_16946.csv` thành một calibration slice nhỏ cho smoke run.
-- Dispatch 3 validator subagent độc lập với ba model `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` ở `low` effort, giữ blind labels và thu đúng một verdict file cho mỗi model.
-- Retry hai model một lần vì `reason` chưa sạch tiếng Việt hoàn toàn, rồi rewrite verdict CSV bằng writer chuẩn sau khi MCP parser báo lỗi quoting.
-- Chạy `evaluate_prompt_refinement` với `generator_skill_name=generator_plain`; kết quả `kappa=0.8744769874476985`, `decision=accepted`, `rejected_sample_count=1`, `bundle_id=calibration`, `mlflow_run_id=7262e580eea040a393662cfe51db5250`.
-- Xác nhận artifact `disagreement_rows.csv` của run chỉ còn 1 UID bất đồng là `source_uid=2`.
-
-**Files thay đổi:**
-- `data/prompt-refinement/2026-06-27-low-effort-smoke/calibration/calibration.csv` — created
-- `data/prompt-refinement/2026-06-27-low-effort-smoke/calibration/masked_rows.csv` — created
-- `data/prompt-refinement/2026-06-27-low-effort-smoke/calibration/verdicts/gpt-5.5.csv` — created
-- `data/prompt-refinement/2026-06-27-low-effort-smoke/calibration/verdicts/gpt-5.4.csv` — created
-- `data/prompt-refinement/2026-06-27-low-effort-smoke/calibration/verdicts/gpt-5.4-mini.csv` — created
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Smoke run này dùng đúng template connected-agent hiện tại: main agent giữ calibration source có label, chỉ phát masked rows cho validators, kiểm schema rồi mới persist verdicts và gọi MCP evaluation. Vì `kappa` vượt ngưỡng 0.85 nên flow dừng ở `accepted`; không gọi `propose_prompt_refinement_update`, không sửa prompt, không lock/version/promote gì thêm.
 
 ---

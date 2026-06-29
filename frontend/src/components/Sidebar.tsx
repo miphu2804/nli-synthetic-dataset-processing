@@ -1,7 +1,6 @@
 import {
   Database,
   FileSearch,
-  HardDrive,
   Home,
   Wrench,
   CheckSquare,
@@ -14,7 +13,6 @@ const items = [
   { id: "datasets", label: "Datasets", icon: Database },
   { id: "mcp", label: "MCP Tools", icon: Wrench },
   { id: "skills", label: "Skills", icon: FileSearch },
-  { id: "drive", label: "Google Drive", icon: HardDrive },
   { id: "validation", label: "Validation", icon: CheckSquare },
 ];
 

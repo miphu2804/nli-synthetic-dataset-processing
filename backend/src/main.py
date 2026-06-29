@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastmcp import FastMCP
 from src.providers import register_generation_tools, register_validation_tools
-from src.routers.drive_router import drive_router
 from src.routers.mcp_router import init_mcp_router, mcp_router
 from src.routers.reader_router import reader_router
 from src.routers.skill_router import skill_router
@@ -10,7 +9,6 @@ from src.routers.writer_router import writer_router
 from src.services.skill_service import SkillService
 
 app = FastAPI()
-app.include_router(drive_router)
 app.include_router(mcp_router)
 app.include_router(reader_router)
 app.include_router(skill_router)

@@ -5,7 +5,6 @@ import Dashboard from "@/pages/Dashboard";
 import Datasets from "@/pages/Datasets";
 import McpTools from "@/pages/McpTools";
 import Skills from "@/pages/Skills";
-import GoogleDrive from "@/pages/GoogleDrive";
 import Validation from "@/pages/Validation";
 
 export default function App() {
@@ -21,7 +20,6 @@ export default function App() {
           {page === "datasets" && <Datasets />}
           {page === "mcp" && <McpTools />}
           {page === "skills" && <Skills />}
-          {page === "drive" && <GoogleDrive />}
           {page === "validation" && <Validation />}
         </main>
       </div>
