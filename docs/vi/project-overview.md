@@ -70,6 +70,8 @@ response. Prompt cho harness nên dùng `from_sample` và `to_sample`.
 ## Runtime State
 
 Runtime state là local và có thể resume khi run còn active.
+Các path bên dưới là relative với repo root; `data/` nằm cùng cấp với
+`backend/`, không nằm bên trong `backend/`.
 
 ```text
 .pipeline/runs/{run_id}/manifest.json

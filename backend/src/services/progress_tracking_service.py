@@ -9,6 +9,7 @@ from src.schemas.generation_runtime_schema import (
     ProgressVerificationResponse,
     RunProgressSnapshot,
 )
+from src.utils.project_paths import data_root, pipeline_root
 
 
 @dataclass
@@ -40,8 +41,8 @@ class _VerificationScan:
 
 class ProgressTrackingService:
     def __init__(self, pipeline_dir: Path | None = None) -> None:
-        """Resolve the .pipeline root (default ./.pipeline) and its sibling data/ directory used for run state and batch outputs."""
-        self._pipeline_dir = (pipeline_dir or Path(".pipeline")).resolve()
+        """Resolve the pipeline root and the data/ directory used for batch outputs."""
+        self._pipeline_dir = (pipeline_dir or pipeline_root()).resolve()
         self._data_dir = self._derive_data_dir(self._pipeline_dir).resolve()
 
     def get_run_dir(self, run_id: str) -> Path:
@@ -289,7 +290,9 @@ class ProgressTrackingService:
 
     @staticmethod
     def _derive_data_dir(pipeline_dir: Path) -> Path:
-        """Derive the sibling data/ directory from a .pipeline path, falling back to ./data when no .pipeline ancestor exists."""
+        """Derive the data/ directory for batch artifacts."""
+        if pipeline_dir.resolve() == pipeline_root().resolve():
+            return data_root()
         candidates = [pipeline_dir, *pipeline_dir.parents]
         for path in candidates:
             if path.name == ".pipeline":

@@ -71,6 +71,8 @@ the run manifest and responses. Harness prompts should use `from_sample` and
 ## Runtime State
 
 Runtime state is local and resumable while a run is active.
+Paths below are relative to the repository root; `data/` is a sibling of
+`backend/`, not a child directory.
 
 ```text
 .pipeline/runs/{run_id}/manifest.json

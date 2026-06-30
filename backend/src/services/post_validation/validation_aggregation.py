@@ -8,6 +8,7 @@ from src.services.post_validation.dataset_builders import (
     build_review_dataset,
 )
 from src.services.post_validation.voting import build_validation_vote_table
+from src.utils.project_paths import resolve_data_path
 from src.utils.tabular_io import read_tabular, read_tabular_columns
 
 DATASET_SUFFIXES = (".csv", ".parquet")
@@ -119,7 +120,7 @@ def load_expected_labels(
 
 
 def default_consensus_output_dir(expected_input_path: Path) -> Path:
-    return Path("data/validated") / expected_input_path.stem
+    return resolve_data_path("validated", expected_input_path.stem)
 
 
 def _validate_masked_dataset(masked_df, expected_labels: dict) -> None:

@@ -16,12 +16,12 @@ backend/.mlflow/
 backend/mlflow.db
 .cocoindex_code/
 outputs/
-data/*
-!data/generated/
-!data/generated/**
+data/batches/
+data/validated/
+data/validation/
+data/splits/
+data/prompt-refinement/
 backend/data/*
-!backend/data/generated/
-backend/data/generated/**
 .codegraph/
 
 # Harness

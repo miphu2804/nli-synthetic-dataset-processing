@@ -17,6 +17,7 @@ nli-synthetic-data-processing/
 │   │   └── utils/                  Standalone CLI utilities (masking, aggregation)
 │   ├── skills/                     MCP skill markdown files (served at skill://)
 │   └── tests/
+├── data/                           Runtime datasets and batch artifacts
 ├── docs/
 │   ├── en/                         English guides (flow/, template/)
 │   └── vi/                         Vietnamese guides (flow/, template/)
@@ -151,8 +152,9 @@ http://localhost:5000
 
 The container starts both FastAPI/FastMCP and MLflow with Honcho. Runtime state
 is writable inside the container: generation/validation progress goes under
-`.pipeline/`, batch CSV files under `data/batches/`, finalized datasets under
-`data/generated/` or `data/validated/`, and MLflow data under `.mlflow/`.
+`.pipeline/`, batch CSV files under repo-root `data/batches/`, finalized
+datasets under repo-root `data/generated/` or `data/validated/`, and MLflow
+data under `.mlflow/`.
 The published image starts MLflow on `0.0.0.0:5000` and allows browser access
 through the published Docker port for local development.
 Without a volume mount, those files are container-local and disappear when the

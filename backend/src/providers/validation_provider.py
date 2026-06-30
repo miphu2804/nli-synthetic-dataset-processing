@@ -23,6 +23,7 @@ from src.services.post_validation import (
 from src.services.progress_tracking_service import ProgressTrackingService
 from src.services.prompt_refinement import PromptRefinementService
 from src.services.validation_run_service import ValidationRunService
+from src.utils.project_paths import pipeline_root
 
 
 class ValidationToolProvider(ToolProvider):
@@ -471,7 +472,7 @@ def register_validation_tools(
     validation_run_service = ValidationRunService(
         data_processing_service=DataProcessingService(),
         progress_tracking_service=ProgressTrackingService(
-            pipeline_dir=pipeline_dir or Path(".pipeline/validation")
+            pipeline_dir=pipeline_dir or pipeline_root() / "validation"
         ),
     )
     provider = ValidationToolProvider(

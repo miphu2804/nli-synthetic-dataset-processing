@@ -1,3 +1,36 @@
+### [2026-06-30 19:27] — [DataRoot] Move runtime data to repo root
+
+**Đã làm:**
+- Chuyển tracked datasets từ `backend/data/` sang repo-root `data/`.
+- Thêm path helper để `data/...` và `.pipeline/...` resolve ổn định khi chạy từ repo root, từ `backend/`, hoặc trong Docker `/app`.
+- Đổi generation, validation, dataset reader, CLI discovery, aggregation defaults, và progress tracking sang repo-root `data/`.
+- Preserve runtime batch artifact chưa tracked bằng cách move `backend/data/batches/...` sang `data/batches/...`.
+- Cập nhật README/project overview/progress-tracking docs EN/VI để nói rõ `data/` nằm cùng cấp `backend/`.
+
+**Files thay đổi:**
+- `data/` — moved tracked datasets from `backend/data/`
+- `.gitignore` — modified
+- `backend/src/utils/project_paths.py` — created
+- `backend/src/services/data_processing_service.py` — modified
+- `backend/src/services/progress_tracking_service.py` — modified
+- `backend/src/services/generation_run_service.py` — modified
+- `backend/src/services/validation_run_service.py` — modified
+- `backend/src/services/post_validation/validation_aggregation.py` — modified
+- `backend/src/routers/reader_router.py` — modified
+- `backend/src/cli.py` — modified
+- `backend/tests/test_dataset_io.py`, `backend/tests/test_cli.py` — modified
+- `README.md`, `README.vi.md`, `docs/en/project-overview.md`, `docs/vi/project-overview.md`, `docs/en/flow/progress-tracking.md`, `docs/vi/flow/progress-tracking.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Repo-root `data/` is now the canonical dataset/artifact root. `DataProcessingService` still owns only file-level tabular IO; generation/validation services still own run lifecycle and finalization. Relative runtime paths beginning with `data/` resolve through the project root, so local commands run from `backend/` and Docker commands run from `/app` target the same conceptual layout. Default progress state also resolves to repo-root `.pipeline`, and batch files live under repo-root `data/batches/{run_id}`.
+
+---
+
 ### [2026-06-30 19:17] — [Docker] Allow MLflow published-port access
 
 **Đã làm:**
@@ -224,31 +257,3 @@ Validator template giờ nói đúng boundary của runtime hiện tại: `start
 
 **Flow explained:**
 Google Drive trước đó chỉ là stub module được mount qua FastAPI router và hiện trên frontend. Vì FastMCP được tạo từ FastAPI app sau khi include routers, bỏ `drive_router` khỏi `main.py` cũng loại các endpoint Drive khỏi MCP-derived route surface. Core NLI runtime, dataset IO, skill resources, generation/validation MCP tools, và post-validation flow không đổi.
-
----
-
-### [2026-06-29 10:11] — [DataProcessing] Merge dataset IO service
-
-**Đã làm:**
-- Tạo `DataProcessingService` làm boundary duy nhất cho tabular file IO: read CSV/parquet window, write CSV/parquet rows, và convert common tabular inputs về CSV.
-- Thêm schema/route `/api/datasets/convert-to-csv` cho `.csv`, `.tsv`, `.parquet`, `.xlsx`, `.xls`, `.jsonl`, và flat JSON record arrays.
-- Đổi generation, validation, providers, routers, và tests sang dependency `DataProcessingService`.
-- Xoá service split cũ `DatasetReaderService` / `DatasetWriterService`.
-- Cập nhật README/project overview để nói rõ downstream stages vẫn dùng explicit CSV paths và conversion không random sampling, label cleanup, hay hidden runtime cleanup.
-
-**Files thay đổi:**
-- `backend/src/services/data_processing_service.py` — created
-- `backend/src/services/dataset_reader_service.py`, `backend/src/services/dataset_writer_service.py` — deleted
-- `backend/src/schemas/dataset_conversion_schema.py`, `backend/src/schemas/__init__.py` — created/modified
-- `backend/src/services/base_run_service.py`, `backend/src/services/generation_run_service.py`, `backend/src/services/validation_run_service.py` — modified
-- `backend/src/providers/generation_provider.py`, `backend/src/providers/validation_provider.py` — modified
-- `backend/src/routers/reader_router.py`, `backend/src/routers/writer_router.py` — modified
-- `backend/tests/test_dataset_io.py`, `backend/tests/test_generation_run_service.py`, `backend/tests/test_validation_run_service.py` — modified
-- `README.md`, `README.vi.md`, `docs/en/project-overview.md`, `docs/vi/project-overview.md`, `docs/PROGRESS.md` — modified
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Data processing giờ là boundary file-level duy nhất. Generation/validation runtime vẫn gọi `read_dataset(...)` và `read_dataframe(...)` trên CSV/parquet paths, còn conversion sang CSV là bước rõ ràng qua API trước khi đưa file vào downstream stages. Service không chứa generation/validation policy, sampling policy, label normalization, PMI, split, hay cleanup ngoài việc ghi output CSV/parquet được yêu cầu.

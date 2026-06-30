@@ -116,13 +116,13 @@ MLflow: http://localhost:5000
 ```
 
 Container ghi được runtime state bên trong chính nó: `.pipeline/` cho progress,
-`data/batches/` cho batch CSV, `data/generated/` hoặc `data/validated/` cho
-final dataset, và `.mlflow/` cho MLflow. Published image start MLflow trên
-`0.0.0.0:5000` và cho phép browser truy cập qua published Docker port cho local
-development. Nếu không mount volume, các file này chỉ tồn tại trong container và
-mất khi container bị xoá. Agent vẫn claim/submit batch qua MCP được miễn là
-input dataset path tồn tại bên trong container, ví dụ được tạo qua dataset write
-API hoặc được bake sẵn vào custom image.
+repo-root `data/batches/` cho batch CSV, repo-root `data/generated/` hoặc
+`data/validated/` cho final dataset, và `.mlflow/` cho MLflow. Published image
+start MLflow trên `0.0.0.0:5000` và cho phép browser truy cập qua published
+Docker port cho local development. Nếu không mount volume, các file này chỉ tồn
+tại trong container và mất khi container bị xoá. Agent vẫn claim/submit batch
+qua MCP được miễn là input dataset path tồn tại bên trong container, ví dụ được
+tạo qua dataset write API hoặc được bake sẵn vào custom image.
 
 ## Prompt refinement tùy chọn
 

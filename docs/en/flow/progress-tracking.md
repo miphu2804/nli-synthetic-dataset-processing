@@ -5,6 +5,9 @@ owned by MCP runtime tools.
 
 ## Runtime Paths
 
+Paths are relative to the repository root. `data/` is a sibling of `backend/`,
+not a child directory.
+
 ```text
 .pipeline/runs/{run_id}/manifest.json
 .pipeline/runs/{run_id}/progress.jsonl

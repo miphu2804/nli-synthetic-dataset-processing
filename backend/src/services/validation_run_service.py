@@ -21,6 +21,7 @@ from src.services.base_run_service import DEFAULT_BATCH_SIZE, BaseRunService
 from src.services.data_processing_service import DataProcessingService
 from src.services.progress_tracking_service import ProgressTrackingService
 from src.utils.nli_labels import to_label_name
+from src.utils.project_paths import resolve_data_path, resolve_runtime_path
 from src.utils.validation_masking import build_masked_validation_dataset
 
 FINAL_ROW_COUNT_ERROR = (
@@ -71,7 +72,7 @@ class ValidationRunService(BaseRunService):
         )
         run_settings = ValidationRunManifest(
             run_id=self._make_run_id(),
-            input_path=str(Path(input_path).expanduser().resolve()),
+            input_path=str(resolve_runtime_path(input_path)),
             output_dir=str(self._resolve_output_dir(input_path, output_dir)),
             uid_column=uid_column,
             row_offset=row_offset,
@@ -402,6 +403,6 @@ class ValidationRunService(BaseRunService):
     def _resolve_output_dir(input_path, output_dir):
         """Resolve the configured or default validation output directory."""
         if output_dir:
-            return Path(output_dir).expanduser().resolve()
+            return resolve_runtime_path(output_dir)
         input_stem = Path(input_path).stem
-        return (Path("data/validated") / input_stem).resolve()
+        return resolve_data_path("validated", input_stem)
