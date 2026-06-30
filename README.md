@@ -153,6 +153,8 @@ The container starts both FastAPI/FastMCP and MLflow with Honcho. Runtime state
 is writable inside the container: generation/validation progress goes under
 `.pipeline/`, batch CSV files under `data/batches/`, finalized datasets under
 `data/generated/` or `data/validated/`, and MLflow data under `.mlflow/`.
+The published image starts MLflow on `0.0.0.0:5000` and allows browser access
+through the published Docker port for local development.
 Without a volume mount, those files are container-local and disappear when the
 container is removed. Agents can still claim and submit batches through the MCP
 endpoint as long as the input dataset path exists inside the container, for

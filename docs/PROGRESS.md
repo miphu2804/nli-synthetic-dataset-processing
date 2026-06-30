@@ -1,3 +1,25 @@
+### [2026-06-30 19:17] — [Docker] Allow MLflow published-port access
+
+**Đã làm:**
+- Chẩn đoán log image: MLflow đã bind `0.0.0.0:5000`, nhưng MLflow 3.14 security middleware vẫn kiểm tra Host/CORS.
+- Cập nhật `backend/Procfile` để container MLflow cho phép truy cập qua published Docker port trong local development.
+- Cập nhật README EN/VI để ghi rõ published image mở MLflow qua port `5000`.
+
+**Files thay đổi:**
+- `backend/Procfile` — modified
+- `README.md` — modified
+- `README.vi.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** Local Docker daemon is unavailable on this machine, so final image proof must come from GitHub Actions build-and-push.
+
+**Còn lại:** None
+
+**Flow explained:**
+`--host 0.0.0.0` chỉ làm MLflow listen trên mọi interface trong container; MLflow 3.14 vẫn bật security middleware để validate Host header và CORS. Published Docker image là local-dev runtime, nên container Procfile thêm `--allowed-hosts '*'` và `--cors-allowed-origins '*'` cho MLflow để browser/agent truy cập được qua `http://localhost:5000` sau `-p 5000:5000`.
+
+---
+
 ### [2026-06-30 19:06] — [Docker] Run MCP and MLflow in one image
 
 **Đã làm:**
@@ -230,31 +252,3 @@ Google Drive trước đó chỉ là stub module được mount qua FastAPI rout
 
 **Flow explained:**
 Data processing giờ là boundary file-level duy nhất. Generation/validation runtime vẫn gọi `read_dataset(...)` và `read_dataframe(...)` trên CSV/parquet paths, còn conversion sang CSV là bước rõ ràng qua API trước khi đưa file vào downstream stages. Service không chứa generation/validation policy, sampling policy, label normalization, PMI, split, hay cleanup ngoài việc ghi output CSV/parquet được yêu cầu.
-
----
-
-### [2026-06-28 14:10] — [Validation] Finalize ANLI 1-1000 blind verdict artifacts
-
-**Đã làm:**
-- Verify `backend/data/generated/anli1-1000-from-sample-1.csv` parse được với 1000 rows rồi chuẩn hóa header CSV để runtime validation đọc đúng `source_uid,premise,hypothesis,label`.
-- Tạo masked input `backend/data/generated/anli1-1000-from-sample-1_validation_masked.csv` với label rỗng cho validator-facing flow.
-- Hoàn tất 3 validation runs `validation-20260628111418-27d77d7b`, `validation-20260628111418-6d50aaf0`, `validation-20260628111418-f7b97e02` và finalize thành `validation_results.csv` dưới `backend/data/validated/anli1-1000-from-sample-1/validator_{a,b,c}_medium/`.
-- Reduce 3 finalized outputs về `backend/data/validated/anli1-1000-from-sample-1/verdicts/{validator_a_medium,validator_b_medium,validator_c_medium}.csv` với đúng schema `source_uid,predicted_label,reason`.
-- Chạy integrity gate giữa generated input, masked input, và 3 verdict files; kết quả pass với 1000 rows/file, không duplicate `source_uid`, không blank reason, và chỉ có label canonical.
-
-**Files thay đổi:**
-- `backend/data/generated/anli1-1000-from-sample-1.csv` — created/normalized
-- `backend/data/generated/anli1-1000-from-sample-1.pre-normalize.csv` — created
-- `backend/data/generated/anli1-1000-from-sample-1_validation_masked.csv` — created
-- `backend/data/validated/anli1-1000-from-sample-1/validator_a_medium/validation_results.csv` — created
-- `backend/data/validated/anli1-1000-from-sample-1/validator_b_medium/validation_results.csv` — created
-- `backend/data/validated/anli1-1000-from-sample-1/validator_c_medium/validation_results.csv` — created
-- `backend/data/validated/anli1-1000-from-sample-1/verdicts/` — created
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** Exact provenance audit for “all 1000 rows came from the same 3 Codex subagents end-to-end” would require a fresh rerun from scratch; this completion resumed existing mixed-worker run state and finished the remaining claims cleanly.
-
-**Còn lại:** None for the current verdict artifacts and integrity handoff.
-
-**Flow explained:**
-Runtime validation vẫn dùng generated input có label làm source of truth và chỉ phát masked rows cho validator-facing work. Run state được resume từ `.pipeline/runs/*` + `data/batches/*`, submit nốt các claim còn active, finalize từng run thành `validation_results.csv`, rồi reduce xuống 3 verdict CSV phục vụ post-validation. Integrity gate phải so theo tập `source_uid` thực có trong generated/masked inputs, không giả định UID liên tiếp 1..1000 vì file này có 1000 rows nhưng UID kéo tới 1003.
