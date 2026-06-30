@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
+
 from src.cli import (
     build_verdict_candidates,
     default_consensus_output_dir,

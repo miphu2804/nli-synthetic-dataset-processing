@@ -2,6 +2,7 @@ from collections import Counter
 from pathlib import Path
 
 import pandas as pd
+
 from src.services.post_validation.artifact_detection import tokenize_artifact_text
 from src.services.post_validation.promotion import promote_revalidated_paraphrases
 from src.services.post_validation.validation_aggregation import (
