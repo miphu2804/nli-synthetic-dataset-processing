@@ -44,6 +44,8 @@ Flow:
      generation_policy
 2. Call start_generation_run with from_sample and to_sample.
 3. Use subagents only if the active user request or template asks for them.
+   Subagents must be visible Codex workers in the active Desktop session, not
+   `codex exec`, `claude -p`, subprocesses, or local worker scripts.
 4. Loop:
    - claim_next_batch
    - transform each claimed row according to the chosen generation policy
@@ -65,6 +67,15 @@ Rules:
   outside backend state.
 - Only MCP runtime tools write progress.
 - Subagents, if used, return JSON only and never call MCP tools.
+- Do not create or run local orchestration scripts, thin drivers, subprocess
+  workers, `fastmcp.Client` loops, `codex exec`, or `claude -p` to process
+  generation batches. If visible Codex subagents are unavailable or too slow,
+  stop and report the blocker instead of switching execution mode.
+- Keep `batch_size=20` unless the user explicitly approves a different value.
+- Shell commands are allowed only for lightweight inspection/debugging, such as
+  `rg`, `sed`, `nl`, `wc`, `head`, `tail`, `ls`, `find`, `ps`, and read-only
+  progress checks. Do not use Bash/Python scripts to claim, transform, submit,
+  or finalize batches.
 - Batch CSV artifacts are runtime files under data/batches/{run_id}; finalize
   must clean them after successful verification.
 ```

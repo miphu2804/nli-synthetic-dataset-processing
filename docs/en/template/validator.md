@@ -24,7 +24,7 @@ Available validation tools:
 
 Goal:
 Validate generated Vietnamese NLI rows through blanked labels:
-- input_path: <GENERATED_CSV_WITH_HIDDEN_LABELS>
+- input_path: <GENERATED_CSV_WITH_LABEL_COLUMN_RUNTIME_MASKS_LABELS>
 - output_dir: data/validated/<DATASET_SLICE>/<MODEL_ID>
 - from_sample: <ONE_BASED_FIRST_SAMPLE>
 - to_sample: <ONE_BASED_LAST_SAMPLE_INCLUSIVE>
@@ -59,12 +59,19 @@ Rules:
 - Do not inspect the source CSV or `data/batches/{run_id}` to reconstruct a
   claimed batch. Runtime batch CSV files are written only after
   `submit_validation_result`.
-- Keep batch_size modest so a full claim fits in one tool response. Use 20 by
-  default unless the transport is known to handle larger payloads safely.
+- Keep `batch_size=20` unless the user explicitly approves a different value.
 - If a claimed payload is truncated, incomplete, or partially visible, treat the
   batch as unusable: do not guess, do not submit partial verdicts, and do not
-  backfill missing rows from disk. Release the claim when possible, then retry
-  with a smaller batch_size or report a tooling blocker.
+  backfill missing rows from disk. Release the claim when possible, then report
+  a tooling blocker instead of changing batch size.
+- Do not create or run local orchestration scripts, thin drivers, subprocess
+  workers, `fastmcp.Client` loops, `codex exec`, or `claude -p` to process
+  validation batches. If visible Codex subagents or tool responses are
+  unavailable, stop and report the blocker instead of switching execution mode.
+- Shell commands are allowed only for lightweight inspection/debugging, such as
+  `rg`, `sed`, `nl`, `wc`, `head`, `tail`, `ls`, `find`, `ps`, and read-only
+  progress checks. Do not use Bash/Python scripts to claim, validate, submit, or
+  finalize batches.
 - Return exactly one label name: entailment, neutral, or contradiction.
 - Finalize writes validation_results.csv and cleans both .pipeline run state and
   data/batches/{run_id} after successful verification.

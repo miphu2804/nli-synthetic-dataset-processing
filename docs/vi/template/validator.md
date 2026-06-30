@@ -24,7 +24,7 @@ Available validation tools:
 
 Goal:
 Validate generated Vietnamese NLI rows through blanked labels:
-- input_path: <GENERATED_CSV_WITH_HIDDEN_LABELS>
+- input_path: <GENERATED_CSV_WITH_LABEL_COLUMN_RUNTIME_MASKS_LABELS>
 - output_dir: data/validated/<DATASET_SLICE>/<MODEL_ID>
 - from_sample: <ONE_BASED_FIRST_SAMPLE>
 - to_sample: <ONE_BASED_LAST_SAMPLE_INCLUSIVE>
@@ -58,12 +58,19 @@ Rules:
   batch id, or prior outputs.
 - Không đọc source CSV hoặc `data/batches/{run_id}` để reconstruct claimed batch.
   Runtime chỉ ghi batch CSV sau `submit_validation_result`.
-- Giữ batch_size đủ nhỏ để một claim fit trọn trong một tool response. Mặc định
-  dùng 20 nếu chưa chắc transport chịu được payload lớn.
+- Giữ `batch_size=20` trừ khi user approve rõ một giá trị khác.
 - Nếu claimed payload bị truncate, thiếu row, hoặc chỉ hiện một phần, coi batch
   đó là unusable: không đoán, không submit partial verdicts, và không backfill
-  từ disk. Release claim nếu có thể, rồi retry với batch_size nhỏ hơn hoặc báo
-  tooling blocker.
+  từ disk. Release claim nếu có thể, rồi báo tooling blocker thay vì đổi
+  batch size.
+- Không tạo hoặc chạy local orchestration script, thin driver, subprocess
+  worker, `fastmcp.Client` loop, `codex exec`, hoặc `claude -p` để xử lý
+  validation batch. Nếu Codex subagent nhìn thấy trong Desktop hoặc tool
+  response không khả dụng, dừng và báo blocker thay vì tự đổi execution mode.
+- Shell commands chỉ được dùng cho inspection/debug nhẹ, ví dụ `rg`, `sed`,
+  `nl`, `wc`, `head`, `tail`, `ls`, `find`, `ps`, và read-only progress
+  checks. Không dùng Bash/Python scripts để claim, validate, submit, hoặc
+  finalize batches.
 - Return exactly one label name: entailment, neutral, or contradiction.
 - Finalize writes validation_results.csv and cleans both .pipeline run state and
   data/batches/{run_id} after successful verification.

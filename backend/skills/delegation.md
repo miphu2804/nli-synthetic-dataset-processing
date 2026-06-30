@@ -4,6 +4,11 @@ Use subagents only when the active user request or template asks for them.
 Subagents are pure workers: they receive one claimed batch, return JSON and are
 destroyed.
 
+In Codex Desktop, "subagent" means a visible Codex worker in the active session.
+Do not replace it with `codex exec`, `claude -p`, subprocess workers, a local
+orchestrator script, or a headless `fastmcp.Client` loop unless the user
+explicitly approves headless execution.
+
 ## Ownership
 
 | Main agent | Subagent |
@@ -17,6 +22,16 @@ destroyed.
 
 MCP runtime tools are the only progress writers. Parallelism happens during
 text transformation, not during progress mutation.
+
+Keep the requested `batch_size` unchanged. If visible subagents are unavailable,
+the batch payload is too large for the active tool response, or workers are too
+slow, stop and report the blocker instead of silently changing batch size or
+switching to local scripts.
+
+Shell commands may be used only for lightweight inspection/debugging, such as
+`rg`, `sed`, `nl`, `wc`, `head`, `tail`, `ls`, `find`, `ps`, and read-only
+progress checks. Do not use Bash/Python scripts to claim, transform, submit, or
+finalize runtime batches.
 
 ## Worker Prompt Template
 

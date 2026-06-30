@@ -44,6 +44,8 @@ Flow:
      generation_policy
 2. Call start_generation_run with from_sample and to_sample.
 3. Chỉ dùng subagent nếu user request hoặc template hiện tại yêu cầu.
+   Subagent phải là Codex worker nhìn thấy trong Desktop session hiện tại,
+   không phải `codex exec`, `claude -p`, subprocess, hoặc local worker script.
 4. Loop:
    - claim_next_batch
    - transform each claimed row according to the chosen generation policy
@@ -66,6 +68,15 @@ Rules:
   state.
 - Only MCP runtime tools write progress.
 - Subagents, if used, return JSON only and never call MCP tools.
+- Không tạo hoặc chạy local orchestration script, thin driver, subprocess
+  worker, `fastmcp.Client` loop, `codex exec`, hoặc `claude -p` để xử lý
+  generation batch. Nếu Codex subagent nhìn thấy trong Desktop không khả dụng
+  hoặc quá chậm, dừng và báo blocker thay vì tự đổi execution mode.
+- Giữ `batch_size=20` trừ khi user approve rõ một giá trị khác.
+- Shell commands chỉ được dùng cho inspection/debug nhẹ, ví dụ `rg`, `sed`,
+  `nl`, `wc`, `head`, `tail`, `ls`, `find`, `ps`, và read-only progress
+  checks. Không dùng Bash/Python scripts để claim, transform, submit, hoặc
+  finalize batches.
 - Batch CSV artifacts are runtime files under data/batches/{run_id}; finalize
   must clean them after successful verification.
 ```

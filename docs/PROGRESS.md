@@ -1,3 +1,58 @@
+### [2026-06-30 17:28] — [Templates] Tighten interactive MCP orchestration
+
+**Đã làm:**
+- Cập nhật generator templates EN/VI để cấm local orchestration scripts, `fastmcp.Client` headless loops, `codex exec`, `claude -p`, subprocess workers, và đổi execution mode khi chưa được user approve.
+- Cập nhật validator templates EN/VI để giữ `batch_size=20`, sửa input placeholder thành generated CSV có label để runtime tự mask, và khi payload bị truncate thì báo blocker thay vì giảm batch size.
+- Cập nhật `delegation` và `execution` skills để định nghĩa subagent trong Codex Desktop là visible Codex worker, không phải CLI worker hoặc script ngoài.
+- Thêm regression tests cho template/skill guardrails mới.
+
+**Files thay đổi:**
+- `docs/en/template/generator.md` — modified
+- `docs/vi/template/generator.md` — modified
+- `docs/en/template/validator.md` — modified
+- `docs/vi/template/validator.md` — modified
+- `backend/skills/delegation.md` — modified
+- `backend/skills/execution.md` — modified
+- `backend/tests/test_skill_service.py` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Default interactive flow giờ phải giữ MCP calls trong active Codex session và chỉ dùng visible Codex workers nếu cần subagents. Shell chỉ còn dùng cho inspection/debug nhẹ như `rg`, `sed`, `nl`, `wc`, `head`, `tail`, `ls`, `find`, `ps`, hoặc read-only progress checks; không dùng Bash/Python scripts để claim, transform, validate, submit, hoặc finalize runtime batches. Headless orchestration vẫn chỉ có thể là mode riêng nếu user approve rõ.
+
+---
+
+### [2026-06-30 09:57] — [Runtime] Add Honcho local start
+
+**Đã làm:**
+- Thêm `Procfile` để chạy backend FastAPI/FastMCP và MLflow server cùng một lệnh Honcho.
+- Thêm `honcho` vào dev dependencies bằng `uv`.
+- Đổi default MLflow URL local sang `http://127.0.0.1:5001` vì port 5000 đang bị process macOS chiếm trên máy này.
+- Cập nhật README EN/VI để local start dùng `uv --project backend run honcho start`.
+- Gỡ phần file-type converter khỏi README EN/VI surface; runtime API hiện tại không đổi.
+
+**Files thay đổi:**
+- `Procfile` — created
+- `README.md` — modified
+- `README.vi.md` — modified
+- `backend/.env.example` — modified
+- `backend/src/app_config.py` — modified
+- `backend/pyproject.toml` — modified
+- `backend/uv.lock` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Local dev giờ có một lệnh root-level để chạy cả backend và MLflow: `uv --project backend run honcho start`. `Procfile` giữ backend trên port 8000, MLflow trên `127.0.0.1:5001`, và MLflow state/artifacts nằm dưới `backend/.mlflow/` đã được gitignore. README không còn quảng bá converter file type; code convert CSV chưa bị xoá vì request chỉ chạm README/runtime start surface.
+
+---
+
 ### [2026-06-30 09:46] — [Docs] Align README after frontend removal
 
 **Đã làm:**
@@ -197,57 +252,5 @@ Validation progress verification dùng chung `ProgressTrackingService.verify_pro
 
 **Flow explained:**
 Generation service vẫn giữ nguyên lifecycle: start, claim, validate submit, write batch, finalize/cleanup. Cleanup này chỉ bỏ hai wrapper private không còn mang domain meaning sau khi merge logic chung vào `BaseRunService`; provider vẫn là MCP boundary public nên không inline xuống service.
-
----
-
-### [2026-06-27 23:00] — [Generation] Remove stale scheduling guidance
-
-**Đã làm:**
-- Xoá tool lập kế hoạch batch cũ khỏi generation tool map và generation phase trong MCP instructor skill.
-- Bỏ công thức pool worker khỏi delegation skill; subagent scheduling giờ là trách nhiệm của connected harness khi user/template yêu cầu.
-- Cập nhật generator templates EN/VI để không hướng dẫn suy ra số worker từ backend.
-- Xoá mô tả integrity-log cũ khỏi progress-tracking skill và thay bằng mô tả JSONL verification thực tế.
-
-**Files thay đổi:**
-- `backend/skills/instructor.md` — modified
-- `backend/skills/progress_tracking.md` — modified
-- `backend/skills/delegation.md` — modified
-- `docs/en/template/generator.md`, `docs/vi/template/generator.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Generation MCP flow hiện chỉ còn runtime tools thật: `start_generation_run`, `claim_next_batch`, `submit_batch_result`, progress/claim release, verify, finalize, list. Backend không còn được mô tả như nơi tính kế hoạch worker; nếu prompt/user muốn dùng subagents thì connected harness tự schedule sau khi đã claim batch qua MCP. Progress log vẫn là append-only JSONL; verification hiện kiểm consistency/reconciliation theo event content.
-
----
-
-### [2026-06-27 20:25] — [PromptRefinement] Remove backend proposal tool
-
-**Đã làm:**
-- Baseline trước khi sửa: prompt-refinement targeted suite pass với `29 passed`.
-- Xoá `PromptRefinementStrategy` và service path `propose_update(...)` vì backend không nên tự viết prompt-update proposal thay agent.
-- Gỡ MCP tool `propose_prompt_refinement_update`; `evaluate_prompt_refinement` vẫn là contract duy nhất cho calibration, kappa, decision, MLflow logging.
-- Cập nhật README, skill, instructor, flow docs, templates, tests, và CLI wording để failed round trở thành agent-owned evidence review dựa trên `disagreement_rows.csv`.
-- Verify sau sửa: prompt-refinement targeted suite `28 passed`; CLI suite `34 passed`; full backend suite `158 passed`.
-
-**Files thay đổi:**
-- `backend/src/services/prompt_refinement/refinement_strategy.py` — deleted
-- `backend/src/services/prompt_refinement/service.py`, `backend/src/services/prompt_refinement/models.py` — modified
-- `backend/src/schemas/prompt_refinement_schema.py`, `backend/src/providers/validation_provider.py`, `backend/src/cli.py` — modified
-- `backend/skills/instructor.md`, `backend/skills/prompt_refinement.md` — modified
-- `README.md`, `README.vi.md`, `docs/en/flow/validator.md`, `docs/vi/flow/validator.md` — modified
-- `docs/en/template/prompt-refinement.md`, `docs/vi/template/prompt-refinement.md` — modified
-- `backend/tests/test_prompt_refinement_service.py`, `backend/tests/test_validation_provider.py`, `backend/tests/test_skill_service.py` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Prompt-refinement backend giờ chỉ evaluate/log một calibration và trả `accepted` hoặc `needs_prompt_update`. Khi kappa thấp, main agent đọc evidence đã log như `disagreement_rows.csv`, prompt snapshots, verdict files, và calibration rows rồi report next step nhỏ nhất cho user duyệt; backend không propose prompt edit, không spawn editor agents, không lock/version/promote prompts, và không tự chạy round tiếp theo.
 
 ---

@@ -25,19 +25,23 @@ nli-synthetic-data-processing/
 
 ## Local Start
 
-Backend (port 8000):
+Install backend dependencies once:
 
 ```bash
 cd backend
 uv sync
-uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
+cd ..
 ```
 
-Or run the backend with Docker Compose:
+Run the backend and MLflow together from the repo root:
 
 ```bash
-docker compose up --build
+uv --project backend run honcho start
 ```
+
+Backend: `http://localhost:8000`
+MCP endpoint: `http://localhost:8000/mcp/`
+MLflow: `http://127.0.0.1:5001`
 
 ## Container Start
 
@@ -61,15 +65,6 @@ MCP endpoint:
 ```text
 http://localhost:8000/mcp/
 ```
-
-## Dataset Boundary
-
-The dataset boundary accepts common tabular inputs and converts them to
-canonical CSV before downstream work. Use `/api/datasets/convert-to-csv` for
-`.csv`, `.tsv`, `.parquet`, `.xlsx`, `.xls`, `.jsonl`, or flat JSON record
-arrays. Generation, validation, and post-validation still operate on explicit
-CSV paths. Conversion does not perform random sampling, label normalization,
-data cleanup, or runtime artifact cleanup.
 
 ### Optional prompt refinement
 

@@ -194,6 +194,70 @@ class SkillServiceTest(unittest.TestCase):
                 or "không sửa generator hoặc validator prompts" in lower_document
             )
 
+    def test_generation_and_validation_templates_forbid_headless_orchestration(
+        self,
+    ) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        skill_service = SkillService()
+        documents = [
+            (repository_root / "docs/en/template/generator.md").read_text(
+                encoding="utf-8"
+            ),
+            (repository_root / "docs/vi/template/generator.md").read_text(
+                encoding="utf-8"
+            ),
+            (repository_root / "docs/en/template/validator.md").read_text(
+                encoding="utf-8"
+            ),
+            (repository_root / "docs/vi/template/validator.md").read_text(
+                encoding="utf-8"
+            ),
+            skill_service.get_skill("delegation"),
+            skill_service.get_skill("execution"),
+        ]
+
+        for document in documents:
+            lower_document = document.lower()
+            self.assertIn("codex exec", document)
+            self.assertIn("fastmcp.Client", document)
+            self.assertIn("claude -p", document)
+            self.assertIn("batch_size", document)
+            self.assertTrue(
+                "visible codex" in lower_document
+                or "codex worker" in lower_document
+                or "codex subagent" in lower_document
+            )
+            self.assertTrue(
+                "shell commands" in lower_document or "shell commands" in document
+            )
+            self.assertTrue(
+                "Do not use Bash/Python scripts" in document
+                or "Không dùng Bash/Python scripts" in document
+            )
+
+    def test_validator_templates_keep_batch_size_fixed_on_truncated_claims(
+        self,
+    ) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        documents = [
+            (repository_root / "docs/en/template/validator.md").read_text(
+                encoding="utf-8"
+            ),
+            (repository_root / "docs/vi/template/validator.md").read_text(
+                encoding="utf-8"
+            ),
+        ]
+
+        for document in documents:
+            self.assertIn(
+                "<GENERATED_CSV_WITH_LABEL_COLUMN_RUNTIME_MASKS_LABELS>",
+                document,
+            )
+            self.assertIn("batch_size=20", document)
+            self.assertNotIn("<GENERATED_CSV_WITH_HIDDEN_LABELS>", document)
+            self.assertNotIn("smaller batch_size", document)
+            self.assertNotIn("batch_size nhỏ hơn", document)
+
     def test_agent_templates_use_data_output_convention(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
         templates = [

@@ -5,24 +5,23 @@ Vietnamese NLI.
 
 ## Chạy local
 
-Backend:
+Cài dependency backend một lần:
 
 ```bash
 cd backend
 uv sync
-uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
+cd ..
 ```
 
-MCP endpoint: `http://localhost:8000/mcp/`.
+Chạy backend và MLflow cùng một lệnh từ repo root:
 
-## Boundary dataset
+```bash
+uv --project backend run honcho start
+```
 
-Boundary dataset nhận các input tabular phổ biến và convert về CSV canonical
-trước khi đưa vào các phase sau. Dùng `/api/datasets/convert-to-csv` cho
-`.csv`, `.tsv`, `.parquet`, `.xlsx`, `.xls`, `.jsonl`, hoặc JSON array record
-phẳng. Generation, validation, và post-validation vẫn chạy trên path CSV rõ
-ràng. Conversion không random sampling, không normalize label, không cleanup dữ
-liệu, và không cleanup runtime artifact.
+Backend: `http://localhost:8000`
+MCP endpoint: `http://localhost:8000/mcp/`
+MLflow: `http://127.0.0.1:5001`
 
 ## Prompt refinement tùy chọn
 
