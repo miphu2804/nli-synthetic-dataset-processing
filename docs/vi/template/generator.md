@@ -1,12 +1,12 @@
-# Generator Prompt Template
+# Template Prompt Sinh Dữ Liệu
 
-Dùng prompt này khi Codex harness đã connect sẵn với MCP server
+Dùng prompt này khi Codex harness đã kết nối sẵn với MCP server
 `nli-tools`.
 
 ```text
-You are connected to MCP server `nli-tools`.
+Bạn đang kết nối MCP server `nli-tools`.
 
-Available MCP resources:
+MCP resources có sẵn:
 - skill://instructor
 - skill://execution
 - skill://progress_tracking
@@ -16,7 +16,7 @@ Available MCP resources:
 - skill://delegation
 - skill://aggregator
 
-Available generation tools:
+Generation tools có sẵn:
 - start_generation_run
 - claim_next_batch
 - submit_batch_result
@@ -26,8 +26,8 @@ Available generation tools:
 - finalize_generation_run
 - list_generation_runs
 
-Goal:
-Generate Vietnamese NLI rows from this assigned sample range:
+Mục tiêu:
+Sinh các dòng NLI tiếng Việt từ sample range được giao:
 - input_path: <INPUT_CSV_OR_PARQUET>
 - output_path: data/generated/<RUN_OR_DATASET_ID>.csv
 - from_sample: <ONE_BASED_FIRST_SAMPLE>
@@ -35,39 +35,43 @@ Generate Vietnamese NLI rows from this assigned sample range:
 - batch_size: 20
 - generation_policy: <generator_plain_OR_generator_adversarial>
 
-Flow:
-1. Read MCP resources theo thứ tự:
+Quy trình:
+1. Đọc MCP resources theo thứ tự:
    - skill://instructor
    - skill://execution
    - skill://progress_tracking
    - skill://generator_plain hoặc skill://generator_adversarial, khớp với
      generation_policy
-2. Call start_generation_run with from_sample and to_sample.
-3. Chỉ dùng subagent nếu user request hoặc template hiện tại yêu cầu.
+2. Gọi start_generation_run với from_sample và to_sample.
+3. Chỉ dùng subagent nếu user yêu cầu hoặc template hiện tại yêu cầu.
    Subagent phải là Codex worker nhìn thấy trong Desktop session hiện tại,
    không phải `codex exec`, `claude -p`, subprocess, hoặc local worker script.
-4. Loop:
+4. Lặp:
    - claim_next_batch
-   - transform each claimed row according to the chosen generation policy
-   - self-check label preservation, natural Vietnamese, and no cue leakage
+   - nếu dùng subagent, tạo fresh worker chỉ cho claimed batch đó
+   - chuyển đổi từng claimed row theo generation policy đã chọn
+   - bỏ worker context sau khi worker trả JSON cho batch
+   - tự kiểm tra giữ nguyên label, tiếng Việt tự nhiên, và không lộ cue
    - submit_batch_result with rows and skipped_rows
-   - continue until claim_next_batch returns complete
-5. Call verify_progress_log.
-6. Read skill://aggregator.
-7. Call finalize_generation_run.
-8. Report run_id, output_path, rows_written, skipped rows, and unresolved issues.
+   - tiếp tục đến khi claim_next_batch trả complete
+5. Gọi verify_progress_log.
+6. Đọc skill://aggregator.
+7. Gọi finalize_generation_run.
+8. Báo cáo run_id, output_path, rows_written, skipped rows, và unresolved issues.
 
-Rules:
-- Use MCP resource reads for the listed `skill://...` resources before calling
-  generation tools.
-- Use `generator_plain` cho ANLI-derived hoặc source rows đã có quan hệ
+Quy tắc:
+- Đọc các MCP resource `skill://...` đã liệt kê trước khi gọi generation tools.
+- Dùng `generator_plain` cho ANLI-derived hoặc source rows đã có quan hệ
   adversarial/NLI.
-- Use `generator_adversarial` chỉ khi mục tiêu explicit là tạo biến thể
+- Dùng `generator_adversarial` chỉ khi mục tiêu explicit là tạo biến thể
   adversarial mới có kiểm soát.
-- Nếu subagent được yêu cầu rõ, connected harness tự schedule ngoài backend
+- Nếu subagent được yêu cầu rõ, harness đang kết nối tự schedule ngoài backend
   state.
-- Only MCP runtime tools write progress.
-- Subagents, if used, return JSON only and never call MCP tools.
+- Mỗi worker context chỉ xử lý tối đa một claimed batch. Không reuse cùng worker
+  cho nhiều generation batches, vì rows/checks trước đó có thể leak sang quyết
+  định của batch sau.
+- Chỉ MCP runtime tools được ghi progress.
+- Nếu dùng subagent, subagent chỉ trả JSON và không bao giờ gọi MCP tools.
 - Không tạo hoặc chạy local orchestration script, thin driver, subprocess
   worker, `fastmcp.Client` loop, `codex exec`, hoặc `claude -p` để xử lý
   generation batch. Nếu Codex subagent nhìn thấy trong Desktop không khả dụng
@@ -77,6 +81,6 @@ Rules:
   `nl`, `wc`, `head`, `tail`, `ls`, `find`, `ps`, và read-only progress
   checks. Không dùng Bash/Python scripts để claim, transform, submit, hoặc
   finalize batches.
-- Batch CSV artifacts are runtime files under data/batches/{run_id}; finalize
-  must clean them after successful verification.
+- Batch CSV artifacts là runtime files dưới data/batches/{run_id}; finalize
+  phải cleanup chúng sau khi verification thành công.
 ```

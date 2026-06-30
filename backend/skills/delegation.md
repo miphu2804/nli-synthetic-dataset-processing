@@ -4,6 +4,10 @@ Use subagents only when the active user request or template asks for them.
 Subagents are pure workers: they receive one claimed batch, return JSON and are
 destroyed.
 
+Create a fresh worker context for each claimed batch. Do not reuse one worker
+for multiple batches unless the user explicitly accepts the context-leakage
+risk and changes the execution mode.
+
 In Codex Desktop, "subagent" means a visible Codex worker in the active session.
 Do not replace it with `codex exec`, `claude -p`, subprocess workers, a local
 orchestrator script, or a headless `fastmcp.Client` loop unless the user
@@ -79,7 +83,7 @@ The connected main agent owns scheduling outside backend state. If subagents are
 used:
 
 1. Claim batches through `claim_next_batch`.
-2. Send only already-claimed rows to workers.
+2. Send only one already-claimed batch to each fresh worker.
 3. Validate each returned JSON payload.
 4. Call `submit_batch_result` for each resolved claim.
 5. Retry failed rows up to 3 times, then submit them as skipped rows.

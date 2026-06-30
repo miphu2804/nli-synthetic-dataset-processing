@@ -1,18 +1,18 @@
-# Validator Prompt Template
+# Template Prompt Validation
 
-Dùng prompt này khi Codex harness đã connect sẵn với MCP server
+Dùng prompt này khi Codex harness đã kết nối sẵn với MCP server
 `nli-tools`.
 
 ```text
-You are connected to MCP server `nli-tools`.
+Bạn đang kết nối MCP server `nli-tools`.
 
-Available MCP resources:
+MCP resources có sẵn:
 - skill://instructor
 - skill://execution
 - skill://progress_tracking
 - skill://validator
 
-Available validation tools:
+Validation tools có sẵn:
 - start_validation_run
 - claim_next_validation_batch
 - submit_validation_result
@@ -22,40 +22,39 @@ Available validation tools:
 - finalize_validation_run
 - list_validation_runs
 
-Goal:
-Validate generated Vietnamese NLI rows through blanked labels:
+Mục tiêu:
+Kiểm tra các dòng NLI tiếng Việt đã sinh qua label đã được blank:
 - input_path: <GENERATED_CSV_WITH_LABEL_COLUMN_RUNTIME_MASKS_LABELS>
 - output_dir: data/validated/<DATASET_SLICE>/<MODEL_ID>
 - from_sample: <ONE_BASED_FIRST_SAMPLE>
 - to_sample: <ONE_BASED_LAST_SAMPLE_INCLUSIVE>
 - batch_size: 20
 
-Flow:
-1. Read MCP resources theo thứ tự:
+Quy trình:
+1. Đọc MCP resources theo thứ tự:
    - skill://instructor
    - skill://execution
    - skill://progress_tracking
    - skill://validator
-2. Call start_validation_run với from_sample, to_sample, và batch_size.
-3. Loop:
+2. Gọi start_validation_run với from_sample, to_sample, và batch_size.
+3. Lặp:
    - claim_next_validation_batch
-   - nếu status=claimed và toàn bộ claimed rows đều nhìn thấy đầy đủ, assign predicted_label chỉ từ premise và hypothesis
+   - nếu status=claimed và toàn bộ claimed rows đều nhìn thấy đầy đủ, gán predicted_label chỉ từ premise và hypothesis
    - submit_validation_result với đúng một verdict cho mỗi claimed source_uid và reason tiếng Việt không rỗng
    - nếu status=waiting, inspect progress hoặc release claim bị bỏ dở
-   - continue until claim_next_validation_batch returns complete
-4. Call verify_validation_progress_log.
-5. Call finalize_validation_run.
-6. Report run_id, output_path, total_rows, accepted_rows, rejected_rows, and
+   - tiếp tục đến khi claim_next_validation_batch trả complete
+4. Gọi verify_validation_progress_log.
+5. Gọi finalize_validation_run.
+6. Báo cáo run_id, output_path, total_rows, accepted_rows, rejected_rows, và
    unresolved issues.
 
-Rules:
-- Use MCP resource reads for the listed `skill://...` resources before calling
-  validation tools.
+Quy tắc:
+- Đọc các MCP resource `skill://...` đã liệt kê trước khi gọi validation tools.
 - Truyền generated CSV có label vào start_validation_run. Không dùng masked CSV
   dành cho validator làm runtime input.
-- Claimed rows expose only source_uid, premise, hypothesis, and `label=""`.
-- Do not read or infer hidden labels from the original file, metadata, row order,
-  batch id, or prior outputs.
+- Claimed rows chỉ expose source_uid, premise, hypothesis, và `label=""`.
+- Không đọc hoặc suy hidden labels từ original file, metadata, row order,
+  batch id, hoặc prior outputs.
 - Không đọc source CSV hoặc `data/batches/{run_id}` để reconstruct claimed batch.
   Runtime chỉ ghi batch CSV sau `submit_validation_result`.
 - Giữ `batch_size=20` trừ khi user approve rõ một giá trị khác.
@@ -71,7 +70,7 @@ Rules:
   `nl`, `wc`, `head`, `tail`, `ls`, `find`, `ps`, và read-only progress
   checks. Không dùng Bash/Python scripts để claim, validate, submit, hoặc
   finalize batches.
-- Return exactly one label name: entailment, neutral, or contradiction.
-- Finalize writes validation_results.csv and cleans both .pipeline run state and
-  data/batches/{run_id} after successful verification.
+- Trả đúng một label name: entailment, neutral, hoặc contradiction.
+- Finalize ghi validation_results.csv và cleanup cả .pipeline run state lẫn
+  data/batches/{run_id} sau khi verification thành công.
 ```

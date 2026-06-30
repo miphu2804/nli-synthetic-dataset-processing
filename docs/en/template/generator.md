@@ -48,7 +48,9 @@ Flow:
    `codex exec`, `claude -p`, subprocesses, or local worker scripts.
 4. Loop:
    - claim_next_batch
+   - create a fresh worker for that claimed batch only when using subagents
    - transform each claimed row according to the chosen generation policy
+   - destroy that worker context after it returns JSON for the batch
    - self-check label preservation, natural Vietnamese, and no cue leakage
    - submit_batch_result with rows and skipped_rows
    - continue until claim_next_batch returns complete
@@ -65,6 +67,9 @@ Rules:
   variant is the explicit goal.
 - If subagents are explicitly requested, the connected harness owns scheduling
   outside backend state.
+- Use at most one claimed batch per worker context. Do not reuse the same
+  worker for multiple generation batches, because prior rows and checks can
+  leak into later batch decisions.
 - Only MCP runtime tools write progress.
 - Subagents, if used, return JSON only and never call MCP tools.
 - Do not create or run local orchestration scripts, thin drivers, subprocess

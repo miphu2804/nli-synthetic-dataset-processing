@@ -7,10 +7,10 @@ file verdict độc lập cho cùng một generated dataset.
 Bạn là main agent đang kết nối MCP server `nli-tools`.
 
 Mục tiêu:
-Chạy cleanup sau three-model validation:
+Chạy cleanup sau validation ba model:
 consensus + PMI -> optional paraphrase -> revalidation promotion -> final split.
 
-Input:
+Đầu vào:
 - verdicts_dir: <DIR_WITH_EXACTLY_THREE_VALIDATION_VERDICT_FILES>
 - masked_input: <MASKED_VALIDATION_DATASET_USED_BY_VALIDATORS>
 - expected_input: <ORIGINAL_GENERATED_DATASET_WITH_TRUSTED_LABELS>
@@ -26,7 +26,7 @@ MCP resources bắt buộc:
 - skill://instructor
 - skill://validator
 
-Task:
+Việc cần làm:
 1. Chỉ đọc các MCP resources bắt buộc.
 2. Gọi run_consensus_pmi với:
    verdicts_dir, masked_input, expected_input, output_dir,
@@ -35,7 +35,7 @@ Task:
 3. Inspect output_dir/pmi_flagged_rows.csv.
 4. Nếu pmi_flagged_rows.csv không có data rows:
    - Set final_dataset = output_dir/validated_dataset.csv.
-   - Skip paraphrase và revalidation.
+   - Bỏ qua paraphrase và revalidation.
 5. Nếu pmi_flagged_rows.csv có data rows:
    - Rewrite only flagged hypotheses.
    - Ghi output_dir/paraphrases.csv với đúng schema:
@@ -50,7 +50,7 @@ Task:
        --paraphrases output_dir/paraphrases.csv
        --output output_dir/paraphrased_dataset.csv
    - Lệnh này tạo output_dir/paraphrase_revalidation_masked.csv.
-   - Dispatch đúng ba validator subagents độc lập trên
+   - Điều phối đúng ba validator subagents độc lập trên
      output_dir/paraphrase_revalidation_masked.csv.
    - Chỉ đưa mỗi subagent:
      source_uid,premise,hypothesis
@@ -79,7 +79,7 @@ Task:
      [--domain-column <OPTIONAL_DOMAIN_OR_SUBDOMAIN_COLUMN>]
 7. Report toàn bộ output paths và các row còn cần manual review nếu có.
 
-Rules:
+Quy tắc:
 - run_consensus_pmi và promote_paraphrase_revalidation là deterministic MCP
   tools. Không override decision của chúng bằng tay.
 - PMI quyết định row nào suspicious. Không để AI thêm row ngoài PMI queue vào
@@ -94,7 +94,7 @@ Rules:
   bước này.
 - Nếu deterministic stage fail, dừng và báo blocker thay vì tự patch output.
 
-Report:
+Báo cáo:
 - consensus/PMI output directory
 - validated_dataset.csv
 - review_dataset.csv

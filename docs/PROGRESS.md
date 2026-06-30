@@ -1,3 +1,30 @@
+### [2026-06-30 18:25] — [Templates] Require fresh generation workers per batch
+
+**Đã làm:**
+- Cập nhật generator templates EN/VI để mỗi Codex worker chỉ xử lý một claimed batch rồi bỏ context.
+- Cập nhật `delegation` skill để main agent tạo worker context mới cho từng batch và không reuse worker qua nhiều batch nếu user chưa approve đổi mode.
+- Việt hoá guide prose trong các template VI, giữ nguyên tool names, schema fields, command names, placeholders, và label names.
+- Thêm regression test cho guardrail fresh-worker-per-batch.
+
+**Files thay đổi:**
+- `docs/en/template/generator.md` — modified
+- `docs/vi/template/generator.md` — modified
+- `docs/vi/template/validator.md` — modified
+- `docs/vi/template/post-validation.md` — modified
+- `docs/vi/template/prompt-refinement.md` — modified
+- `backend/skills/delegation.md` — modified
+- `backend/tests/test_skill_service.py` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Generation runtime vẫn giữ nguyên MCP ownership: main agent claim, self-check, submit, verify, và finalize; worker chỉ nhận một claimed batch, trả JSON, rồi bị bỏ context. Rule này giảm context dài và tránh rows/checks từ batch trước leak sang quyết định batch sau mà không đổi logic tool.
+
+---
+
 ### [2026-06-30 18:10] — [Docs] Add tmux runtime start commands
 
 **Đã làm:**
@@ -229,26 +256,3 @@ Runtime validation vẫn dùng generated input có label làm source of truth v�
 
 **Flow explained:**
 Post-validation giờ có service boundary theo phase: `ValidationAggregationService` tạo vote/validated/review outputs, `ArtifactDetectionService` chạy PMI artifact detection, `ParaphraseService` apply/promote paraphrase, và `DatasetSplitService` ghi train/dev/test split. CLI command và MCP provider vẫn giữ public command/tool name hiện tại để tương thích, nhưng không còn sở hữu business logic. Config runtime/env chỉ còn MLflow trong `app_config`; các default như PMI threshold, split ratio, seed, group/label column sống cạnh service vì là behavior mặc định của phase.
-
----
-
-### [2026-06-27 23:23] — [Validation] Remove duplicate verification schema
-
-**Đã làm:**
-- Xoá schema verification riêng của validation vì runtime đang dùng shared response từ progress tracker.
-- Gỡ export schema trùng khỏi `backend/src/schemas/__init__.py`.
-- Rà validation runtime/provider sau gen cleanup: các provider methods còn lại là MCP public boundary; private service helpers còn lại đều có logic domain hoặc CSV/runtime responsibility.
-
-**Files thay đổi:**
-- `backend/src/schemas/validation_runtime_schema.py` — modified
-- `backend/src/schemas/__init__.py` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Validation progress verification dùng chung `ProgressTrackingService.verify_progress_log(...)`, nên response shape không cần schema validation-specific riêng. Blind validation vẫn giữ flow: start validation run, claim masked rows, submit verdicts, compare against hidden label with `to_label_name(...)`, write batch CSVs, finalize into `validation_results.csv`, then cleanup state.
-
----

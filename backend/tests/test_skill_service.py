@@ -58,9 +58,15 @@ class SkillServiceTest(unittest.TestCase):
         for document in (skill, english_template, vietnamese_template):
             self.assertIn("main agent", document.lower())
             self.assertIn("subagent", document.lower())
-            self.assertIn("do not call mcp", document.lower())
+            self.assertTrue(
+                "do not call mcp" in document.lower()
+                or "không gọi mcp" in document.lower()
+            )
             self.assertIn("expected label", document.lower())
-            self.assertIn("one verdict file", document.lower())
+            self.assertTrue(
+                "one verdict file" in document.lower()
+                or "một verdict file" in document.lower()
+            )
             self.assertIn("evaluate_prompt_refinement", document)
 
     def test_prompt_refinement_documents_agent_evidence_handoff(self) -> None:
@@ -233,6 +239,30 @@ class SkillServiceTest(unittest.TestCase):
             self.assertTrue(
                 "Do not use Bash/Python scripts" in document
                 or "Không dùng Bash/Python scripts" in document
+            )
+
+    def test_generation_delegation_uses_fresh_worker_per_batch(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        skill_service = SkillService()
+        documents = [
+            (repository_root / "docs/en/template/generator.md").read_text(
+                encoding="utf-8"
+            ),
+            (repository_root / "docs/vi/template/generator.md").read_text(
+                encoding="utf-8"
+            ),
+            skill_service.get_skill("delegation"),
+        ]
+
+        for document in documents:
+            lower_document = document.lower()
+            self.assertIn("fresh worker", lower_document)
+            self.assertTrue(
+                "one claimed batch" in lower_document
+                or "một claimed batch" in lower_document
+            )
+            self.assertTrue(
+                "do not reuse" in lower_document or "không reuse" in lower_document
             )
 
     def test_validator_templates_keep_batch_size_fixed_on_truncated_claims(
