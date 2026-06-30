@@ -8,6 +8,8 @@ RUN uv pip install --system .
 
 COPY . /app
 
-EXPOSE 8000
+ENV MLFLOW_URL=http://127.0.0.1:5000
 
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 8000 5000
+
+CMD ["honcho", "start", "-f", "Procfile"]

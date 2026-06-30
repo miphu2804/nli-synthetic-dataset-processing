@@ -2,6 +2,7 @@ import json
 
 import pandas as pd
 import pytest
+
 from src.schemas import (
     DatasetConversionRequest,
     DatasetConversionResponse,
@@ -9,6 +10,7 @@ from src.schemas import (
     DatasetWriteRequest,
 )
 from src.services.data_processing_service import DataProcessingService
+from src.utils.project_paths import data_root, resolve_runtime_path
 
 
 def test_conversion_schema_defaults() -> None:
@@ -27,6 +29,10 @@ def test_conversion_schema_defaults() -> None:
         columns=["premise", "label"],
     )
     assert response.output_format == "csv"
+
+
+def test_data_paths_resolve_to_repo_root_data() -> None:
+    assert resolve_runtime_path("data/example.csv") == data_root() / "example.csv"
 
 
 def test_csv_window_matches_full_read_and_preserves_total_row_count(

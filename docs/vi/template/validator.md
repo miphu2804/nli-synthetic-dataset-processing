@@ -3,6 +3,9 @@
 Dùng prompt này khi Codex harness đã kết nối sẵn với MCP server
 `nli-tools`.
 
+Docker connection: `http://localhost:8000/mcp/` sau khi chạy published image
+với ports `8000` và `5000` đã publish.
+
 ```text
 Bạn đang kết nối MCP server `nli-tools`.
 

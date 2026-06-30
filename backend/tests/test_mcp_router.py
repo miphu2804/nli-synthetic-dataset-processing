@@ -3,6 +3,7 @@ import unittest
 import httpx
 from fastapi import FastAPI
 from fastmcp import FastMCP
+
 from src.routers.mcp_router import init_mcp_router, mcp_router
 
 

@@ -6,6 +6,7 @@ import pandas as pd
 from rich.console import Console
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
+
 from src.services.post_validation import (
     DEV_RATIO,
     GROUP_COLUMN,
@@ -26,18 +27,19 @@ from src.services.post_validation import (
     discover_verdict_files,
     load_expected_labels,
 )
+from src.utils.project_paths import resolve_data_path
 from src.utils.tabular_io import read_tabular, read_tabular_columns
 from src.utils.validation_masking import write_masked_validation_dataset
 
 DATASET_SUFFIXES = (".csv", ".parquet")
 MASK_SEARCH_DIRS = (
-    Path("data/generated"),
-    Path("data/processed"),
-    Path("data/original"),
+    resolve_data_path("generated"),
+    resolve_data_path("processed"),
+    resolve_data_path("original"),
 )
 VERDICT_SEARCH_DIRS = (
-    Path("data/validation"),
-    Path("data/validated"),
+    resolve_data_path("validation"),
+    resolve_data_path("validated"),
 )
 VALIDATION_AGGREGATION_SERVICE = ValidationAggregationService()
 ARTIFACT_DETECTION_SERVICE = ArtifactDetectionService()

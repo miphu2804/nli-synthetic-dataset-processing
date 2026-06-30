@@ -1569,6 +1569,7 @@ dependencies = [
     { name = "datasets" },
     { name = "fastapi" },
     { name = "fastmcp" },
+    { name = "honcho" },
     { name = "mlflow" },
     { name = "openpyxl" },
     { name = "pandas" },
@@ -1582,7 +1583,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "black" },
-    { name = "honcho" },
     { name = "httpx" },
     { name = "isort" },
     { name = "pre-commit" },
@@ -1594,6 +1594,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=4.8.5" },
     { name = "fastapi", specifier = ">=0.116.0" },
     { name = "fastmcp", specifier = ">=2.12.2" },
+    { name = "honcho", specifier = ">=2.0.0" },
     { name = "mlflow", specifier = ">=3.14.0" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "pandas", specifier = ">=2.3.2" },
@@ -1607,7 +1608,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "black", specifier = ">=24.8.0" },
-    { name = "honcho", specifier = ">=2.0.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "isort", specifier = ">=5.13.2" },
     { name = "pre-commit", specifier = ">=4.6.0" },

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+
 from src.schemas import (
     DatasetConversionRequest,
     DatasetConversionResponse,
@@ -10,6 +11,7 @@ from src.schemas import (
 )
 from src.schemas.dataset_reader_schema import FileInfo
 from src.services import DataProcessingService
+from src.utils.project_paths import resolve_data_path
 
 reader_router = APIRouter(prefix="/api/datasets", tags=["reader"])
 data_processing_service = DataProcessingService()
@@ -38,12 +40,12 @@ def _list_files_in_dir(directory: Path, kind: str) -> list[FileInfo]:
 @reader_router.get("/list", response_model=DatasetListResponse)
 async def list_datasets() -> DatasetListResponse:
     inputs: list[FileInfo] = []
-    inputs.extend(_list_files_in_dir(Path("data/original"), "input"))
-    inputs.extend(_list_files_in_dir(Path("data/processed"), "input"))
+    inputs.extend(_list_files_in_dir(resolve_data_path("original"), "input"))
+    inputs.extend(_list_files_in_dir(resolve_data_path("processed"), "input"))
 
     outputs: list[FileInfo] = []
-    outputs.extend(_list_files_in_dir(Path("data/generated"), "output"))
-    outputs.extend(_list_files_in_dir(Path("data/validated"), "output"))
+    outputs.extend(_list_files_in_dir(resolve_data_path("generated"), "output"))
+    outputs.extend(_list_files_in_dir(resolve_data_path("validated"), "output"))
 
     return DatasetListResponse(inputs=inputs, outputs=outputs)
 

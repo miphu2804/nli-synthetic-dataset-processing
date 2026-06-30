@@ -4,12 +4,14 @@ from typing import Any
 
 import pandas as pd
 import pyarrow.parquet as pq
+
 from src.schemas import (
     DatasetConversionResponse,
     DatasetReadResponse,
     DatasetWriteRequest,
     DatasetWriteResponse,
 )
+from src.utils.project_paths import resolve_runtime_path
 
 
 class DataProcessingService:
@@ -91,7 +93,7 @@ class DataProcessingService:
         sep: str | None = None,
     ) -> DatasetConversionResponse:
         """Normalize a supported tabular file to canonical CSV."""
-        resolved_input = Path(input_path).expanduser().resolve()
+        resolved_input = resolve_runtime_path(input_path)
         if not resolved_input.exists():
             raise FileNotFoundError(f"Dataset not found: {resolved_input}")
 
@@ -125,7 +127,7 @@ class DataProcessingService:
         row_limit: int | None,
     ) -> tuple[pd.DataFrame, int, Path, str]:
         """Resolve path, detect format, and return a DataFrame slice with metadata."""
-        resolved_path = Path(path).expanduser().resolve()
+        resolved_path = resolve_runtime_path(path)
         if not resolved_path.exists():
             raise FileNotFoundError(f"Dataset not found: {resolved_path}")
         file_extension = self._get_file_extension(resolved_path)
@@ -275,7 +277,7 @@ class DataProcessingService:
         file_name: str | None,
     ) -> Path:
         if explicit_path:
-            resolved_path = Path(explicit_path).expanduser().resolve()
+            resolved_path = resolve_runtime_path(explicit_path)
             if not resolved_path.suffix:
                 resolved_path = resolved_path.with_suffix(".csv")
             return resolved_path
@@ -284,12 +286,12 @@ class DataProcessingService:
         if not resolved_file_name.suffix:
             resolved_file_name = resolved_file_name.with_suffix(".csv")
 
-        return Path("outputs").resolve() / resolved_file_name
+        return resolve_runtime_path("outputs") / resolved_file_name
 
     @staticmethod
     def _resolve_csv_output_path(input_path: Path, output_path: str | None) -> Path:
         if output_path:
-            resolved_path = Path(output_path).expanduser().resolve()
+            resolved_path = resolve_runtime_path(output_path)
             if resolved_path.suffix and resolved_path.suffix.lower() != ".csv":
                 raise ValueError("output_path must end with .csv.")
             if not resolved_path.suffix:

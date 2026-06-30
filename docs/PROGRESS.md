@@ -1,12 +1,12 @@
-### [2026-06-30 20:40] — [Docs] Add Docker pull and mounted Downloads run
+### [2026-07-01 00:10] — [Docker] Align Honcho container startup
 
 **Đã làm:**
-- Cập nhật README EN với lệnh `docker pull` cho image Docker Hub hiện tại.
-- Đổi ví dụ `docker run` sang mode đặt tên container và mount `~/Downloads` vào `/downloads`.
-- Ghi rõ MCP phải dùng container path như `/downloads/...` thay vì host path `/Users/...`.
-- Thêm section container tương ứng vào README VI.
+- Đồng bộ root `Procfile` để MLflow serve trên `0.0.0.0:5000`.
+- Cập nhật README EN/VI: Honcho là runtime dependency, Docker command map cả `8000` và `5000`, đồng thời mount `$HOME/Downloads:/downloads`.
+- Ghi rõ container path cho MCP dataset input/output khi dùng Downloads mount.
 
 **Files thay đổi:**
+- `Procfile` — modified
 - `README.md` — modified
 - `README.vi.md` — modified
 - `docs/PROGRESS.md` — updated
@@ -16,7 +16,95 @@
 **Còn lại:** None
 
 **Flow explained:**
-Image publish hiện tại là `miphu2804/nli-synthetic-data-processing:latest`. Vì server chạy trong container nên dataset path phải trỏ vào filesystem của container. README giờ dùng ví dụ mount `"$HOME/Downloads:/downloads"` rồi truyền `input_path` và `output_path` dưới `/downloads/...` để tránh nhầm host absolute path với path server thực sự đọc được.
+Docker image đã dùng `backend/Procfile` để chạy Honcho cho FastAPI/FastMCP và MLflow, còn root `Procfile` phục vụ local Honcho từ repo root. Cả hai đều giữ MLflow ở port `5000`. Published Docker command cần `-p 5000:5000` để host thấy MLflow và `-v "$HOME/Downloads:/downloads"` để MCP runtime nhìn thấy dataset host qua `/downloads/...`. Smoke test image local đã xác nhận backend health, MCP status, MLflow HTTP 200, và mounted Downloads dataset path.
+
+---
+
+### [2026-06-30 19:27] — [DataRoot] Move runtime data to repo root
+
+**Đã làm:**
+- Chuyển tracked datasets từ `backend/data/` sang repo-root `data/`.
+- Thêm path helper để `data/...` và `.pipeline/...` resolve ổn định khi chạy từ repo root, từ `backend/`, hoặc trong Docker `/app`.
+- Đổi generation, validation, dataset reader, CLI discovery, aggregation defaults, và progress tracking sang repo-root `data/`.
+- Preserve runtime batch artifact chưa tracked bằng cách move `backend/data/batches/...` sang `data/batches/...`.
+- Cập nhật README/project overview/progress-tracking docs EN/VI để nói rõ `data/` nằm cùng cấp `backend/`.
+
+**Files thay đổi:**
+- `data/` — moved tracked datasets from `backend/data/`
+- `.gitignore` — modified
+- `backend/src/utils/project_paths.py` — created
+- `backend/src/services/data_processing_service.py` — modified
+- `backend/src/services/progress_tracking_service.py` — modified
+- `backend/src/services/generation_run_service.py` — modified
+- `backend/src/services/validation_run_service.py` — modified
+- `backend/src/services/post_validation/validation_aggregation.py` — modified
+- `backend/src/routers/reader_router.py` — modified
+- `backend/src/cli.py` — modified
+- `backend/tests/test_dataset_io.py`, `backend/tests/test_cli.py` — modified
+- `README.md`, `README.vi.md`, `docs/en/project-overview.md`, `docs/vi/project-overview.md`, `docs/en/flow/progress-tracking.md`, `docs/vi/flow/progress-tracking.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Repo-root `data/` is now the canonical dataset/artifact root. `DataProcessingService` still owns only file-level tabular IO; generation/validation services still own run lifecycle and finalization. Relative runtime paths beginning with `data/` resolve through the project root, so local commands run from `backend/` and Docker commands run from `/app` target the same conceptual layout. Default progress state also resolves to repo-root `.pipeline`, and batch files live under repo-root `data/batches/{run_id}`.
+
+---
+
+### [2026-06-30 19:17] — [Docker] Allow MLflow published-port access
+
+**Đã làm:**
+- Chẩn đoán log image: MLflow đã bind `0.0.0.0:5000`, nhưng MLflow 3.14 security middleware vẫn kiểm tra Host/CORS.
+- Cập nhật `backend/Procfile` để container MLflow cho phép truy cập qua published Docker port trong local development.
+- Cập nhật README EN/VI để ghi rõ published image mở MLflow qua port `5000`.
+
+**Files thay đổi:**
+- `backend/Procfile` — modified
+- `README.md` — modified
+- `README.vi.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** Local Docker daemon is unavailable on this machine, so final image proof must come from GitHub Actions build-and-push.
+
+**Còn lại:** None
+
+**Flow explained:**
+`--host 0.0.0.0` chỉ làm MLflow listen trên mọi interface trong container; MLflow 3.14 vẫn bật security middleware để validate Host header và CORS. Published Docker image là local-dev runtime, nên container Procfile thêm `--allowed-hosts '*'` và `--cors-allowed-origins '*'` cho MLflow để browser/agent truy cập được qua `http://localhost:5000` sau `-p 5000:5000`.
+
+---
+
+### [2026-06-30 19:06] — [Docker] Run MCP and MLflow in one image
+
+**Đã làm:**
+- Đổi backend Docker image sang chạy Honcho để start cả FastAPI/FastMCP và MLflow.
+- Thêm `backend/Procfile` container-native với MCP trên `0.0.0.0:8000` và MLflow trên `0.0.0.0:5000`.
+- Expose/map thêm port `5000` trong Dockerfile và Docker Compose.
+- Đưa `honcho` vào runtime dependencies để image pull về chạy được mặc định.
+- Cập nhật README EN/VI với Docker run command, MCP/MLflow endpoints, và boundary khi không mount volume.
+- Thêm Docker MCP endpoint hint vào generator/validator templates EN/VI.
+
+**Files thay đổi:**
+- `backend/Dockerfile` — modified
+- `backend/Procfile` — created
+- `backend/pyproject.toml` — modified
+- `backend/uv.lock` — modified
+- `docker-compose.yml` — modified
+- `README.md` — modified
+- `README.vi.md` — modified
+- `docs/en/template/generator.md` — modified
+- `docs/en/template/validator.md` — modified
+- `docs/vi/template/generator.md` — modified
+- `docs/vi/template/validator.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Docker runtime giờ không cần `tmux`; container dùng Honcho làm process supervisor đơn giản cho backend API/MCP và MLflow. Agent connection mặc định là `http://localhost:8000/mcp/`, MLflow là `http://localhost:5000`. Không mount volume vẫn ghi được progress, batch CSV, finalized outputs, và MLflow artifacts trong filesystem container; các artifact này là container-local và mất khi container bị xoá. Input dataset path phải tồn tại trong container, ví dụ do API/MCP tạo hoặc do custom image bake sẵn.
 
 ---
 
@@ -101,7 +189,7 @@ Default interactive flow giờ phải giữ MCP calls trong active Codex session
 **Đã làm:**
 - Thêm `Procfile` để chạy backend FastAPI/FastMCP và MLflow server cùng một lệnh Honcho.
 - Thêm `honcho` vào dev dependencies bằng `uv`.
-- Đổi default MLflow URL local sang `http://127.0.0.1:5001` vì port 5000 đang bị process macOS chiếm trên máy này.
+- Đổi default MLflow URL local sang `http://127.0.0.1:5000`.
 - Cập nhật README EN/VI để local start dùng `uv --project backend run honcho start`.
 - Gỡ phần file-type converter khỏi README EN/VI surface; runtime API hiện tại không đổi.
 
@@ -120,7 +208,7 @@ Default interactive flow giờ phải giữ MCP calls trong active Codex session
 **Còn lại:** None
 
 **Flow explained:**
-Local dev giờ có một lệnh root-level để chạy cả backend và MLflow: `uv --project backend run honcho start`. `Procfile` giữ backend trên port 8000, MLflow trên `127.0.0.1:5001`, và MLflow state/artifacts nằm dưới `backend/.mlflow/` đã được gitignore. README không còn quảng bá converter file type; code convert CSV chưa bị xoá vì request chỉ chạm README/runtime start surface.
+Local dev giờ có một lệnh root-level để chạy cả backend và MLflow: `uv --project backend run honcho start`. `Procfile` giữ backend trên port 8000, MLflow trên `127.0.0.1:5000`, và MLflow state/artifacts nằm dưới `backend/.mlflow/` đã được gitignore. README không còn quảng bá converter file type; code convert CSV chưa bị xoá vì request chỉ chạm README/runtime start surface.
 
 ---
 
@@ -191,90 +279,3 @@ Validator template giờ nói đúng boundary của runtime hiện tại: `start
 
 **Flow explained:**
 Google Drive trước đó chỉ là stub module được mount qua FastAPI router và hiện trên frontend. Vì FastMCP được tạo từ FastAPI app sau khi include routers, bỏ `drive_router` khỏi `main.py` cũng loại các endpoint Drive khỏi MCP-derived route surface. Core NLI runtime, dataset IO, skill resources, generation/validation MCP tools, và post-validation flow không đổi.
-
----
-
-### [2026-06-29 10:11] — [DataProcessing] Merge dataset IO service
-
-**Đã làm:**
-- Tạo `DataProcessingService` làm boundary duy nhất cho tabular file IO: read CSV/parquet window, write CSV/parquet rows, và convert common tabular inputs về CSV.
-- Thêm schema/route `/api/datasets/convert-to-csv` cho `.csv`, `.tsv`, `.parquet`, `.xlsx`, `.xls`, `.jsonl`, và flat JSON record arrays.
-- Đổi generation, validation, providers, routers, và tests sang dependency `DataProcessingService`.
-- Xoá service split cũ `DatasetReaderService` / `DatasetWriterService`.
-- Cập nhật README/project overview để nói rõ downstream stages vẫn dùng explicit CSV paths và conversion không random sampling, label cleanup, hay hidden runtime cleanup.
-
-**Files thay đổi:**
-- `backend/src/services/data_processing_service.py` — created
-- `backend/src/services/dataset_reader_service.py`, `backend/src/services/dataset_writer_service.py` — deleted
-- `backend/src/schemas/dataset_conversion_schema.py`, `backend/src/schemas/__init__.py` — created/modified
-- `backend/src/services/base_run_service.py`, `backend/src/services/generation_run_service.py`, `backend/src/services/validation_run_service.py` — modified
-- `backend/src/providers/generation_provider.py`, `backend/src/providers/validation_provider.py` — modified
-- `backend/src/routers/reader_router.py`, `backend/src/routers/writer_router.py` — modified
-- `backend/tests/test_dataset_io.py`, `backend/tests/test_generation_run_service.py`, `backend/tests/test_validation_run_service.py` — modified
-- `README.md`, `README.vi.md`, `docs/en/project-overview.md`, `docs/vi/project-overview.md`, `docs/PROGRESS.md` — modified
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Data processing giờ là boundary file-level duy nhất. Generation/validation runtime vẫn gọi `read_dataset(...)` và `read_dataframe(...)` trên CSV/parquet paths, còn conversion sang CSV là bước rõ ràng qua API trước khi đưa file vào downstream stages. Service không chứa generation/validation policy, sampling policy, label normalization, PMI, split, hay cleanup ngoài việc ghi output CSV/parquet được yêu cầu.
-
----
-
-### [2026-06-28 14:10] — [Validation] Finalize ANLI 1-1000 blind verdict artifacts
-
-**Đã làm:**
-- Verify `backend/data/generated/anli1-1000-from-sample-1.csv` parse được với 1000 rows rồi chuẩn hóa header CSV để runtime validation đọc đúng `source_uid,premise,hypothesis,label`.
-- Tạo masked input `backend/data/generated/anli1-1000-from-sample-1_validation_masked.csv` với label rỗng cho validator-facing flow.
-- Hoàn tất 3 validation runs `validation-20260628111418-27d77d7b`, `validation-20260628111418-6d50aaf0`, `validation-20260628111418-f7b97e02` và finalize thành `validation_results.csv` dưới `backend/data/validated/anli1-1000-from-sample-1/validator_{a,b,c}_medium/`.
-- Reduce 3 finalized outputs về `backend/data/validated/anli1-1000-from-sample-1/verdicts/{validator_a_medium,validator_b_medium,validator_c_medium}.csv` với đúng schema `source_uid,predicted_label,reason`.
-- Chạy integrity gate giữa generated input, masked input, và 3 verdict files; kết quả pass với 1000 rows/file, không duplicate `source_uid`, không blank reason, và chỉ có label canonical.
-
-**Files thay đổi:**
-- `backend/data/generated/anli1-1000-from-sample-1.csv` — created/normalized
-- `backend/data/generated/anli1-1000-from-sample-1.pre-normalize.csv` — created
-- `backend/data/generated/anli1-1000-from-sample-1_validation_masked.csv` — created
-- `backend/data/validated/anli1-1000-from-sample-1/validator_a_medium/validation_results.csv` — created
-- `backend/data/validated/anli1-1000-from-sample-1/validator_b_medium/validation_results.csv` — created
-- `backend/data/validated/anli1-1000-from-sample-1/validator_c_medium/validation_results.csv` — created
-- `backend/data/validated/anli1-1000-from-sample-1/verdicts/` — created
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** Exact provenance audit for “all 1000 rows came from the same 3 Codex subagents end-to-end” would require a fresh rerun from scratch; this completion resumed existing mixed-worker run state and finished the remaining claims cleanly.
-
-**Còn lại:** None for the current verdict artifacts and integrity handoff.
-
-**Flow explained:**
-Runtime validation vẫn dùng generated input có label làm source of truth và chỉ phát masked rows cho validator-facing work. Run state được resume từ `.pipeline/runs/*` + `data/batches/*`, submit nốt các claim còn active, finalize từng run thành `validation_results.csv`, rồi reduce xuống 3 verdict CSV phục vụ post-validation. Integrity gate phải so theo tập `source_uid` thực có trong generated/masked inputs, không giả định UID liên tiếp 1..1000 vì file này có 1000 rows nhưng UID kéo tới 1003.
-
----
-
-### [2026-06-28 01:00] — [PostValidation] Move phase logic into services
-
-**Đã làm:**
-- Tạo package `backend/src/services/post_validation/` cho các phase sau validation: aggregation, artifact detection, paraphrase, và dataset split.
-- Đổi CLI và validation MCP provider thành adapter gọi service thay vì giữ business logic trong `src.cli`.
-- Đổi import prompt-refinement kappa sang public surface `src.services.post_validation`.
-- Đưa CSV/parquet tabular I/O chung vào `backend/src/utils/tabular_io.py`; service phase không còn sở hữu helper đọc bảng.
-- Rename helper đọc output dự đoán của model sang `model_predictions.py` để tránh lẫn với truth labels.
-- Bỏ config OpenAI không còn được backend dùng khỏi `app_config.py` và `.env.example`; giữ phase defaults cạnh service, không đưa vào app config/YAML.
-- Đổi hằng phase sang tên không có tiền tố `DEFAULT_` và dọn reference cũ `src.utils.validation_aggregation` / `src.utils.dataset_split`.
-
-**Files thay đổi:**
-- `backend/src/services/post_validation/` — created
-- `backend/src/cli.py`, `backend/src/providers/validation_provider.py` — modified
-- `backend/src/app_config.py`, `backend/.env.example` — modified
-- `backend/src/utils/tabular_io.py` — created
-- `backend/src/services/prompt_refinement/evaluator.py` — modified
-- `backend/src/utils/dataset_split.py`, `backend/src/utils/validation_aggregation/*` — deleted
-- `backend/tests/test_dataset_split.py`, `backend/tests/test_validation_aggregation.py` — modified
-- `docs/en/template/post-validation.md`, `docs/vi/template/post-validation.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Post-validation giờ có service boundary theo phase: `ValidationAggregationService` tạo vote/validated/review outputs, `ArtifactDetectionService` chạy PMI artifact detection, `ParaphraseService` apply/promote paraphrase, và `DatasetSplitService` ghi train/dev/test split. CLI command và MCP provider vẫn giữ public command/tool name hiện tại để tương thích, nhưng không còn sở hữu business logic. Config runtime/env chỉ còn MLflow trong `app_config`; các default như PMI threshold, split ratio, seed, group/label column sống cạnh service vì là behavior mặc định của phase.

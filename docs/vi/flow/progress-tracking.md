@@ -5,6 +5,9 @@ MCP runtime tools được sở hữu quyền ghi.
 
 ## Runtime Paths
 
+Các path relative với repo root. `data/` nằm cùng cấp với `backend/`, không nằm
+bên trong `backend/`.
+
 ```text
 .pipeline/runs/{run_id}/manifest.json
 .pipeline/runs/{run_id}/progress.jsonl

@@ -28,7 +28,7 @@ sudo dnf install tmux
 
 Trên Windows, chạy các lệnh này trong WSL. PowerShell native không có `tmux`.
 
-Honcho là dev dependency của backend. Nếu
+Honcho là runtime dependency của backend. Nếu
 `uv --project backend run honcho --version` không chạy, refresh môi trường
 backend:
 
@@ -61,7 +61,7 @@ Trong một `tmux` window khác, chạy MLflow:
 cd backend
 uv run mlflow server \
   --host 127.0.0.1 \
-  --port 5001 \
+  --port 5000 \
   --backend-store-uri sqlite:///$PWD/.mlflow/mlflow.db \
   --default-artifact-root file://$PWD/.mlflow/artifacts
 ```
@@ -95,57 +95,48 @@ uv --project backend run honcho start
 
 Backend: `http://localhost:8000`
 MCP endpoint: `http://localhost:8000/mcp/`
-MLflow: `http://127.0.0.1:5001`
+MLflow: `http://127.0.0.1:5000`
 
 Detach bằng `Ctrl-b`, rồi `d`; kết nối lại bằng
 `tmux attach -t nli-runtime`.
 
-## Chạy bằng container
+## Chạy bằng Docker
 
-Chạy backend qua Compose (port 8000):
-
-```bash
-docker compose up --build
-```
-
-CI build và push image backend lên Docker Hub:
-`miphu2804/nli-synthetic-data-processing:latest`.
-
-Pull image đã publish:
+Backend image mặc định chạy cả FastAPI/FastMCP và MLflow bằng Honcho. Lệnh này
+mount `Downloads` của host vào container để MCP thấy file dataset:
 
 ```bash
-docker pull miphu2804/nli-synthetic-data-processing:latest
-```
+docker rm -f nli-tools 2>/dev/null || true
 
-Chạy container backend và mount thư mục `Downloads` của máy host vào trong
-container:
-
-```bash
 docker run -d --name nli-tools \
   --pull=always \
   -p 8000:8000 \
+  -p 5000:5000 \
   -v "$HOME/Downloads:/downloads" \
   miphu2804/nli-synthetic-data-processing:latest
 ```
 
-MCP endpoint:
+Endpoint cho agent:
 
 ```text
-http://localhost:8000/mcp/
+MCP: http://localhost:8000/mcp/
+MLflow: http://localhost:5000
 ```
 
-Khi gọi MCP dataset tools vào container này, dùng path nhìn từ trong
-container, không dùng host path. Ví dụ:
+Container ghi được runtime state bên trong chính nó: `.pipeline/` cho progress,
+repo-root `data/batches/` cho batch CSV, repo-root `data/generated/` hoặc
+`data/validated/` cho final dataset, và `.mlflow/` cho MLflow. Published image
+start MLflow trên `0.0.0.0:5000` và cho phép browser truy cập qua published
+Docker port cho local development. Nếu không mount volume, các file này chỉ tồn
+tại trong container và mất khi container bị xoá. Agent vẫn claim/submit batch
+qua MCP được miễn là input dataset path tồn tại bên trong container, ví dụ được
+tạo qua dataset write API hoặc được bake sẵn vào custom image.
+
+Với file host được mount từ `Downloads`, dùng path trong container:
 
 ```text
 input_path=/downloads/data_normalize/dev_r1.csv
 output_path=/downloads/data_normalize/generated/dev_r1_vie.csv
-```
-
-Dừng và xoá container:
-
-```bash
-docker rm -f nli-tools
 ```
 
 ## Prompt refinement tùy chọn

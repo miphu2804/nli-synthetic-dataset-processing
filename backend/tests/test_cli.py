@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
+
 from src.cli import (
     build_verdict_candidates,
     default_consensus_output_dir,
@@ -18,6 +19,7 @@ from src.cli import (
     run_promote_paraphrase,
     run_split,
 )
+from src.utils.project_paths import resolve_data_path
 
 
 class ValidationMaskingCliTest(unittest.TestCase):
@@ -383,7 +385,7 @@ class ValidationAggregationCliTest(unittest.TestCase):
     def test_default_consensus_output_dir_uses_expected_input_stem(self) -> None:
         self.assertEqual(
             default_consensus_output_dir(Path("data/generated/foo.csv")),
-            Path("data/validated/foo"),
+            resolve_data_path("validated", "foo"),
         )
 
     def test_run_consensus_pmi_writes_all_artifacts(self) -> None:

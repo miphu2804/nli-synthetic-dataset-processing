@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
+
 from src.services.post_validation import (
     apply_paraphrases,
     attach_masked_text,

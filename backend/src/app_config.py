@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AppConfig(BaseSettings):
-    MLFLOW_URL: str = "http://127.0.0.1:5001"
+    MLFLOW_URL: str = "http://127.0.0.1:5000"
     MLFLOW_EXPERIMENT_NAME: str = "nli-prompt-calibration"
     MLFLOW_ARTIFACT_ROOT: Optional[str] = None
 

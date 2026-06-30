@@ -1,6 +1,7 @@
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
+
 from src.schemas.generation_runtime_schema import RunProgressSnapshot
 from src.utils.nli_labels import to_label_name
 

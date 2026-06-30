@@ -17,6 +17,7 @@ nli-synthetic-data-processing/
 │   │   └── utils/                  Standalone CLI utilities (masking, aggregation)
 │   ├── skills/                     MCP skill markdown files (served at skill://)
 │   └── tests/
+├── data/                           Runtime datasets and batch artifacts
 ├── docs/
 │   ├── en/                         English guides (flow/, template/)
 │   └── vi/                         Vietnamese guides (flow/, template/)
@@ -49,8 +50,9 @@ sudo dnf install tmux
 On Windows, run these commands inside WSL. Native PowerShell does not provide
 `tmux`.
 
-Honcho is a backend dev dependency. If `uv --project backend run honcho --version`
-does not work, refresh the backend environment:
+Honcho is a backend runtime dependency. If
+`uv --project backend run honcho --version` does not work, refresh the backend
+environment:
 
 ```bash
 cd backend
@@ -81,7 +83,7 @@ In another `tmux` window, start MLflow:
 cd backend
 uv run mlflow server \
   --host 127.0.0.1 \
-  --port 5001 \
+  --port 5000 \
   --backend-store-uri sqlite:///$PWD/.mlflow/mlflow.db \
   --default-artifact-root file://$PWD/.mlflow/artifacts
 ```
@@ -115,7 +117,7 @@ uv --project backend run honcho start
 
 Backend: `http://localhost:8000`
 MCP endpoint: `http://localhost:8000/mcp/`
-MLflow: `http://127.0.0.1:5001`
+MLflow: `http://127.0.0.1:5000`
 
 Detach with `Ctrl-b`, then `d`; reconnect with
 `tmux attach -t nli-runtime`.
@@ -131,19 +133,16 @@ docker compose up --build
 CI builds and pushes the backend image to Docker Hub:
 `nli-synthetic-data-processing`.
 
-Pull the published backend image:
+Run the backend container with MCP, MLflow, and your host `Downloads` directory
+available inside the container:
 
 ```bash
-docker pull miphu2804/nli-synthetic-data-processing:latest
-```
+docker rm -f nli-tools 2>/dev/null || true
 
-Run the backend container with your host `Downloads` directory mounted into the
-container:
-
-```bash
 docker run -d --name nli-tools \
   --pull=always \
   -p 8000:8000 \
+  -p 5000:5000 \
   -v "$HOME/Downloads:/downloads" \
   miphu2804/nli-synthetic-data-processing:latest
 ```
@@ -154,18 +153,30 @@ MCP endpoint:
 http://localhost:8000/mcp/
 ```
 
-When you use MCP dataset paths against this container, pass the container path
-rather than the host path. For example:
+MLflow:
+
+```text
+http://localhost:5000
+```
+
+The container starts both FastAPI/FastMCP and MLflow with Honcho. Runtime state
+is writable inside the container: generation/validation progress goes under
+`.pipeline/`, batch CSV files under repo-root `data/batches/`, finalized
+datasets under repo-root `data/generated/` or `data/validated/`, and MLflow
+data under `.mlflow/`.
+The published image starts MLflow on `0.0.0.0:5000` and allows browser access
+through the published Docker port for local development.
+Without a volume mount, those files are container-local and disappear when the
+container is removed. Agents can still claim and submit batches through the MCP
+endpoint as long as the input dataset path exists inside the container, for
+example because it was created through the dataset write API or included in a
+custom image.
+
+For host files mounted from `Downloads`, use the container path:
 
 ```text
 input_path=/downloads/data_normalize/dev_r1.csv
 output_path=/downloads/data_normalize/generated/dev_r1_vie.csv
-```
-
-Stop and remove the container later:
-
-```bash
-docker rm -f nli-tools
 ```
 
 ### Optional prompt refinement

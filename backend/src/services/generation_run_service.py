@@ -18,6 +18,7 @@ from src.schemas.generation_runtime_schema import (
 from src.services.base_run_service import DEFAULT_BATCH_SIZE, BaseRunService
 from src.services.data_processing_service import DataProcessingService
 from src.services.progress_tracking_service import ProgressTrackingService
+from src.utils.project_paths import resolve_data_path, resolve_runtime_path
 
 FINAL_ROW_COUNT_ERROR = (
     "Cannot cleanup run because final output row count does not match completed rows."
@@ -60,7 +61,7 @@ class GenerationRunService(BaseRunService):
         )
         run_settings = GenerationRunManifest(
             run_id=self._make_run_id(),
-            input_path=str(Path(input_path).expanduser().resolve()),
+            input_path=str(resolve_runtime_path(input_path)),
             output_path=str(self._resolve_output_path(input_path, output_path)),
             uid_column=uid_column,
             row_offset=row_offset,
@@ -376,6 +377,6 @@ class GenerationRunService(BaseRunService):
     def _resolve_output_path(input_path, output_path):
         """Resolve the configured or default generation output path."""
         if output_path:
-            return Path(output_path).expanduser().resolve()
+            return resolve_runtime_path(output_path)
         input_stem = Path(input_path).stem
-        return (Path("data/generated") / f"{input_stem}_nli_adversarials.csv").resolve()
+        return resolve_data_path("generated", f"{input_stem}_nli_adversarials.csv")
