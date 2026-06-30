@@ -100,6 +100,28 @@ MLflow: `http://127.0.0.1:5001`
 Detach bằng `Ctrl-b`, rồi `d`; kết nối lại bằng
 `tmux attach -t nli-runtime`.
 
+## Chạy bằng Docker
+
+Backend image mặc định chạy cả FastAPI/FastMCP và MLflow bằng Honcho:
+
+```bash
+docker run --pull=always -p 8000:8000 -p 5000:5000 miphu2804/nli-synthetic-data-processing:latest
+```
+
+Endpoint cho agent:
+
+```text
+MCP: http://localhost:8000/mcp/
+MLflow: http://localhost:5000
+```
+
+Container ghi được runtime state bên trong chính nó: `.pipeline/` cho progress,
+`data/batches/` cho batch CSV, `data/generated/` hoặc `data/validated/` cho
+final dataset, và `.mlflow/` cho MLflow. Nếu không mount volume, các file này
+chỉ tồn tại trong container và mất khi container bị xoá. Agent vẫn claim/submit
+batch qua MCP được miễn là input dataset path tồn tại bên trong container, ví
+dụ được tạo qua dataset write API hoặc được bake sẵn vào custom image.
+
 ## Prompt refinement tùy chọn
 
 Chạy trước large-scale generation khi generator policy hoặc validator rubric

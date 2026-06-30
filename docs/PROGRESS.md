@@ -1,3 +1,36 @@
+### [2026-06-30 19:06] — [Docker] Run MCP and MLflow in one image
+
+**Đã làm:**
+- Đổi backend Docker image sang chạy Honcho để start cả FastAPI/FastMCP và MLflow.
+- Thêm `backend/Procfile` container-native với MCP trên `0.0.0.0:8000` và MLflow trên `0.0.0.0:5000`.
+- Expose/map thêm port `5000` trong Dockerfile và Docker Compose.
+- Đưa `honcho` vào runtime dependencies để image pull về chạy được mặc định.
+- Cập nhật README EN/VI với Docker run command, MCP/MLflow endpoints, và boundary khi không mount volume.
+- Thêm Docker MCP endpoint hint vào generator/validator templates EN/VI.
+
+**Files thay đổi:**
+- `backend/Dockerfile` — modified
+- `backend/Procfile` — created
+- `backend/pyproject.toml` — modified
+- `backend/uv.lock` — modified
+- `docker-compose.yml` — modified
+- `README.md` — modified
+- `README.vi.md` — modified
+- `docs/en/template/generator.md` — modified
+- `docs/en/template/validator.md` — modified
+- `docs/vi/template/generator.md` — modified
+- `docs/vi/template/validator.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Docker runtime giờ không cần `tmux`; container dùng Honcho làm process supervisor đơn giản cho backend API/MCP và MLflow. Agent connection mặc định là `http://localhost:8000/mcp/`, MLflow là `http://localhost:5000`. Không mount volume vẫn ghi được progress, batch CSV, finalized outputs, và MLflow artifacts trong filesystem container; các artifact này là container-local và mất khi container bị xoá. Input dataset path phải tồn tại trong container, ví dụ do API/MCP tạo hoặc do custom image bake sẵn.
+
+---
+
 ### [2026-06-30 18:25] — [Templates] Require fresh generation workers per batch
 
 **Đã làm:**
@@ -225,34 +258,3 @@ Data processing giờ là boundary file-level duy nhất. Generation/validation 
 
 **Flow explained:**
 Runtime validation vẫn dùng generated input có label làm source of truth và chỉ phát masked rows cho validator-facing work. Run state được resume từ `.pipeline/runs/*` + `data/batches/*`, submit nốt các claim còn active, finalize từng run thành `validation_results.csv`, rồi reduce xuống 3 verdict CSV phục vụ post-validation. Integrity gate phải so theo tập `source_uid` thực có trong generated/masked inputs, không giả định UID liên tiếp 1..1000 vì file này có 1000 rows nhưng UID kéo tới 1003.
-
----
-
-### [2026-06-28 01:00] — [PostValidation] Move phase logic into services
-
-**Đã làm:**
-- Tạo package `backend/src/services/post_validation/` cho các phase sau validation: aggregation, artifact detection, paraphrase, và dataset split.
-- Đổi CLI và validation MCP provider thành adapter gọi service thay vì giữ business logic trong `src.cli`.
-- Đổi import prompt-refinement kappa sang public surface `src.services.post_validation`.
-- Đưa CSV/parquet tabular I/O chung vào `backend/src/utils/tabular_io.py`; service phase không còn sở hữu helper đọc bảng.
-- Rename helper đọc output dự đoán của model sang `model_predictions.py` để tránh lẫn với truth labels.
-- Bỏ config OpenAI không còn được backend dùng khỏi `app_config.py` và `.env.example`; giữ phase defaults cạnh service, không đưa vào app config/YAML.
-- Đổi hằng phase sang tên không có tiền tố `DEFAULT_` và dọn reference cũ `src.utils.validation_aggregation` / `src.utils.dataset_split`.
-
-**Files thay đổi:**
-- `backend/src/services/post_validation/` — created
-- `backend/src/cli.py`, `backend/src/providers/validation_provider.py` — modified
-- `backend/src/app_config.py`, `backend/.env.example` — modified
-- `backend/src/utils/tabular_io.py` — created
-- `backend/src/services/prompt_refinement/evaluator.py` — modified
-- `backend/src/utils/dataset_split.py`, `backend/src/utils/validation_aggregation/*` — deleted
-- `backend/tests/test_dataset_split.py`, `backend/tests/test_validation_aggregation.py` — modified
-- `docs/en/template/post-validation.md`, `docs/vi/template/post-validation.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Post-validation giờ có service boundary theo phase: `ValidationAggregationService` tạo vote/validated/review outputs, `ArtifactDetectionService` chạy PMI artifact detection, `ParaphraseService` apply/promote paraphrase, và `DatasetSplitService` ghi train/dev/test split. CLI command và MCP provider vẫn giữ public command/tool name hiện tại để tương thích, nhưng không còn sở hữu business logic. Config runtime/env chỉ còn MLflow trong `app_config`; các default như PMI threshold, split ratio, seed, group/label column sống cạnh service vì là behavior mặc định của phase.

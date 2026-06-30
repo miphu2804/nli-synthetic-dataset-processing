@@ -134,7 +134,7 @@ CI builds and pushes the backend image to Docker Hub:
 Backend only:
 
 ```bash
-docker run --pull=always -p 8000:8000 miphu2804/nli-synthetic-data-processing:latest
+docker run --pull=always -p 8000:8000 -p 5000:5000 miphu2804/nli-synthetic-data-processing:latest
 ```
 
 MCP endpoint:
@@ -142,6 +142,22 @@ MCP endpoint:
 ```text
 http://localhost:8000/mcp/
 ```
+
+MLflow:
+
+```text
+http://localhost:5000
+```
+
+The container starts both FastAPI/FastMCP and MLflow with Honcho. Runtime state
+is writable inside the container: generation/validation progress goes under
+`.pipeline/`, batch CSV files under `data/batches/`, finalized datasets under
+`data/generated/` or `data/validated/`, and MLflow data under `.mlflow/`.
+Without a volume mount, those files are container-local and disappear when the
+container is removed. Agents can still claim and submit batches through the MCP
+endpoint as long as the input dataset path exists inside the container, for
+example because it was created through the dataset write API or included in a
+custom image.
 
 ### Optional prompt refinement
 

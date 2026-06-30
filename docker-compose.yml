@@ -4,5 +4,8 @@ services:
     image: ${DOCKER_USERNAME:-local}/nli-synthetic-data-processing:latest
     build:
       context: ./backend
+    environment:
+      MLFLOW_URL: http://127.0.0.1:5000
     ports:
       - "8000:8000"
+      - "5000:5000"
