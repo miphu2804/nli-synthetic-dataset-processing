@@ -81,7 +81,7 @@ In another `tmux` window, start MLflow:
 cd backend
 uv run mlflow server \
   --host 127.0.0.1 \
-  --port 5001 \
+  --port 5000 \
   --backend-store-uri sqlite:///$PWD/.mlflow/mlflow.db \
   --default-artifact-root file://$PWD/.mlflow/artifacts
 ```
@@ -115,7 +115,7 @@ uv --project backend run honcho start
 
 Backend: `http://localhost:8000`
 MCP endpoint: `http://localhost:8000/mcp/`
-MLflow: `http://127.0.0.1:5001`
+MLflow: `http://127.0.0.1:5000`
 
 Detach with `Ctrl-b`, then `d`; reconnect with
 `tmux attach -t nli-runtime`.

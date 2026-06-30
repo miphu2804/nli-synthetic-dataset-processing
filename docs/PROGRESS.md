@@ -112,7 +112,7 @@ Default interactive flow giờ phải giữ MCP calls trong active Codex session
 **Đã làm:**
 - Thêm `Procfile` để chạy backend FastAPI/FastMCP và MLflow server cùng một lệnh Honcho.
 - Thêm `honcho` vào dev dependencies bằng `uv`.
-- Đổi default MLflow URL local sang `http://127.0.0.1:5001` vì port 5000 đang bị process macOS chiếm trên máy này.
+- Đổi default MLflow URL local sang `http://127.0.0.1:5000`.
 - Cập nhật README EN/VI để local start dùng `uv --project backend run honcho start`.
 - Gỡ phần file-type converter khỏi README EN/VI surface; runtime API hiện tại không đổi.
 
@@ -131,7 +131,7 @@ Default interactive flow giờ phải giữ MCP calls trong active Codex session
 **Còn lại:** None
 
 **Flow explained:**
-Local dev giờ có một lệnh root-level để chạy cả backend và MLflow: `uv --project backend run honcho start`. `Procfile` giữ backend trên port 8000, MLflow trên `127.0.0.1:5001`, và MLflow state/artifacts nằm dưới `backend/.mlflow/` đã được gitignore. README không còn quảng bá converter file type; code convert CSV chưa bị xoá vì request chỉ chạm README/runtime start surface.
+Local dev giờ có một lệnh root-level để chạy cả backend và MLflow: `uv --project backend run honcho start`. `Procfile` giữ backend trên port 8000, MLflow trên `127.0.0.1:5000`, và MLflow state/artifacts nằm dưới `backend/.mlflow/` đã được gitignore. README không còn quảng bá converter file type; code convert CSV chưa bị xoá vì request chỉ chạm README/runtime start surface.
 
 ---
 
