@@ -1,3 +1,25 @@
+### [2026-07-01 00:10] — [Docker] Align Honcho container startup
+
+**Đã làm:**
+- Đồng bộ root `Procfile` để MLflow serve trên `0.0.0.0:5000`.
+- Cập nhật README EN/VI: Honcho là runtime dependency, Docker command map cả `8000` và `5000`, đồng thời mount `$HOME/Downloads:/downloads`.
+- Ghi rõ container path cho MCP dataset input/output khi dùng Downloads mount.
+
+**Files thay đổi:**
+- `Procfile` — modified
+- `README.md` — modified
+- `README.vi.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Docker image đã dùng `backend/Procfile` để chạy Honcho cho FastAPI/FastMCP và MLflow, còn root `Procfile` phục vụ local Honcho từ repo root. Cả hai đều giữ MLflow ở port `5000`. Published Docker command cần `-p 5000:5000` để host thấy MLflow và `-v "$HOME/Downloads:/downloads"` để MCP runtime nhìn thấy dataset host qua `/downloads/...`. Smoke test image local đã xác nhận backend health, MCP status, MLflow HTTP 200, và mounted Downloads dataset path.
+
+---
+
 ### [2026-06-30 19:27] — [DataRoot] Move runtime data to repo root
 
 **Đã làm:**
