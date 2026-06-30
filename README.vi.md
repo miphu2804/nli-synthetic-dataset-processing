@@ -100,6 +100,54 @@ MLflow: `http://127.0.0.1:5001`
 Detach bằng `Ctrl-b`, rồi `d`; kết nối lại bằng
 `tmux attach -t nli-runtime`.
 
+## Chạy bằng container
+
+Chạy backend qua Compose (port 8000):
+
+```bash
+docker compose up --build
+```
+
+CI build và push image backend lên Docker Hub:
+`miphu2804/nli-synthetic-data-processing:latest`.
+
+Pull image đã publish:
+
+```bash
+docker pull miphu2804/nli-synthetic-data-processing:latest
+```
+
+Chạy container backend và mount thư mục `Downloads` của máy host vào trong
+container:
+
+```bash
+docker run -d --name nli-tools \
+  --pull=always \
+  -p 8000:8000 \
+  -v "$HOME/Downloads:/downloads" \
+  miphu2804/nli-synthetic-data-processing:latest
+```
+
+MCP endpoint:
+
+```text
+http://localhost:8000/mcp/
+```
+
+Khi gọi MCP dataset tools vào container này, dùng path nhìn từ trong
+container, không dùng host path. Ví dụ:
+
+```text
+input_path=/downloads/data_normalize/dev_r1.csv
+output_path=/downloads/data_normalize/generated/dev_r1_vie.csv
+```
+
+Dừng và xoá container:
+
+```bash
+docker rm -f nli-tools
+```
+
 ## Prompt refinement tùy chọn
 
 Chạy trước large-scale generation khi generator policy hoặc validator rubric

@@ -131,16 +131,41 @@ docker compose up --build
 CI builds and pushes the backend image to Docker Hub:
 `nli-synthetic-data-processing`.
 
-Backend only:
+Pull the published backend image:
 
 ```bash
-docker run --pull=always -p 8000:8000 miphu2804/nli-synthetic-data-processing:latest
+docker pull miphu2804/nli-synthetic-data-processing:latest
+```
+
+Run the backend container with your host `Downloads` directory mounted into the
+container:
+
+```bash
+docker run -d --name nli-tools \
+  --pull=always \
+  -p 8000:8000 \
+  -v "$HOME/Downloads:/downloads" \
+  miphu2804/nli-synthetic-data-processing:latest
 ```
 
 MCP endpoint:
 
 ```text
 http://localhost:8000/mcp/
+```
+
+When you use MCP dataset paths against this container, pass the container path
+rather than the host path. For example:
+
+```text
+input_path=/downloads/data_normalize/dev_r1.csv
+output_path=/downloads/data_normalize/generated/dev_r1_vie.csv
+```
+
+Stop and remove the container later:
+
+```bash
+docker rm -f nli-tools
 ```
 
 ### Optional prompt refinement

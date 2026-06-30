@@ -1,3 +1,25 @@
+### [2026-06-30 20:40] — [Docs] Add Docker pull and mounted Downloads run
+
+**Đã làm:**
+- Cập nhật README EN với lệnh `docker pull` cho image Docker Hub hiện tại.
+- Đổi ví dụ `docker run` sang mode đặt tên container và mount `~/Downloads` vào `/downloads`.
+- Ghi rõ MCP phải dùng container path như `/downloads/...` thay vì host path `/Users/...`.
+- Thêm section container tương ứng vào README VI.
+
+**Files thay đổi:**
+- `README.md` — modified
+- `README.vi.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Image publish hiện tại là `miphu2804/nli-synthetic-data-processing:latest`. Vì server chạy trong container nên dataset path phải trỏ vào filesystem của container. README giờ dùng ví dụ mount `"$HOME/Downloads:/downloads"` rồi truyền `input_path` và `output_path` dưới `/downloads/...` để tránh nhầm host absolute path với path server thực sự đọc được.
+
+---
+
 ### [2026-06-30 18:25] — [Templates] Require fresh generation workers per batch
 
 **Đã làm:**
