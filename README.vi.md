@@ -1,7 +1,7 @@
 # NLI Synthetic Data Processing
 
-Repo gồm backend FastAPI + FastMCP và frontend React để tạo, kiểm tra và xử lý
-dataset Vietnamese NLI.
+Repo gồm backend FastAPI + FastMCP để tạo, kiểm tra và xử lý dataset
+Vietnamese NLI.
 
 ## Chạy local
 
@@ -11,15 +11,6 @@ Backend:
 cd backend
 uv sync
 uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
-```
-
-Frontend:
-
-```bash
-cd frontend
-cp .env.example .env
-npm install
-npm run dev
 ```
 
 MCP endpoint: `http://localhost:8000/mcp/`.

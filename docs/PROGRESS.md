@@ -1,3 +1,25 @@
+### [2026-06-30 09:46] — [Docs] Align README after frontend removal
+
+**Đã làm:**
+- Gỡ phần frontend khỏi README EN/VI sau khi frontend integration đã bị xoá.
+- Cập nhật hướng dẫn Docker Compose thành backend-only.
+- Xoá frontend service khỏi `docker-compose.yml` để compose build/push không trỏ vào thư mục frontend đã bị xoá.
+
+**Files thay đổi:**
+- `README.md` — modified
+- `README.vi.md` — modified
+- `docker-compose.yml` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Sau commit remove frontend integration, repo chỉ còn backend FastAPI + FastMCP. README và Compose giờ phản ánh đúng surface hiện tại: chạy backend bằng `uvicorn` hoặc `docker compose up --build`, không còn hướng dẫn `cd frontend`, `npm run dev`, image frontend, hay `VITE_API_ENDPOINT`.
+
+---
+
 ### [2026-06-29 18:54] — [Validation] Tighten validator prompt template for truncated claims
 
 **Đã làm:**
@@ -227,33 +249,5 @@ Generation MCP flow hiện chỉ còn runtime tools thật: `start_generation_ru
 
 **Flow explained:**
 Prompt-refinement backend giờ chỉ evaluate/log một calibration và trả `accepted` hoặc `needs_prompt_update`. Khi kappa thấp, main agent đọc evidence đã log như `disagreement_rows.csv`, prompt snapshots, verdict files, và calibration rows rồi report next step nhỏ nhất cho user duyệt; backend không propose prompt edit, không spawn editor agents, không lock/version/promote prompts, và không tự chạy round tiếp theo.
-
----
-
-### [2026-06-27 19:55] — [Runtime] Implement run-service gen/val cleanup
-
-**Đã làm:**
-- Tạo branch `refactor/run-service-gen-val-cleanup` để implement plan refactor runtime.
-- Baseline targeted suite trước khi sửa: generation/validation service + provider tests đều pass.
-- Inline `GenerationRunService._merge_batch_outputs(...)` vào finalize path và xoá wrapper một dòng.
-- Bỏ `GenerationRunService._label_key(...)`, giữ label preservation bằng so sánh `str(...)` trực tiếp.
-- Inline acceptance counting và CSV bool parse trong `ValidationRunService`, xoá `_count_acceptance(...)` và `_csv_bool(...)`.
-- Giữ nguyên public MCP tool surface, provider split hiện tại, output schema, progress lifecycle, và validation label-normalization boundary.
-- Đồng bộ wording `verify_progress_log` sang consistency/reconciliation checks, tránh gợi lại contract progress log cũ đã bị loại bỏ.
-
-**Files thay đổi:**
-- `backend/src/services/base_run_service.py` — modified
-- `backend/src/services/generation_run_service.py` — modified
-- `backend/src/services/validation_run_service.py` — modified
-- `backend/src/providers/generation_provider.py`, `backend/src/providers/validation_provider.py` — modified
-- `docs/en/project-overview.md`, `docs/vi/project-overview.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Refactor này chỉ xoá helper private không còn mang domain meaning. Generation vẫn giữ exact label preservation theo source label; validation vẫn dùng `to_label_name(...)` trong `_labels_match(...)` để kiểm 3-class strict. Progress verification hiện là consistency/reconciliation scan trên append-only JSONL events, không phải chained-log verification. Provider methods vẫn là public MCP adapters nên không bị xoá dù đa phần forward xuống service.
 
 ---

@@ -17,11 +17,6 @@ nli-synthetic-data-processing/
 │   │   └── utils/                  Standalone CLI utilities (masking, aggregation)
 │   ├── skills/                     MCP skill markdown files (served at skill://)
 │   └── tests/
-├── frontend/                       NLI Studio dashboard (Vite + React + TS)
-│   └── src/
-│       ├── pages/                  Route-level page components
-│       ├── components/             Shared UI components
-│       └── lib/                    API client helpers
 ├── docs/
 │   ├── en/                         English guides (flow/, template/)
 │   └── vi/                         Vietnamese guides (flow/, template/)
@@ -38,16 +33,7 @@ uv sync
 uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
 ```
 
-Frontend (port 3000):
-
-```bash
-cd frontend
-cp .env.example .env   # VITE_API_ENDPOINT=http://localhost:8000
-npm install
-npm run dev
-```
-
-Or run both with Docker Compose:
+Or run the backend with Docker Compose:
 
 ```bash
 docker compose up --build
@@ -55,26 +41,20 @@ docker compose up --build
 
 ## Container Start
 
-Both services via Compose (backend on 8000, frontend on 3000):
+Backend via Compose (port 8000):
 
 ```bash
 docker compose up --build
 ```
 
-CI builds and pushes two images to Docker Hub:
-`nli-synthetic-data-processing` (backend) and
-`nli-synthetic-data-processing-frontend` (frontend).
+CI builds and pushes the backend image to Docker Hub:
+`nli-synthetic-data-processing`.
 
 Backend only:
 
 ```bash
 docker run --pull=always -p 8000:8000 miphu2804/nli-synthetic-data-processing:latest
 ```
-
-The frontend's `VITE_API_ENDPOINT` is baked at build time (the bundle runs in the
-browser). For local same-machine use the default `http://localhost:8000` works because
-Compose publishes backend port 8000 to the host. For a remote deploy, rebuild the frontend
-with `--build-arg VITE_API_ENDPOINT=https://your-backend-url`.
 
 MCP endpoint:
 
