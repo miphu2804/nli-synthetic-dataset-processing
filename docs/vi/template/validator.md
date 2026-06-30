@@ -25,7 +25,7 @@ Available validation tools:
 Goal:
 Validate generated Vietnamese NLI rows through blanked labels:
 - input_path: <GENERATED_CSV_WITH_HIDDEN_LABELS>
-- output_dir: data/validated/<RUN_OR_MODEL_ID>
+- output_dir: data/validated/<DATASET_SLICE>/<MODEL_ID>
 - from_sample: <ONE_BASED_FIRST_SAMPLE>
 - to_sample: <ONE_BASED_LAST_SAMPLE_INCLUSIVE>
 - batch_size: 20
@@ -36,11 +36,12 @@ Flow:
    - skill://execution
    - skill://progress_tracking
    - skill://validator
-2. Call start_validation_run with from_sample and to_sample.
+2. Call start_validation_run với from_sample, to_sample, và batch_size.
 3. Loop:
    - claim_next_validation_batch
-   - assign predicted_label from premise and hypothesis only
-   - submit_validation_result with one verdict per claimed source_uid
+   - nếu status=claimed và toàn bộ claimed rows đều nhìn thấy đầy đủ, assign predicted_label chỉ từ premise và hypothesis
+   - submit_validation_result với đúng một verdict cho mỗi claimed source_uid và reason tiếng Việt không rỗng
+   - nếu status=waiting, inspect progress hoặc release claim bị bỏ dở
    - continue until claim_next_validation_batch returns complete
 4. Call verify_validation_progress_log.
 5. Call finalize_validation_run.
@@ -50,9 +51,19 @@ Flow:
 Rules:
 - Use MCP resource reads for the listed `skill://...` resources before calling
   validation tools.
+- Truyền generated CSV có label vào start_validation_run. Không dùng masked CSV
+  dành cho validator làm runtime input.
 - Claimed rows expose only source_uid, premise, hypothesis, and `label=""`.
 - Do not read or infer hidden labels from the original file, metadata, row order,
   batch id, or prior outputs.
+- Không đọc source CSV hoặc `data/batches/{run_id}` để reconstruct claimed batch.
+  Runtime chỉ ghi batch CSV sau `submit_validation_result`.
+- Giữ batch_size đủ nhỏ để một claim fit trọn trong một tool response. Mặc định
+  dùng 20 nếu chưa chắc transport chịu được payload lớn.
+- Nếu claimed payload bị truncate, thiếu row, hoặc chỉ hiện một phần, coi batch
+  đó là unusable: không đoán, không submit partial verdicts, và không backfill
+  từ disk. Release claim nếu có thể, rồi retry với batch_size nhỏ hơn hoặc báo
+  tooling blocker.
 - Return exactly one label name: entailment, neutral, or contradiction.
 - Finalize writes validation_results.csv and cleans both .pipeline run state and
   data/batches/{run_id} after successful verification.

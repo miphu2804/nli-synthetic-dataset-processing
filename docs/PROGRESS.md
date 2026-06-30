@@ -1,3 +1,25 @@
+### [2026-06-29 18:54] — [Validation] Tighten validator prompt template for truncated claims
+
+**Đã làm:**
+- Cập nhật validator templates EN/VI để phản ánh đúng blind-validation runtime hiện tại.
+- Thêm guardrail cho trường hợp `claim_next_validation_batch` bị truncate hoặc trả payload không đầy đủ.
+- Ghi rõ không được reconstruct batch từ source CSV hoặc `data/batches/{run_id}` vì runtime chỉ ghi batch CSV sau `submit_validation_result`.
+- Chuẩn hóa khuyến nghị `batch_size` nhỏ và input/output placeholders theo convention per-model output.
+
+**Files thay đổi:**
+- `docs/en/template/validator.md` — modified
+- `docs/vi/template/validator.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Validator template giờ nói đúng boundary của runtime hiện tại: `start_validation_run` nhận labeled generated CSV làm source of truth, `claim_next_validation_batch` chỉ trả masked rows qua tool response, và `data/batches/{run_id}` chưa có full claim artifact trước lúc submit. Nếu tool/chat truncate claim payload thì agent phải coi batch đó là unusable, release hoặc retry với `batch_size` nhỏ hơn, thay vì quay lại đọc source CSV để lấp phần bị thiếu.
+
+---
+
 ### [2026-06-29 15:46] — [Drive] Remove Google Drive stub surface
 
 **Đã làm:**
@@ -233,26 +255,5 @@ Prompt-refinement backend giờ chỉ evaluate/log một calibration và trả `
 
 **Flow explained:**
 Refactor này chỉ xoá helper private không còn mang domain meaning. Generation vẫn giữ exact label preservation theo source label; validation vẫn dùng `to_label_name(...)` trong `_labels_match(...)` để kiểm 3-class strict. Progress verification hiện là consistency/reconciliation scan trên append-only JSONL events, không phải chained-log verification. Provider methods vẫn là public MCP adapters nên không bị xoá dù đa phần forward xuống service.
-
----
-
-### [2026-06-27 17:41] — [Runtime] Plan run-service gen/val cleanup
-
-**Đã làm:**
-- Rà lại `BaseRunService`, `GenerationRunService`, `ValidationRunService`, hai provider hiện còn lại, provider tests, và flow/template docs liên quan.
-- Tạo plan refactor tập trung vào helper private dư sau khi đã loại bớt provider/tool prompt-refinement trước đó.
-- Phân loại method nên inline/delete, method nên giữ vì là boundary public MCP hoặc lifecycle invariant.
-- Chốt hướng không re-split provider trong slice này để tránh thêm layer ngay sau khi vừa giảm provider surface.
-
-**Files thay đổi:**
-- `docs/superpowers/plans/refactor-run-service-gen-val-cleanup.md` — created
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** Chưa implement; đây là plan-only artifact cho vòng refactor tiếp theo.
-
-**Flow explained:**
-Plan này giữ public MCP tool surface ổn định: gen/val provider methods là transport adapters, không bị xem là dead code chỉ vì pass-through. Cleanup đề xuất trước tiên chỉ đụng private helper như `_merge_batch_outputs(...)` và `_label_key(...)`; validation helper một-dòng được xử lý tùy readability. Nếu sau này muốn tách prompt-refinement/post-validation khỏi `ValidationToolProvider`, đó là một follow-up riêng vì hiện docs/tests vẫn xem các tool đó là contract đang dùng.
 
 ---
