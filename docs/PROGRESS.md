@@ -1,3 +1,25 @@
+### [2026-06-30 18:10] — [Docs] Add tmux runtime start commands
+
+**Đã làm:**
+- Cập nhật README EN/VI với hướng dẫn cài `tmux` cho macOS, Linux, và Windows qua WSL.
+- Thêm lệnh chạy thủ công backend API và MLflow trong cùng `tmux` session để đóng terminal mà service vẫn chạy.
+- Thêm lệnh chạy gộp backend API và MLflow bằng Honcho trong `tmux`.
+- Ghi rõ cách refresh Honcho qua backend dev dependencies khi môi trường chưa có lệnh `honcho`.
+
+**Files thay đổi:**
+- `README.md` — modified
+- `README.vi.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Local runtime docs giờ có hai mode chính thức trong `tmux`: chạy thủ công bằng hai window cho backend API và MLflow, hoặc chạy gộp bằng `uv --project backend run honcho start` từ repo root. Windows dùng WSL để có `tmux`; detach bằng `Ctrl-b` rồi `d`, attach lại bằng `tmux attach -t nli-runtime`, và tắt bằng `tmux kill-session -t nli-runtime`.
+
+---
+
 ### [2026-06-30 17:28] — [Templates] Tighten interactive MCP orchestration
 
 **Đã làm:**
@@ -228,29 +250,5 @@ Post-validation giờ có service boundary theo phase: `ValidationAggregationSer
 
 **Flow explained:**
 Validation progress verification dùng chung `ProgressTrackingService.verify_progress_log(...)`, nên response shape không cần schema validation-specific riêng. Blind validation vẫn giữ flow: start validation run, claim masked rows, submit verdicts, compare against hidden label with `to_label_name(...)`, write batch CSVs, finalize into `validation_results.csv`, then cleanup state.
-
----
-
-### [2026-06-27 23:06] — [Generation] Remove thin private helpers
-
-**Đã làm:**
-- Inline generation finalize merge call trực tiếp sang shared `_merge_batch_csv(...)`.
-- Inline label comparison trong batch-result validation thay vì giữ helper một dòng.
-- Sửa mô tả MCP `start_generation_run` để nói đúng public contract `from_sample`/`to_sample` là one-based sample range.
-- Đồng bộ ví dụ output path trong provider/execution skill về `data/generated/...`
-  để khớp convention runtime hiện tại.
-
-**Files thay đổi:**
-- `backend/src/services/generation_run_service.py` — modified
-- `backend/src/providers/generation_provider.py` — modified
-- `backend/skills/execution.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Generation service vẫn giữ nguyên lifecycle: start, claim, validate submit, write batch, finalize/cleanup. Cleanup này chỉ bỏ hai wrapper private không còn mang domain meaning sau khi merge logic chung vào `BaseRunService`; provider vẫn là MCP boundary public nên không inline xuống service.
 
 ---

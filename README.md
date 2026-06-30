@@ -33,7 +33,81 @@ uv sync
 cd ..
 ```
 
+Install `tmux` if it is not available:
+
+```bash
+# macOS
+brew install tmux
+
+# Debian/Ubuntu/WSL
+sudo apt update && sudo apt install tmux
+
+# Fedora
+sudo dnf install tmux
+```
+
+On Windows, run these commands inside WSL. Native PowerShell does not provide
+`tmux`.
+
+Honcho is a backend dev dependency. If `uv --project backend run honcho --version`
+does not work, refresh the backend environment:
+
+```bash
+cd backend
+uv sync --dev
+cd ..
+```
+
+### Manual tmux run
+
+Use this when you want to run the two services separately. Keep both commands
+inside the same `tmux` session so closing the terminal does not stop them.
+
+```bash
+tmux new -s nli-runtime
+```
+
+Inside that `tmux` session, start the backend API:
+
+```bash
+cd backend
+uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
+```
+
+In another `tmux` window, start MLflow:
+
+```bash
+# press Ctrl-b then c first
+cd backend
+uv run mlflow server \
+  --host 127.0.0.1 \
+  --port 5001 \
+  --backend-store-uri sqlite:///$PWD/.mlflow/mlflow.db \
+  --default-artifact-root file://$PWD/.mlflow/artifacts
+```
+
+Detach without stopping services: press `Ctrl-b`, then `d`.
+Reconnect later:
+
+```bash
+tmux attach -t nli-runtime
+```
+
+Stop both services:
+
+```bash
+tmux kill-session -t nli-runtime
+```
+
+### Honcho tmux run
+
 Run the backend and MLflow together from the repo root:
+
+```bash
+tmux new -s nli-runtime
+```
+
+Inside that `tmux` session, start Honcho:
 
 ```bash
 uv --project backend run honcho start
@@ -42,6 +116,9 @@ uv --project backend run honcho start
 Backend: `http://localhost:8000`
 MCP endpoint: `http://localhost:8000/mcp/`
 MLflow: `http://127.0.0.1:5001`
+
+Detach with `Ctrl-b`, then `d`; reconnect with
+`tmux attach -t nli-runtime`.
 
 ## Container Start
 
