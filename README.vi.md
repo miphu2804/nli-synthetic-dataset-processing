@@ -28,7 +28,7 @@ sudo dnf install tmux
 
 Trên Windows, chạy các lệnh này trong WSL. PowerShell native không có `tmux`.
 
-Honcho là dev dependency của backend. Nếu
+Honcho là runtime dependency của backend. Nếu
 `uv --project backend run honcho --version` không chạy, refresh môi trường
 backend:
 
@@ -102,10 +102,18 @@ Detach bằng `Ctrl-b`, rồi `d`; kết nối lại bằng
 
 ## Chạy bằng Docker
 
-Backend image mặc định chạy cả FastAPI/FastMCP và MLflow bằng Honcho:
+Backend image mặc định chạy cả FastAPI/FastMCP và MLflow bằng Honcho. Lệnh này
+mount `Downloads` của host vào container để MCP thấy file dataset:
 
 ```bash
-docker run --pull=always -p 8000:8000 -p 5000:5000 miphu2804/nli-synthetic-data-processing:latest
+docker rm -f nli-tools 2>/dev/null || true
+
+docker run -d --name nli-tools \
+  --pull=always \
+  -p 8000:8000 \
+  -p 5000:5000 \
+  -v "$HOME/Downloads:/downloads" \
+  miphu2804/nli-synthetic-data-processing:latest
 ```
 
 Endpoint cho agent:
@@ -123,6 +131,13 @@ Docker port cho local development. Nếu không mount volume, các file này ch�
 tại trong container và mất khi container bị xoá. Agent vẫn claim/submit batch
 qua MCP được miễn là input dataset path tồn tại bên trong container, ví dụ được
 tạo qua dataset write API hoặc được bake sẵn vào custom image.
+
+Với file host được mount từ `Downloads`, dùng path trong container:
+
+```text
+input_path=/downloads/data_normalize/dev_r1.csv
+output_path=/downloads/data_normalize/generated/dev_r1_vie.csv
+```
 
 ## Prompt refinement tùy chọn
 

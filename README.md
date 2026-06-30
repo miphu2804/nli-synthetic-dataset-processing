@@ -50,8 +50,9 @@ sudo dnf install tmux
 On Windows, run these commands inside WSL. Native PowerShell does not provide
 `tmux`.
 
-Honcho is a backend dev dependency. If `uv --project backend run honcho --version`
-does not work, refresh the backend environment:
+Honcho is a backend runtime dependency. If
+`uv --project backend run honcho --version` does not work, refresh the backend
+environment:
 
 ```bash
 cd backend
@@ -132,10 +133,18 @@ docker compose up --build
 CI builds and pushes the backend image to Docker Hub:
 `nli-synthetic-data-processing`.
 
-Backend only:
+Run the backend container with MCP, MLflow, and your host `Downloads` directory
+available inside the container:
 
 ```bash
-docker run --pull=always -p 8000:8000 -p 5000:5000 miphu2804/nli-synthetic-data-processing:latest
+docker rm -f nli-tools 2>/dev/null || true
+
+docker run -d --name nli-tools \
+  --pull=always \
+  -p 8000:8000 \
+  -p 5000:5000 \
+  -v "$HOME/Downloads:/downloads" \
+  miphu2804/nli-synthetic-data-processing:latest
 ```
 
 MCP endpoint:
@@ -162,6 +171,13 @@ container is removed. Agents can still claim and submit batches through the MCP
 endpoint as long as the input dataset path exists inside the container, for
 example because it was created through the dataset write API or included in a
 custom image.
+
+For host files mounted from `Downloads`, use the container path:
+
+```text
+input_path=/downloads/data_normalize/dev_r1.csv
+output_path=/downloads/data_normalize/generated/dev_r1_vie.csv
+```
 
 ### Optional prompt refinement
 
