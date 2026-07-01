@@ -130,3 +130,59 @@ class GenerationProviderTest(unittest.TestCase):
             self.assertEqual(complete.structured_content["status"], "complete")
 
         asyncio.run(scenario())
+
+    def test_artifact_submission_round_trip(self) -> None:
+        async def scenario() -> None:
+            started = await self.mcp.call_tool(
+                "start_generation_run",
+                {
+                    "input_path": str(self.input_path),
+                    "output_path": str(self.root / "output.csv"),
+                    "from_sample": 1,
+                    "to_sample": 2,
+                    "batch_size": 2,
+                },
+            )
+            run_id = started.structured_content["run_id"]
+            claim = await self.mcp.call_tool(
+                "claim_next_batch",
+                {"run_id": run_id, "agent_id": "agent-a"},
+            )
+            batch = claim.structured_content["batch"]
+            rows_path = Path(batch["artifact_targets"]["rows_csv_path"])
+            skips_path = Path(batch["artifact_targets"]["skipped_rows_csv_path"])
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": batch["rows"][0]["source_uid"],
+                        "premise": "vp1",
+                        "hypothesis": "vh1",
+                        "label": batch["rows"][0]["label"],
+                    }
+                ]
+            ).to_csv(rows_path, index=False)
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": batch["rows"][1]["source_uid"],
+                        "reason": "fail",
+                        "retries": 3,
+                    }
+                ]
+            ).to_csv(skips_path, index=False)
+
+            submitted = await self.mcp.call_tool(
+                "submit_batch_result_from_artifacts",
+                {
+                    "run_id": run_id,
+                    "agent_id": "agent-a",
+                    "batch_id": batch["batch_id"],
+                    "rows_csv_path": str(rows_path),
+                    "skipped_rows_csv_path": str(skips_path),
+                },
+            )
+
+            self.assertEqual(submitted.structured_content["rows_written"], 1)
+            self.assertEqual(submitted.structured_content["rows_skipped"], 1)
+
+        asyncio.run(scenario())

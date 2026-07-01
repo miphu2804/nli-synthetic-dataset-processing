@@ -6,6 +6,7 @@ from src.schemas.generation_runtime_schema import (
     ClaimNextBatchResponse,
     FinalizeGenerationRunResponse,
     GeneratedRow,
+    GenerationBatchArtifactTargets,
     GenerationRunListItem,
     GenerationRunManifest,
     ListGenerationRunsResponse,
@@ -126,6 +127,10 @@ class GenerationRunService(BaseRunService):
                 batch_id=result["batch_id"],
                 agent=agent_id,
                 rows=rows,
+                artifact_targets=self._build_artifact_targets(
+                    run_id,
+                    result["batch_id"],
+                ),
             ),
             progress=result["progress"],
         )
@@ -140,6 +145,66 @@ class GenerationRunService(BaseRunService):
         batch_stats: dict | None = None,
     ) -> SubmitBatchResultResponse:
         """Validate generated rows and skips, write the batch output, and append progress events."""
+        return self._commit_batch_result(
+            run_id=run_id,
+            agent_id=agent_id,
+            batch_id=batch_id,
+            rows=rows,
+            skipped_rows=skipped_rows,
+            batch_stats=batch_stats,
+        )
+
+    def submit_batch_result_from_artifacts(
+        self,
+        run_id: str,
+        agent_id: str,
+        batch_id: str,
+        rows_csv_path: str | None = None,
+        skipped_rows_csv_path: str | None = None,
+        batch_stats: dict | None = None,
+    ) -> SubmitBatchResultResponse:
+        """Load generated rows/skips from CSV artifacts, then commit the batch."""
+        if not rows_csv_path and not skipped_rows_csv_path:
+            raise ValueError(
+                "Artifact submission requires rows_csv_path or skipped_rows_csv_path."
+            )
+        rows = (
+            self._read_csv_artifact_rows(
+                rows_csv_path,
+                self.OUTPUT_COLUMNS,
+                "generation rows",
+            )
+            if rows_csv_path
+            else []
+        )
+        skipped_rows = (
+            self._read_csv_artifact_rows(
+                skipped_rows_csv_path,
+                ("source_uid", "reason", "retries"),
+                "generation skips",
+            )
+            if skipped_rows_csv_path
+            else []
+        )
+        return self._commit_batch_result(
+            run_id=run_id,
+            agent_id=agent_id,
+            batch_id=batch_id,
+            rows=rows,
+            skipped_rows=skipped_rows,
+            batch_stats=batch_stats,
+        )
+
+    def _commit_batch_result(
+        self,
+        run_id: str,
+        agent_id: str,
+        batch_id: str,
+        rows: list[dict],
+        skipped_rows: list[dict] | None = None,
+        batch_stats: dict | None = None,
+    ) -> SubmitBatchResultResponse:
+        """Validate generated rows/skips, then write and log one committed batch."""
         run_settings = self._load_run_settings(run_id)
         state = self._progress_tracking_service.build_run_state(run_id)
         claim = self._get_owned_claim(state, batch_id, agent_id)
@@ -280,6 +345,20 @@ class GenerationRunService(BaseRunService):
                 orient="records"
             )
         }
+
+    def _build_artifact_targets(
+        self,
+        run_id: str,
+        batch_id: str,
+    ) -> GenerationBatchArtifactTargets:
+        """Return worker staging paths for one claimed generation batch."""
+        worker_artifacts_dir = (
+            self._progress_tracking_service.ensure_worker_artifacts_dir(run_id)
+        )
+        return GenerationBatchArtifactTargets(
+            rows_csv_path=str(worker_artifacts_dir / f"{batch_id}.rows.csv"),
+            skipped_rows_csv_path=str(worker_artifacts_dir / f"{batch_id}.skips.csv"),
+        )
 
     def _write_batch_outputs(self, run_id, batch_id, normalized_rows):
         """Write generated rows to a batch CSV and return its path, or None when empty."""

@@ -110,6 +110,31 @@ class GenerationToolProvider(ToolProvider):
         ).model_dump(mode="json")
 
     @tool(
+        name="submit_batch_result_from_artifacts",
+        description=(
+            "Submit one validated claimed batch from worker-written CSV artifacts. "
+            "The main agent passes file paths; the runtime loads, validates, and commits."
+        ),
+    )
+    def submit_batch_result_from_artifacts(
+        self,
+        run_id: str,
+        agent_id: str,
+        batch_id: str,
+        rows_csv_path: str | None = None,
+        skipped_rows_csv_path: str | None = None,
+        batch_stats: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._generation_run_service.submit_batch_result_from_artifacts(
+            run_id=run_id,
+            agent_id=agent_id,
+            batch_id=batch_id,
+            rows_csv_path=rows_csv_path,
+            skipped_rows_csv_path=skipped_rows_csv_path,
+            batch_stats=batch_stats,
+        ).model_dump(mode="json")
+
+    @tool(
         name="get_run_progress",
         description="Inspect progress for an active local generation run.",
     )

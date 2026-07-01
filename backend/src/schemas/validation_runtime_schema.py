@@ -44,10 +44,15 @@ class ValidationRunManifest(BaseModel):
     created_at: str
 
 
+class ValidationBatchArtifactTargets(BaseModel):
+    verdicts_csv_path: str
+
+
 class ClaimedValidationBatch(BaseModel):
     batch_id: str
     agent: str
     rows: list[MaskedValidationRow] = Field(default_factory=list)
+    artifact_targets: ValidationBatchArtifactTargets
 
 
 class StartValidationRunResponse(BaseModel):

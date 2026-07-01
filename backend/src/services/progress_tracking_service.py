@@ -57,6 +57,10 @@ class ProgressTrackingService:
         """Return the run's batch outputs directory under data/batches/{run_id}."""
         return self._data_dir / "batches" / run_id
 
+    def get_worker_artifacts_dir(self, run_id: str) -> Path:
+        """Return the run's worker staging directory under the run state tree."""
+        return self.get_run_dir(run_id) / "worker-artifacts"
+
     def resolve_output_file(self, run_id: str, file_name: str) -> Path:
         """Resolve a batch output file, preferring the current outputs dir and falling back to the legacy run/outputs location.
 
@@ -75,6 +79,13 @@ class ProgressTrackingService:
         run_dir = self.get_run_dir(run_id)
         run_dir.mkdir(parents=True, exist_ok=True)
         self.get_outputs_dir(run_id).mkdir(parents=True, exist_ok=True)
+
+    def ensure_worker_artifacts_dir(self, run_id: str) -> Path:
+        """Create and return the run's worker-artifact staging directory."""
+        self.ensure_run_directories(run_id)
+        worker_artifacts_dir = self.get_worker_artifacts_dir(run_id)
+        worker_artifacts_dir.mkdir(parents=True, exist_ok=True)
+        return worker_artifacts_dir
 
     def cleanup_run(self, run_id: str) -> None:
         """Delete the run's state directory (.pipeline/runs/{run_id}) and everything under it."""

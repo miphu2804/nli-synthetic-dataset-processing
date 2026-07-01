@@ -378,6 +378,50 @@ class ValidationProviderTest(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_validation_artifact_submission_round_trip(self) -> None:
+        async def scenario() -> None:
+            started = await self.mcp.call_tool(
+                "start_validation_run",
+                {
+                    "input_path": str(self.input_path),
+                    "output_dir": str(self.root / "validation-output"),
+                    "from_sample": 1,
+                    "to_sample": 1,
+                    "batch_size": 1,
+                },
+            )
+            run_id = started.structured_content["run_id"]
+            claim = await self.mcp.call_tool(
+                "claim_next_validation_batch",
+                {"run_id": run_id, "agent_id": "judge-a"},
+            )
+            batch = claim.structured_content["batch"]
+            verdicts_path = Path(batch["artifact_targets"]["verdicts_csv_path"])
+            pd.DataFrame(
+                [
+                    {
+                        "source_uid": batch["rows"][0]["source_uid"],
+                        "predicted_label": 1,
+                        "reason": "Supported.",
+                    }
+                ]
+            ).to_csv(verdicts_path, index=False)
+
+            submitted = await self.mcp.call_tool(
+                "submit_validation_result_from_artifact",
+                {
+                    "run_id": run_id,
+                    "agent_id": "judge-a",
+                    "batch_id": batch["batch_id"],
+                    "verdicts_csv_path": str(verdicts_path),
+                },
+            )
+
+            self.assertEqual(submitted.structured_content["rows_validated"], 1)
+            self.assertEqual(submitted.structured_content["accepted_count"], 1)
+
+        asyncio.run(scenario())
+
 
 if __name__ == "__main__":
     unittest.main()

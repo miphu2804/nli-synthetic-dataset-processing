@@ -137,6 +137,27 @@ class ValidationToolProvider(ToolProvider):
         ).model_dump(mode="json")
 
     @tool(
+        name="submit_validation_result_from_artifact",
+        description=(
+            "Submit validator verdicts from a worker-written CSV artifact. "
+            "The runtime loads, validates, and compares them to hidden labels."
+        ),
+    )
+    def submit_validation_result_from_artifact(
+        self,
+        run_id: str,
+        agent_id: str,
+        batch_id: str,
+        verdicts_csv_path: str,
+    ) -> dict[str, Any]:
+        return self._validation_run_service.submit_validation_result_from_artifact(
+            run_id=run_id,
+            agent_id=agent_id,
+            batch_id=batch_id,
+            verdicts_csv_path=verdicts_csv_path,
+        ).model_dump(mode="json")
+
+    @tool(
         name="get_validation_progress",
         description="Inspect progress for an active local validation run.",
     )

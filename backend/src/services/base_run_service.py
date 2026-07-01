@@ -4,6 +4,8 @@ from uuid import uuid4
 
 import pandas as pd
 
+from src.utils.project_paths import resolve_runtime_path
+
 DEFAULT_BATCH_SIZE = 20
 
 
@@ -337,6 +339,31 @@ class BaseRunService:
         uid_keys = [self._uid_key(source_uid) for source_uid in source_uids]
         if len(set(uid_keys)) != len(uid_keys):
             raise ValueError("Dataset slice contains duplicate source_uid values.")
+
+    @staticmethod
+    def _read_csv_artifact_rows(
+        csv_path,
+        required_columns,
+        artifact_name,
+    ):
+        """Read one CSV artifact into a list of dicts after validating its header."""
+        resolved_path = resolve_runtime_path(csv_path)
+        if not resolved_path.exists():
+            raise FileNotFoundError(
+                f"{artifact_name} artifact not found: {resolved_path}"
+            )
+        with resolved_path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            fieldnames = reader.fieldnames or []
+            missing_columns = [
+                column for column in required_columns if column not in fieldnames
+            ]
+            if missing_columns:
+                missing = ", ".join(missing_columns)
+                raise ValueError(
+                    f"{artifact_name} artifact is missing required columns: {missing}"
+                )
+            return list(reader)
 
     @staticmethod
     def _resolve_uid_column(columns):

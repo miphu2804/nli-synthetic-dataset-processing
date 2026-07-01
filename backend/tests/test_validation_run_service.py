@@ -150,6 +150,50 @@ class ValidationRunServiceTest(unittest.TestCase):
             (self.pipeline_dir / "runs" / started.run_id / "outputs").exists()
         )
 
+    def test_claim_exposes_verdict_artifact_target_under_run_dir(self) -> None:
+        started = self.service.start_validation_run(
+            input_path=str(self.input_path),
+            output_dir=str(self.root / "validation-output"),
+            batch_size=1,
+        )
+
+        claim = self.service.claim_next_validation_batch(started.run_id, "judge-a")
+        verdicts_path = Path(claim.batch.artifact_targets.verdicts_csv_path).resolve()
+
+        self.assertTrue(
+            verdicts_path.is_relative_to(
+                (self.pipeline_dir / "runs" / started.run_id).resolve()
+            )
+        )
+
+    def test_submit_validation_result_from_artifact_commits_rows(self) -> None:
+        started = self.service.start_validation_run(
+            input_path=str(self.input_path),
+            output_dir=str(self.root / "validation-output"),
+            batch_size=1,
+        )
+        claim = self.service.claim_next_validation_batch(started.run_id, "judge-a")
+        verdicts_path = claim.batch.artifact_targets.verdicts_csv_path
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": claim.batch.rows[0].source_uid,
+                    "predicted_label": 1,
+                    "reason": "Supported.",
+                }
+            ]
+        ).to_csv(verdicts_path, index=False)
+
+        submitted = self.service.submit_validation_result_from_artifact(
+            run_id=started.run_id,
+            agent_id="judge-a",
+            batch_id=claim.batch.batch_id,
+            verdicts_csv_path=verdicts_path,
+        )
+
+        self.assertEqual(submitted.rows_validated, 1)
+        self.assertEqual(submitted.accepted_count, 1)
+
     def test_submit_validation_result_rejects_invalid_label(self) -> None:
         started = self.service.start_validation_run(
             input_path=str(self.input_path),
@@ -246,6 +290,28 @@ class ValidationRunServiceTest(unittest.TestCase):
                         "reason": "Wrong row.",
                     }
                 ],
+            )
+
+    def test_submit_validation_result_from_artifact_rejects_missing_columns(
+        self,
+    ) -> None:
+        started = self.service.start_validation_run(
+            input_path=str(self.input_path),
+            output_dir=str(self.root / "validation-output"),
+            batch_size=1,
+        )
+        claim = self.service.claim_next_validation_batch(started.run_id, "judge-a")
+        verdicts_path = Path(claim.batch.artifact_targets.verdicts_csv_path)
+        pd.DataFrame([{"source_uid": 1, "predicted_label": 1}]).to_csv(
+            verdicts_path, index=False
+        )
+
+        with self.assertRaisesRegex(ValueError, "missing required columns: reason"):
+            self.service.submit_validation_result_from_artifact(
+                run_id=started.run_id,
+                agent_id="judge-a",
+                batch_id=claim.batch.batch_id,
+                verdicts_csv_path=str(verdicts_path),
             )
 
     def test_finalize_writes_one_validation_results_output(self) -> None:

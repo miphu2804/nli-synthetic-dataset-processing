@@ -36,6 +36,11 @@ class ActiveClaimSummary(BaseModel):
     source_uids: list[str | int] = Field(default_factory=list)
 
 
+class GenerationBatchArtifactTargets(BaseModel):
+    rows_csv_path: str
+    skipped_rows_csv_path: str
+
+
 class RunProgressSnapshot(BaseModel):
     run_id: str
     total_target_rows: int
@@ -66,6 +71,7 @@ class ClaimedBatch(BaseModel):
     batch_id: str
     agent: str
     rows: list[GeneratedRow] = Field(default_factory=list)
+    artifact_targets: GenerationBatchArtifactTargets
 
 
 class ClaimNextBatchResponse(BaseModel):

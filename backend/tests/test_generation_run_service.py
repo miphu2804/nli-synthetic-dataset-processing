@@ -184,6 +184,90 @@ class GenerationRunServiceTest(unittest.TestCase):
             (self.pipeline_dir / "runs" / started.run_id / "outputs").exists()
         )
 
+    def test_claim_exposes_worker_artifact_targets_under_run_dir(self) -> None:
+        started = self.service.start_generation_run(
+            input_path=str(self.input_path),
+            output_path=str(self.root / "output.csv"),
+            row_limit=1,
+            batch_size=1,
+        )
+
+        claim = self.service.claim_next_batch(started.run_id, "agent-a")
+        targets = claim.batch.artifact_targets
+
+        self.assertTrue(
+            Path(targets.rows_csv_path)
+            .resolve()
+            .is_relative_to((self.pipeline_dir / "runs" / started.run_id).resolve())
+        )
+        self.assertTrue(
+            Path(targets.skipped_rows_csv_path)
+            .resolve()
+            .is_relative_to((self.pipeline_dir / "runs" / started.run_id).resolve())
+        )
+
+    def test_submit_batch_from_artifacts_commits_rows_and_skips(self) -> None:
+        started = self.service.start_generation_run(
+            input_path=str(self.input_path),
+            output_path=str(self.root / "output.csv"),
+            batch_size=2,
+        )
+        claim = self.service.claim_next_batch(started.run_id, "agent-a")
+        targets = claim.batch.artifact_targets
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": claim.batch.rows[0].source_uid,
+                    "premise": "vp1",
+                    "hypothesis": "vh1",
+                    "label": claim.batch.rows[0].label,
+                }
+            ]
+        ).to_csv(targets.rows_csv_path, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "source_uid": claim.batch.rows[1].source_uid,
+                    "reason": "fail",
+                    "retries": 3,
+                }
+            ]
+        ).to_csv(targets.skipped_rows_csv_path, index=False)
+
+        submitted = self.service.submit_batch_result_from_artifacts(
+            run_id=started.run_id,
+            agent_id="agent-a",
+            batch_id=claim.batch.batch_id,
+            rows_csv_path=targets.rows_csv_path,
+            skipped_rows_csv_path=targets.skipped_rows_csv_path,
+        )
+
+        self.assertEqual(submitted.rows_written, 1)
+        self.assertEqual(submitted.rows_skipped, 1)
+        self.assertEqual(submitted.progress.done_rows, 1)
+        self.assertEqual(submitted.progress.skipped_rows, 1)
+
+    def test_submit_batch_from_artifacts_rejects_missing_columns(self) -> None:
+        started = self.service.start_generation_run(
+            input_path=str(self.input_path),
+            output_path=str(self.root / "output.csv"),
+            row_limit=1,
+            batch_size=1,
+        )
+        claim = self.service.claim_next_batch(started.run_id, "agent-a")
+        bad_rows_path = Path(claim.batch.artifact_targets.rows_csv_path)
+        pd.DataFrame([{"source_uid": 1, "premise": "vp1", "label": 0}]).to_csv(
+            bad_rows_path, index=False
+        )
+
+        with self.assertRaisesRegex(ValueError, "missing required columns: hypothesis"):
+            self.service.submit_batch_result_from_artifacts(
+                run_id=started.run_id,
+                agent_id="agent-a",
+                batch_id=claim.batch.batch_id,
+                rows_csv_path=str(bad_rows_path),
+            )
+
     def test_partial_skip_writes_events_and_finalize_reconciles(self) -> None:
         started = self.service.start_generation_run(
             input_path=str(self.input_path),

@@ -13,6 +13,7 @@ from src.schemas.validation_runtime_schema import (
     ReleaseValidationBatchClaimResponse,
     StartValidationRunResponse,
     SubmitValidationResultResponse,
+    ValidationBatchArtifactTargets,
     ValidationRunListItem,
     ValidationRunManifest,
     ValidatorVerdict,
@@ -135,6 +136,10 @@ class ValidationRunService(BaseRunService):
                 batch_id=result["batch_id"],
                 agent=agent_id,
                 rows=[MaskedValidationRow.model_validate(row) for row in masked_rows],
+                artifact_targets=self._build_artifact_targets(
+                    run_id,
+                    result["batch_id"],
+                ),
             ),
             progress=result["progress"],
         )
@@ -147,6 +152,41 @@ class ValidationRunService(BaseRunService):
         verdicts: list[dict],
     ) -> SubmitValidationResultResponse:
         """Validate verdicts, build accepted/rejected result rows, write them, and append progress events."""
+        return self._commit_validation_result(
+            run_id=run_id,
+            agent_id=agent_id,
+            batch_id=batch_id,
+            verdicts=verdicts,
+        )
+
+    def submit_validation_result_from_artifact(
+        self,
+        run_id: str,
+        agent_id: str,
+        batch_id: str,
+        verdicts_csv_path: str,
+    ) -> SubmitValidationResultResponse:
+        """Load validator verdicts from a CSV artifact, then commit the batch."""
+        verdicts = self._read_csv_artifact_rows(
+            verdicts_csv_path,
+            ("source_uid", "predicted_label", "reason"),
+            "validation verdicts",
+        )
+        return self._commit_validation_result(
+            run_id=run_id,
+            agent_id=agent_id,
+            batch_id=batch_id,
+            verdicts=verdicts,
+        )
+
+    def _commit_validation_result(
+        self,
+        run_id: str,
+        agent_id: str,
+        batch_id: str,
+        verdicts: list[dict],
+    ) -> SubmitValidationResultResponse:
+        """Validate verdicts, build accepted/rejected rows, then commit the batch."""
         run_settings = self._load_run_settings(run_id)
         state = self._progress_tracking_service.build_run_state(run_id)
         claim = self._get_owned_claim(state, batch_id, agent_id)
@@ -295,6 +335,19 @@ class ValidationRunService(BaseRunService):
                 else ""
             )
             raise ValueError(f"Dataset is missing required columns: {missing}{hint}")
+
+    def _build_artifact_targets(
+        self,
+        run_id: str,
+        batch_id: str,
+    ) -> ValidationBatchArtifactTargets:
+        """Return the worker staging path for one claimed validation batch."""
+        worker_artifacts_dir = (
+            self._progress_tracking_service.ensure_worker_artifacts_dir(run_id)
+        )
+        return ValidationBatchArtifactTargets(
+            verdicts_csv_path=str(worker_artifacts_dir / f"{batch_id}.verdicts.csv")
+        )
 
     def _validate_verdicts(self, claimed_source_uids, verdicts):
         """Validate submitted verdicts against the owned claim and return the normalized verdicts."""
