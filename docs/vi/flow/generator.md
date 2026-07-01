@@ -25,8 +25,9 @@ START
        tạo data/batches/{run_id}
   -> claim_next_batch
   -> transform claimed rows
+  -> nếu dùng subagent thì ghi worker CSV artifacts và chỉ trả tiny JSON ack
   -> self-check generated rows
-       pass -> submit_batch_result
+       pass -> submit_batch_result hoặc submit_batch_result_from_artifacts
        fail -> retry hoặc submit skipped_rows
   -> claim_next_batch
        claimed  -> lặp lại transform và submit
@@ -56,4 +57,5 @@ source_uid,premise,hypothesis,label
 - Chỉ MCP runtime tools được ghi progress.
 - Việc fan-out sang subagent thuộc agent. Backend không tính và không áp worker
   plan.
-- Subagents có thể transform rows đã claim nhưng chỉ được trả JSON.
+- Subagents có thể transform rows đã claim, ghi worker CSV artifact, và chỉ trả
+  tiny JSON ack.

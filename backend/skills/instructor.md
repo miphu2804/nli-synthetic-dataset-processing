@@ -33,7 +33,7 @@ source_uid,premise,hypothesis,label
 | Owner | Responsibility |
 |-------|----------------|
 | Main agent | Load resources, call MCP tools, assign work and submit results |
-| Subagent | Transform one claimed batch and return JSON only |
+| Subagent | Transform one claimed batch, write worker CSV artifacts, and return a tiny JSON ack |
 | MCP runtime | Claim batches, append progress, merge output and cleanup |
 
 ## Tool Map
@@ -44,6 +44,7 @@ Generation tools:
 start_generation_run
 claim_next_batch
 submit_batch_result
+submit_batch_result_from_artifacts
 get_run_progress
 release_batch_claim
 verify_progress_log
@@ -57,6 +58,7 @@ Validation tools:
 start_validation_run
 claim_next_validation_batch
 submit_validation_result
+submit_validation_result_from_artifact
 get_validation_progress
 release_validation_batch_claim
 verify_validation_progress_log
@@ -109,9 +111,9 @@ load execution
   -> choose and load generator_plain or generator_adversarial
   -> start_generation_run
   -> claim_next_batch
-  -> transform claimed rows directly or hand them to subagents when requested
+  -> transform claimed rows directly or hand them to subagents with artifact_targets when requested
   -> self-check generated rows
-  -> submit_batch_result
+  -> submit_batch_result or submit_batch_result_from_artifacts
   -> refill free slots until claim_next_batch returns complete
   -> load aggregator
   -> finalize_generation_run

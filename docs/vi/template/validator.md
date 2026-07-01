@@ -19,6 +19,7 @@ Validation tools có sẵn:
 - start_validation_run
 - claim_next_validation_batch
 - submit_validation_result
+- submit_validation_result_from_artifact
 - get_validation_progress
 - release_validation_batch_claim
 - verify_validation_progress_log
@@ -43,7 +44,10 @@ Quy trình:
 3. Lặp:
    - claim_next_validation_batch
    - nếu status=claimed và toàn bộ claimed rows đều nhìn thấy đầy đủ, gán predicted_label chỉ từ premise và hypothesis
-   - submit_validation_result với đúng một verdict cho mỗi claimed source_uid và reason tiếng Việt không rỗng
+   - nếu dùng subagent, chỉ truyền claimed rows cùng batch.artifact_targets
+   - nếu dùng subagent, yêu cầu worker ghi verdicts_csv_path rồi chỉ trả tiny JSON ack
+   - nếu dùng subagent thì gọi submit_validation_result_from_artifact
+   - nếu không thì gọi submit_validation_result với đúng một verdict cho mỗi claimed source_uid và reason tiếng Việt không rỗng
    - nếu status=waiting, inspect progress hoặc release claim bị bỏ dở
    - tiếp tục đến khi claim_next_validation_batch trả complete
 4. Gọi verify_validation_progress_log.
@@ -56,6 +60,7 @@ Quy tắc:
 - Truyền generated CSV có label vào start_validation_run. Không dùng masked CSV
   dành cho validator làm runtime input.
 - Claimed rows chỉ expose source_uid, premise, hypothesis, và `label=""`.
+- Claimed rows cũng kèm artifact_targets để worker ghi CSV verdicts.
 - Không đọc hoặc suy hidden labels từ original file, metadata, row order,
   batch id, hoặc prior outputs.
 - Không đọc source CSV hoặc `data/batches/{run_id}` để reconstruct claimed batch.
@@ -65,6 +70,8 @@ Quy tắc:
   đó là unusable: không đoán, không submit partial verdicts, và không backfill
   từ disk. Release claim nếu có thể, rồi báo tooling blocker thay vì đổi
   batch size.
+- Khi artifact submission đã có sẵn, không paste full verdict batch trở lại
+  chat; hãy ghi CSV artifact và chỉ trả tiny JSON ack.
 - Không tạo hoặc chạy local orchestration script, thin driver, subprocess
   worker, `fastmcp.Client` loop, `codex exec`, hoặc `claude -p` để xử lý
   validation batch. Nếu Codex subagent nhìn thấy trong Desktop hoặc tool

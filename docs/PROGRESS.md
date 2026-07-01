@@ -1,3 +1,38 @@
+### [2026-07-01 23:57] — [Runtime] Add CSV artifact batch submission
+
+**Đã làm:**
+- Thêm worker artifact targets vào generation/validation claim responses để main agent cấp sẵn path ghi CSV cho từng batch.
+- Thêm MCP/runtime methods `submit_batch_result_from_artifacts` và `submit_validation_result_from_artifact` để backend tự đọc CSV, validate lại bằng schema hiện có, rồi commit batch theo progress flow cũ.
+- Giữ nguyên inline submit APIs để backward-compatible; canonical merge/finalize vẫn ở runtime service.
+- Cập nhật generator/validator templates, `delegation`, `execution`, `instructor`, và overview/flow docs để đổi contract từ “trả full JSON batch” sang “ghi CSV artifact + tiny JSON ack”.
+- Căn lại generator templates EN/VI theo skeleton prompt của harness hiện tại: phần tools/goal/flow/rules bám mẫu main-agent prompt, còn artifact CSV được chèn trực tiếp vào flow/rules bằng placeholder.
+- Sửa `SkillService` dùng `backend/skills` ổn định thay vì phụ thuộc cwd, nhờ đó skill/template verification tests chạy đúng.
+
+**Files thay đổi:**
+- `backend/src/schemas/generation_runtime_schema.py` — modified
+- `backend/src/schemas/validation_runtime_schema.py` — modified
+- `backend/src/services/base_run_service.py` — modified
+- `backend/src/services/generation_run_service.py` — modified
+- `backend/src/services/validation_run_service.py` — modified
+- `backend/src/services/progress_tracking_service.py` — modified
+- `backend/src/services/skill_service.py` — modified
+- `backend/src/providers/generation_provider.py` — modified
+- `backend/src/providers/validation_provider.py` — modified
+- `backend/tests/test_generation_run_service.py`, `backend/tests/test_validation_run_service.py`, `backend/tests/test_generation_provider.py`, `backend/tests/test_validation_provider.py`, `backend/tests/test_skill_service.py` — modified
+- `backend/skills/delegation.md`, `backend/skills/execution.md`, `backend/skills/instructor.md` — modified
+- `docs/en/template/generator.md`, `docs/en/template/validator.md`, `docs/vi/template/generator.md`, `docs/vi/template/validator.md` — modified
+- `docs/en/flow/generator.md`, `docs/vi/flow/generator.md`, `docs/en/project-overview.md`, `docs/vi/project-overview.md` — modified
+- `docs/PROGRESS.md` — updated
+
+**Blockers:** None
+
+**Còn lại:** None
+
+**Flow explained:**
+Main agent vẫn là owner của claim/submit/finalize và chỉ runtime mới mutate progress. Điểm mới là mỗi claimed batch giờ trả thêm `artifact_targets` nằm dưới run state để worker ghi `rows/verdicts` CSV cục bộ. Worker chỉ cần trả tiny JSON ack với path/count; main agent kiểm tra artifact rồi gọi submit-from-artifact. Backend đọc CSV artifact, chạy lại validation hiện có cho coverage/schema/label fidelity, sau đó mới ghi canonical batch CSV vào `data/batches/{run_id}` và append progress events. Finalize/merge không đổi, nên artifact mode chỉ thay batch handoff chứ không thay lifecycle.
+
+---
+
 ### [2026-07-01 00:10] — [Docker] Align Honcho container startup
 
 **Đã làm:**
@@ -233,49 +268,3 @@ Local dev giờ có một lệnh root-level để chạy cả backend và MLflow
 Sau commit remove frontend integration, repo chỉ còn backend FastAPI + FastMCP. README và Compose giờ phản ánh đúng surface hiện tại: chạy backend bằng `uvicorn` hoặc `docker compose up --build`, không còn hướng dẫn `cd frontend`, `npm run dev`, image frontend, hay `VITE_API_ENDPOINT`.
 
 ---
-
-### [2026-06-29 18:54] — [Validation] Tighten validator prompt template for truncated claims
-
-**Đã làm:**
-- Cập nhật validator templates EN/VI để phản ánh đúng blind-validation runtime hiện tại.
-- Thêm guardrail cho trường hợp `claim_next_validation_batch` bị truncate hoặc trả payload không đầy đủ.
-- Ghi rõ không được reconstruct batch từ source CSV hoặc `data/batches/{run_id}` vì runtime chỉ ghi batch CSV sau `submit_validation_result`.
-- Chuẩn hóa khuyến nghị `batch_size` nhỏ và input/output placeholders theo convention per-model output.
-
-**Files thay đổi:**
-- `docs/en/template/validator.md` — modified
-- `docs/vi/template/validator.md` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Validator template giờ nói đúng boundary của runtime hiện tại: `start_validation_run` nhận labeled generated CSV làm source of truth, `claim_next_validation_batch` chỉ trả masked rows qua tool response, và `data/batches/{run_id}` chưa có full claim artifact trước lúc submit. Nếu tool/chat truncate claim payload thì agent phải coi batch đó là unusable, release hoặc retry với `batch_size` nhỏ hơn, thay vì quay lại đọc source CSV để lấp phần bị thiếu.
-
----
-
-### [2026-06-29 15:46] — [Drive] Remove Google Drive stub surface
-
-**Đã làm:**
-- Xoá Google Drive stub khỏi backend router/service/schema và test riêng.
-- Gỡ Drive router khỏi FastAPI app để các route `/api/drive/*` không còn đi vào MCP surface sinh từ `FastMCP.from_fastapi(...)`.
-- Xoá Google Drive page khỏi frontend, bỏ nav item, và dọn API client types/helpers.
-
-**Files thay đổi:**
-- `backend/src/routers/drive_router.py` — deleted
-- `backend/src/services/drive_service.py` — deleted
-- `backend/src/schemas/drive_schema.py` — deleted
-- `backend/tests/test_drive_router.py` — deleted
-- `backend/src/main.py`, `backend/src/services/__init__.py`, `backend/src/schemas/__init__.py` — modified
-- `frontend/src/pages/GoogleDrive.tsx` — deleted
-- `frontend/src/App.tsx`, `frontend/src/components/Sidebar.tsx`, `frontend/src/lib/api.ts` — modified
-- `docs/PROGRESS.md` — updated
-
-**Blockers:** None
-
-**Còn lại:** None
-
-**Flow explained:**
-Google Drive trước đó chỉ là stub module được mount qua FastAPI router và hiện trên frontend. Vì FastMCP được tạo từ FastAPI app sau khi include routers, bỏ `drive_router` khỏi `main.py` cũng loại các endpoint Drive khỏi MCP-derived route surface. Core NLI runtime, dataset IO, skill resources, generation/validation MCP tools, và post-validation flow không đổi.

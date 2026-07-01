@@ -14,7 +14,8 @@ Keep text generation and runtime state separate.
 - Do not generate hypothesis text with Python templates.
 - Do not manually edit `.pipeline/runs/{run_id}/progress.jsonl`.
 - Do not push `.pipeline` to Git or share it between users.
-- Subagents return JSON only. Main agent performs MCP calls.
+- Subagents write worker CSV artifacts, return a tiny JSON ack, and never call
+  MCP. Main agent performs MCP calls.
 - In Codex Desktop, do not replace visible Codex subagents with `codex exec`,
   `claude -p`, subprocess workers, local orchestration scripts, or headless
   `fastmcp.Client` loops unless the user explicitly approves headless mode.

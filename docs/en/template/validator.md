@@ -19,6 +19,7 @@ Available validation tools:
 - start_validation_run
 - claim_next_validation_batch
 - submit_validation_result
+- submit_validation_result_from_artifact
 - get_validation_progress
 - release_validation_batch_claim
 - verify_validation_progress_log
@@ -43,7 +44,10 @@ Flow:
 3. Loop:
    - claim_next_validation_batch
    - if status=claimed and every claimed row is visible, assign predicted_label from premise and hypothesis only
-   - submit_validation_result with exactly one verdict per claimed source_uid and a non-empty Vietnamese reason
+   - if using subagents, pass only the claimed rows plus batch.artifact_targets
+   - if using subagents, have the worker write verdicts_csv_path and return only a tiny JSON ack
+   - if using subagents, call submit_validation_result_from_artifact
+   - otherwise call submit_validation_result with exactly one verdict per claimed source_uid and a non-empty Vietnamese reason
    - if status=waiting, inspect progress or release an abandoned claim
    - continue until claim_next_validation_batch returns complete
 4. Call verify_validation_progress_log.
@@ -57,6 +61,7 @@ Rules:
 - Pass the labeled generated CSV to start_validation_run. Do not pass a masked
   validator-facing CSV as the runtime input.
 - Claimed rows expose only source_uid, premise, hypothesis, and `label=""`.
+- Claimed rows also include artifact_targets for worker-written CSV verdicts.
 - Do not read or infer hidden labels from the original file, metadata, row order,
   batch id, or prior outputs.
 - Do not inspect the source CSV or `data/batches/{run_id}` to reconstruct a
@@ -67,6 +72,8 @@ Rules:
   batch as unusable: do not guess, do not submit partial verdicts, and do not
   backfill missing rows from disk. Release the claim when possible, then report
   a tooling blocker instead of changing batch size.
+- When artifact submission is available, do not paste full verdict batches back
+  into chat; write the CSV artifact and return only a tiny JSON ack.
 - Do not create or run local orchestration scripts, thin drivers, subprocess
   workers, `fastmcp.Client` loops, `codex exec`, or `claude -p` to process
   validation batches. If visible Codex subagents or tool responses are

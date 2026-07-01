@@ -27,6 +27,7 @@ nli-data-processing-mcp-server
     start_generation_run
     claim_next_batch
     submit_batch_result
+    submit_batch_result_from_artifacts
     verify_progress_log
     finalize_generation_run
 
@@ -34,6 +35,7 @@ nli-data-processing-mcp-server
     start_validation_run
     claim_next_validation_batch
     submit_validation_result
+    submit_validation_result_from_artifact
     verify_validation_progress_log
     finalize_validation_run
 ```
@@ -44,7 +46,7 @@ nli-data-processing-mcp-server
 |-------|-------------|
 | User | Chia range bằng `from_sample` và `to_sample` |
 | Codex harness | Đọc resources, gọi MCP tools, self-check generated rows |
-| Subagent | Transform generation rows đã claim và chỉ trả JSON |
+| Subagent | Transform rows đã claim, ghi worker CSV artifacts, và chỉ trả tiny JSON ack |
 | MCP runtime | Claim batches, ghi progress, ghi batch CSV, merge, verify, cleanup |
 
 ## Boundary Dataset

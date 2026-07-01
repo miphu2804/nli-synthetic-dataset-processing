@@ -233,6 +233,20 @@ class SkillServiceTest(unittest.TestCase):
                 or "codex worker" in lower_document
                 or "codex subagent" in lower_document
             )
+
+        shell_rule_documents = [
+            (repository_root / "docs/en/template/validator.md").read_text(
+                encoding="utf-8"
+            ),
+            (repository_root / "docs/vi/template/validator.md").read_text(
+                encoding="utf-8"
+            ),
+            skill_service.get_skill("delegation"),
+            skill_service.get_skill("execution"),
+        ]
+
+        for document in shell_rule_documents:
+            lower_document = document.lower()
             self.assertTrue(
                 "shell commands" in lower_document or "shell commands" in document
             )
@@ -263,6 +277,37 @@ class SkillServiceTest(unittest.TestCase):
             )
             self.assertTrue(
                 "do not reuse" in lower_document or "không reuse" in lower_document
+            )
+
+    def test_artifact_submission_contract_is_documented(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        skill_service = SkillService()
+        documents = [
+            (repository_root / "docs/en/template/generator.md").read_text(
+                encoding="utf-8"
+            ),
+            (repository_root / "docs/vi/template/generator.md").read_text(
+                encoding="utf-8"
+            ),
+            (repository_root / "docs/en/template/validator.md").read_text(
+                encoding="utf-8"
+            ),
+            (repository_root / "docs/vi/template/validator.md").read_text(
+                encoding="utf-8"
+            ),
+            skill_service.get_skill("delegation"),
+            skill_service.get_skill("execution"),
+            skill_service.get_skill("instructor"),
+        ]
+
+        for document in documents:
+            lower_document = document.lower()
+            self.assertTrue(
+                "tiny json ack" in lower_document
+                or "submit_batch_result_from_artifacts" in document
+                or "submit_validation_result_from_artifact" in document
+                or "worker csv artifact" in lower_document
+                or "artifact_targets" in document
             )
 
     def test_validator_templates_keep_batch_size_fixed_on_truncated_claims(

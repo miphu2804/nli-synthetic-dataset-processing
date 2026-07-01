@@ -27,6 +27,7 @@ nli-data-processing-mcp-server
     start_generation_run
     claim_next_batch
     submit_batch_result
+    submit_batch_result_from_artifacts
     verify_progress_log
     finalize_generation_run
 
@@ -34,6 +35,7 @@ nli-data-processing-mcp-server
     start_validation_run
     claim_next_validation_batch
     submit_validation_result
+    submit_validation_result_from_artifact
     verify_validation_progress_log
     finalize_validation_run
 ```
@@ -44,7 +46,7 @@ nli-data-processing-mcp-server
 |-------|----------------|
 | User | Assigns `from_sample` and `to_sample` ranges |
 | Codex harness | Reads resources, calls MCP tools, self-checks generated rows |
-| Subagent | Transforms already-claimed generation rows and returns JSON only |
+| Subagent | Transforms already-claimed rows, writes worker CSV artifacts, and returns a tiny JSON ack |
 | MCP runtime | Claims batches, writes progress, writes batch CSVs, merges, verifies, and cleans up |
 
 ## Dataset Boundary

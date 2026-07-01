@@ -1,8 +1,8 @@
 # Delegation - Stateless Subagent Handoff
 
 Use subagents only when the active user request or template asks for them.
-Subagents are pure workers: they receive one claimed batch, return JSON and are
-destroyed.
+Subagents are pure workers: they receive one claimed batch, write worker CSV
+artifacts, return a tiny JSON ack, and are destroyed.
 
 Create a fresh worker context for each claimed batch. Do not reuse one worker
 for multiple batches unless the user explicitly accepts the context-leakage
@@ -53,7 +53,9 @@ Constraints:
 - For generator_adversarial, apply the assigned rule to hypothesis.
 - Preserve the expected_label.
 - Avoid unnecessary label-leaking cue words.
-- Return JSON only.
+- Write the finished rows to rows_csv_path.
+- If any row is skipped, write skipped_rows_csv_path.
+- Return only a tiny JSON ack.
 
 Rows:
 [
@@ -66,15 +68,19 @@ Rows:
   }
 ]
 
+Artifact targets:
+{
+  "rows_csv_path": ".../batch-00001.rows.csv",
+  "skipped_rows_csv_path": ".../batch-00001.skips.csv"
+}
+
 Return:
-[
-  {
-    "source_uid": "...",
-    "premise": "... Vietnamese ...",
-    "hypothesis": "... Vietnamese transformed ...",
-    "label": "... unchanged ..."
-  }
-]
+{
+  "rows_csv_path": ".../batch-00001.rows.csv",
+  "rows_count": 20,
+  "skipped_rows_csv_path": ".../batch-00001.skips.csv",
+  "skipped_count": 0
+}
 ```
 
 ## Optional Handoff Flow
@@ -84,8 +90,8 @@ used:
 
 1. Claim batches through `claim_next_batch`.
 2. Send only one already-claimed batch to each fresh worker.
-3. Validate each returned JSON payload.
-4. Call `submit_batch_result` for each resolved claim.
+3. Validate each returned tiny JSON ack and the written worker CSV artifacts.
+4. Call `submit_batch_result_from_artifacts` for each resolved claim.
 5. Retry failed rows up to 3 times, then submit them as skipped rows.
 6. Continue until `claim_next_batch` returns complete, then call
    `finalize_generation_run`.

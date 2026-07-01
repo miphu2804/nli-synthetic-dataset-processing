@@ -25,8 +25,9 @@ START
        creates data/batches/{run_id}
   -> claim_next_batch
   -> transform claimed rows
+  -> if subagents are used, write worker CSV artifacts and return a tiny JSON ack
   -> self-check generated rows
-       pass -> submit_batch_result
+       pass -> submit_batch_result or submit_batch_result_from_artifacts
        fail -> retry or submit skipped_rows
   -> claim_next_batch
        claimed  -> repeat transform and submit
@@ -56,4 +57,5 @@ source_uid,premise,hypothesis,label
 - Only MCP runtime tools write progress.
 - Subagent fan-out is agent-owned. The backend does not compute or enforce a
   worker plan.
-- Subagents may transform already-claimed rows but must return JSON only.
+- Subagents may transform already-claimed rows, write worker CSV artifacts, and
+  return only a tiny JSON ack.
